@@ -89,50 +89,6 @@ def export_node_type_files(nodes: list, node_type: str, output_dir: Path,
         logging.info(f"  Exported {edge_count} edges to {edges_output}")
 
 
-def export_node_type_subgraph(kg: nx.MultiDiGraph, node_ids: list, node_type: str,
-                              output_dir: Path, include_edges: bool):
-    """Export a subgraph containing only nodes of a specific type"""
-
-    # Create subgraph with these nodes
-    subgraph_nodes = []
-    for node_id in node_ids:
-        node_data = kg.nodes[node_id]
-        subgraph_nodes.append({'id': node_id, **node_data})
-
-    subgraph_edges = []
-    if include_edges:
-        # Include edges between nodes of this type, or edges connecting to other types
-        for node_id in node_ids:
-            # Get all edges involving this node
-            for neighbor in kg.neighbors(node_id):
-                edge_data = kg.edges[node_id, neighbor]
-                subgraph_edges.append({
-                    'subject': node_id,
-                    'object': neighbor,
-                    **edge_data
-                })
-
-            # Also get incoming edges
-            for predecessor in kg.predecessors(node_id):
-                if kg.has_edge(predecessor, node_id):
-                    edge_data = kg.edges[predecessor, node_id]
-                    subgraph_edges.append({
-                        'subject': predecessor,
-                        'object': node_id,
-                        **edge_data
-                    })
-
-    # Create the subgraph
-    subgraph = create_kg_from_nodes_edges(subgraph_nodes, subgraph_edges)
-
-    # Save with a clean filename
-    clean_type_name = node_type.replace('biolink:', '').replace(':', '_')
-    output_path = output_dir / f"{clean_type_name}.json"
-
-    save_kg(subgraph, output_path)
-    logging.info(f"  Exported {len(subgraph_nodes)} {node_type} nodes to {output_path}")
-
-
 def create_biomapper_summary(node_counts_by_type: dict, output_dir: Path):
     """Create a summary file with statistics about the export"""
     summary = {

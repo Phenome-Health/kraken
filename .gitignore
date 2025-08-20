@@ -1,5 +1,8 @@
 .idea
 __pycache__/
+.claude/
 
 input_data/
 artifacts/
+
+*.log

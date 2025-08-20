@@ -1,7 +1,7 @@
 [project]
 name = "phenome-kg"
 version = "0.1.0"
-description = "Add your description here"
+description = "Build system for Phenome Health's unified KG"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
