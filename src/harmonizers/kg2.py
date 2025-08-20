@@ -3,37 +3,48 @@ RTX-KG2 harmonizer - converts RTX-KG2 format to our schema
 """
 
 from pathlib import Path
+import json
 import logging
-from ..utils.kg_io import load_kg, save_kg, stream_kg_nodes, create_kg_from_nodes_edges
 
 
-def harmonize_kg2(input_path: Path, output_path: Path, rules: dict):
-    """Harmonize RTX-KG2 to unified Biolink schema"""
-    logging.info(f"Harmonizing RTX-KG2: {input_path} -> {output_path}")
+def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, rules: dict):
+    """Harmonize RTX-KG2 to unified Biolink schema using streaming"""
+    logging.info(f"Harmonizing RTX-KG2: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
 
-    # RTX-KG2 might already be in good Biolink format, so this might be minimal
-    # Just standardize any format differences
+    node_count = 0
+    edge_count = 0
 
-    harmonized_nodes = []
-    harmonized_edges = []
+    # Stream and harmonize nodes
+    with open(nodes_input, 'r') as infile, open(nodes_output, 'w') as outfile:
+        for line_num, line in enumerate(infile, 1):
+            try:
+                node = json.loads(line.strip())
+                harmonized_node = harmonize_kg2_node(node['id'], node)
+                outfile.write(json.dumps(harmonized_node) + '\n')
+                node_count += 1
+                
+                if node_count % 10000 == 0:
+                    logging.info(f"Processed {node_count} nodes")
+                    
+            except (json.JSONDecodeError, KeyError) as e:
+                logging.warning(f"Skipping invalid node at line {line_num}: {e}")
 
-    kg = load_kg(input_path)
+    # Stream and harmonize edges  
+    with open(edges_input, 'r') as infile, open(edges_output, 'w') as outfile:
+        for line_num, line in enumerate(infile, 1):
+            try:
+                edge = json.loads(line.strip())
+                harmonized_edge = harmonize_kg2_edge(edge['subject'], edge['object'], edge)
+                outfile.write(json.dumps(harmonized_edge) + '\n')
+                edge_count += 1
+                
+                if edge_count % 10000 == 0:
+                    logging.info(f"Processed {edge_count} edges")
+                    
+            except (json.JSONDecodeError, KeyError) as e:
+                logging.warning(f"Skipping invalid edge at line {line_num}: {e}")
 
-    for node in kg.nodes(data=True):
-        node_id, node_data = node
-        harmonized_node = harmonize_kg2_node(node_id, node_data)
-        harmonized_nodes.append(harmonized_node)
-
-    for edge in kg.edges(data=True):
-        source, target, edge_data = edge
-        harmonized_edge = harmonize_kg2_edge(source, target, edge_data)
-        harmonized_edges.append(harmonized_edge)
-
-    # Save harmonized graph
-    harmonized_kg = create_kg_from_nodes_edges(harmonized_nodes, harmonized_edges)
-    save_kg(harmonized_kg, output_path)
-
-    logging.info(f"RTX-KG2 harmonization complete: {len(harmonized_nodes)} nodes, {len(harmonized_edges)} edges")
+    logging.info(f"RTX-KG2 harmonization complete: {node_count} nodes, {edge_count} edges")
 
 
 def harmonize_kg2_node(node_id: str, node_data: dict) -> dict:
@@ -48,7 +59,7 @@ def harmonize_kg2_node(node_id: str, node_data: dict) -> dict:
 
     # Copy other properties
     for key, value in node_data.items():
-        if key not in harmonized:
+        if key not in harmonized and key != 'id':
             harmonized[key] = value
 
     return harmonized

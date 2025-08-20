@@ -6,51 +6,60 @@ Prepares the unified KG for import into ArangoDB
 from pathlib import Path
 import re
 import logging
-from ..utils.kg_io import save_kg
+import json
+from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
 
 
-def prepare_for_arango(unified_kg: nx.MultiDiGraph, config: dict):
-    """Prepare unified KG for ArangoDB import"""
-    output_path = Path(config['output_path'])
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
+def prepare_for_arango_streaming(nodes_file: Path, edges_file: Path, output_dir: Path, config: dict):
+    """Prepare unified KG for ArangoDB import using streaming"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    arango_nodes = output_dir / "arango_nodes.jsonl"
+    arango_edges = output_dir / "arango_edges.jsonl"
+    
     logging.info("Preparing KG for ArangoDB...")
-
-    # Create a copy to modify
-    arango_kg = unified_kg.copy()
-
-    # Add _key fields to all nodes
-    add_arango_keys_to_nodes(arango_kg, config.get('key_field_config', {}))
-
-    # Add _key fields to all edges (if needed)
-    add_arango_keys_to_edges(arango_kg, config.get('key_field_config', {}))
-
-    # Save the ArangoDB-ready version
-    save_kg(arango_kg, output_path)
-
-    logging.info(f"ArangoDB export saved to: {output_path}")
-
-
-def add_arango_keys_to_nodes(kg: nx.MultiDiGraph, key_config: dict):
-    """Add _key field to all nodes according to ArangoDB requirements"""
-    remove_invalid = key_config.get('remove_invalid_chars', True)
-    max_length = key_config.get('max_length', 254)
-    prefix_numbers = key_config.get('prefix_numbers', True)
-
-    for node_id, node_data in kg.nodes(data=True):
-        arango_key = create_arango_key(node_id, remove_invalid, max_length, prefix_numbers)
-        node_data['_key'] = arango_key
-
-
-def add_arango_keys_to_edges(kg: nx.MultiDiGraph, key_config: dict):
-    """Add _key field to all edges if needed"""
-    # ArangoDB can auto-generate edge keys, but you might want custom ones
-    for u, v, edge_data in kg.edges(data=True):
-        # Create a deterministic key based on subject, object, and predicate
-        predicate = edge_data.get('predicate', 'related_to')
-        edge_key = f"{u}_{predicate}_{v}"
-        arango_key = create_arango_key(edge_key, True, 254, True)
-        edge_data['_key'] = arango_key
+    
+    key_config = config.get('key_field_config', {})
+    
+    # Process nodes
+    node_count = 0
+    with open(arango_nodes, 'w') as outfile:
+        for node in stream_nodes_from_jsonl(nodes_file):
+            # Add ArangoDB _key
+            arango_key = create_arango_key(
+                node['id'], 
+                key_config.get('remove_invalid_chars', True),
+                key_config.get('max_length', 254),
+                key_config.get('prefix_numbers', True)
+            )
+            node['_key'] = arango_key
+            
+            outfile.write(json.dumps(node) + '\n')
+            node_count += 1
+            
+            if node_count % 10000 == 0:
+                logging.info(f"Processed {node_count} nodes")
+    
+    # Process edges
+    edge_count = 0
+    with open(arango_edges, 'w') as outfile:
+        for edge in stream_edges_from_jsonl(edges_file):
+            # Add ArangoDB _key
+            predicate = edge.get('predicate', 'related_to')
+            edge_key = f"{edge['subject']}_{predicate}_{edge['object']}"
+            arango_key = create_arango_key(edge_key, True, 254, True)
+            edge['_key'] = arango_key
+            
+            outfile.write(json.dumps(edge) + '\n')
+            edge_count += 1
+            
+            if edge_count % 10000 == 0:
+                logging.info(f"Processed {edge_count} edges")
+    
+    logging.info(f"ArangoDB export complete: {node_count} nodes, {edge_count} edges")
+    logging.info(f"Files saved to: {arango_nodes}, {arango_edges}")
+    
+    return arango_nodes, arango_edges
 
 
 def create_arango_key(original_key: str, remove_invalid: bool = True,

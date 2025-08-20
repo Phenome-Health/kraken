@@ -3,64 +3,118 @@ Entity resolution and graph integration functions
 """
 
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Iterator
 import logging
+import json
 
-from ..utils.kg_io import load_kg, save_kg
-
-
-def integrate_sources(harmonized_paths: Dict[str, Path], config: dict) -> Path:
-    """Merge harmonized sources into unified KG with entity resolution"""
-    output_path = Path(config['output_path'])
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logging.info("Starting source integration with entity resolution...")
-
-    # Start with RTX-KG2 as the base (highest priority)
-    base_kg = load_kg(harmonized_paths['rtx-kg2'])
-    logging.info(f"Loaded base KG (RTX-KG2): {base_kg.number_of_nodes()} nodes, {base_kg.number_of_edges()} edges")
-
-    # Build initial node index for entity resolution
-    node_index = build_node_index(base_kg)
-    logging.info(f"Built initial node index: {len(node_index)} identifiers")
-
-    # Merge each additional source
-    for source_name, kg_path in harmonized_paths.items():
-        if source_name == 'rtx-kg2':
-            continue
-
-        logging.info(f"Merging {source_name}...")
-        source_kg = load_kg(kg_path)
-
-        base_kg, node_index = merge_source_with_resolution(
-            base_kg, source_kg, node_index, source_name, config
-        )
-
-        logging.info(
-            f"After merging {source_name}: {base_kg.number_of_nodes()} nodes, {base_kg.number_of_edges()} edges")
-
-    # Save final unified KG
-    save_kg(base_kg, output_path)
-    logging.info(f"Integration complete! Saved PhenomeKG to: {output_path}")
-
-    return output_path
+from ..utils.kg_io import (
+    stream_nodes_from_jsonl, 
+    stream_edges_from_jsonl,
+    load_equivalency_mappings,
+    save_nodes_to_jsonl,
+    save_edges_to_jsonl
+)
 
 
-def build_node_index(kg) -> Dict[str, str]:
-    """Build index mapping any identifier to canonical node ID"""
-    index = {}
+def integrate_sources_streaming(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):
+    """Merge harmonized sources using streaming approach"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Output files
+    unified_nodes = output_dir / "unified_nodes.jsonl"
+    unified_edges = output_dir / "unified_edges.jsonl"
+    
+    logging.info("Starting streaming source integration...")
+    
+    # Phase 1: Build equivalency mappings from primary source
+    primary_source = config.get('primary_source', 'rtx-kg2')
+    primary_nodes_file = harmonized_sources[primary_source]['nodes']
+    
+    logging.info(f"Loading equivalency mappings from {primary_source}")
+    equivalency_index = load_equivalency_mappings(primary_nodes_file)
+    canonical_nodes = {}  # canonical_id -> merged_node_data
+    
+    # Phase 2: Process all nodes, merging as we go
+    processed_nodes = set()
+    
+    for source_name, source_files in harmonized_sources.items():
+        logging.info(f"Processing nodes from {source_name}")
+        nodes_file = source_files['nodes']
+        
+        for node in stream_nodes_from_jsonl(nodes_file):
+            node_id = node['id']
+            
+            # Find canonical ID for this node
+            canonical_id = find_canonical_id(node_id, node.get('equivalent_identifiers', []), equivalency_index)
+            
+            if canonical_id in processed_nodes:
+                # Merge with existing canonical node
+                canonical_nodes[canonical_id] = merge_node_data(
+                    canonical_nodes[canonical_id], node, source_name, config
+                )
+            else:
+                # First time seeing this canonical entity
+                canonical_nodes[canonical_id] = node.copy()
+                canonical_nodes[canonical_id]['id'] = canonical_id
+                canonical_nodes[canonical_id]['sources'] = [source_name]
+                processed_nodes.add(canonical_id)
+    
+    logging.info(f"Processed {len(canonical_nodes)} unique nodes")
+    
+    # Save unified nodes
+    save_nodes_to_jsonl(canonical_nodes.values(), unified_nodes)
+    
+    # Phase 3: Process all edges with node ID resolution
+    edge_dedup = set()  # (canonical_subject, canonical_object, predicate) for deduplication
+    
+    def process_edges():
+        for source_name, source_files in harmonized_sources.items():
+            logging.info(f"Processing edges from {source_name}")
+            edges_file = source_files['edges']
+            
+            for edge in stream_edges_from_jsonl(edges_file):
+                # Resolve subject and object to canonical IDs
+                canonical_subject = find_canonical_id(
+                    edge['subject'], [], equivalency_index
+                )
+                canonical_object = find_canonical_id(
+                    edge['object'], [], equivalency_index
+                )
+                
+                # Create edge key for deduplication
+                predicate = edge.get('predicate', 'biolink:related_to')
+                edge_key = (canonical_subject, canonical_object, predicate)
+                
+                if edge_key not in edge_dedup:
+                    edge_dedup.add(edge_key)
+                    
+                    # Update edge with canonical IDs
+                    unified_edge = edge.copy()
+                    unified_edge['subject'] = canonical_subject
+                    unified_edge['object'] = canonical_object
+                    unified_edge['sources'] = [source_name]
+                    
+                    yield unified_edge
+    
+    # Save unified edges
+    save_edges_to_jsonl(process_edges(), unified_edges)
+    
+    logging.info(f"Integration complete! Unified KG saved to {output_dir}")
+    return unified_nodes, unified_edges
 
-    for node_id, node_data in kg.nodes(data=True):
-        equiv_ids = node_data.get('equivalent_ids', [])
 
-        # Map primary ID and all equivalent IDs to this canonical node
-        index[node_id] = node_id
-        for equiv_id in equiv_ids:
-            if equiv_id in index and index[equiv_id] != node_id:
-                logging.warning(f"Identifier collision: {equiv_id} maps to both {index[equiv_id]} and {node_id}")
-            index[equiv_id] = node_id
-
-    return index
+def find_canonical_id(node_id: str, equiv_ids: List[str], equivalency_index: Dict[str, set]) -> str:
+    """Find canonical ID for this node using equivalency mappings"""
+    # Check if this node or any equivalent ID is in our index
+    all_ids = [node_id] + equiv_ids
+    
+    for id_val in all_ids:
+        if id_val in equivalency_index:
+            # Return the first (canonical) ID from the equivalency set
+            return min(equivalency_index[id_val])
+    
+    # Not found in index, use the original ID as canonical
+    return node_id
 
 
 def merge_source_with_resolution(base_kg, source_kg, node_index, source_name, config):
@@ -142,21 +196,22 @@ def find_matching_node(node_id: str, equiv_ids: List[str], node_index: Dict[str,
     return None
 
 
-def merge_node_data(existing_node: dict, new_node: dict, source_name: str, namespace_priority: List[str]) -> dict:
+def merge_node_data(existing_node: dict, new_node: dict, source_name: str, config: dict) -> dict:
     """Merge data from new node into existing node"""
     merged = existing_node.copy()
 
     # Merge equivalent_ids
-    existing_equivs = set(merged.get('equivalent_ids', []))
-    new_equivs = set(new_node.get('equivalent_ids', []))
-    merged['equivalent_ids'] = list(existing_equivs | new_equivs)
+    existing_equivs = set(merged.get('equivalent_identifiers', []))
+    new_equivs = set(new_node.get('equivalent_identifiers', []))
+    merged['equivalent_identifiers'] = list(existing_equivs | new_equivs)
 
-    # Add source provenance
-    sources = set(merged.get('sources', [existing_node.get('source', '')]))
-    sources.add(source_name)
-    merged['sources'] = list(sources)
+    # Add source provenance  
+    existing_sources = merged.get('sources', [])
+    if source_name not in existing_sources:
+        existing_sources.append(source_name)
+    merged['sources'] = existing_sources
 
-    # Merge other properties (handle conflicts)
+    # Merge other properties (simple first-wins strategy for now)
     for key, value in new_node.items():
         if key == 'id':
             # Keep existing canonical ID
@@ -164,11 +219,7 @@ def merge_node_data(existing_node: dict, new_node: dict, source_name: str, names
         elif key not in merged or merged[key] is None:
             # Add new property
             merged[key] = value
-        elif key not in ['equivalent_ids', 'sources', 'source']:
-            # Handle property conflicts
-            merged[key] = resolve_property_conflict(
-                merged[key], value, key, namespace_priority
-            )
+        # For conflicts, keep existing value (could be made more sophisticated)
 
     return merged
 

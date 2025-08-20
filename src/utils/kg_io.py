@@ -5,91 +5,189 @@ Knowledge graph I/O utilities
 from pathlib import Path
 import json
 import logging
+from typing import Iterator, Dict, Any, Optional
 
 
-def load_kg(kg_path: Path) -> nx.MultiDiGraph:
-    """Load knowledge graph from file"""
-    logging.debug(f"Loading KG from {kg_path}")
-
-    if kg_path.suffix == '.json':
-        return load_kg_from_json(kg_path)
-    else:
-        raise ValueError(f"Unsupported KG format: {kg_path.suffix}")
-
-
-def save_kg(kg: nx.MultiDiGraph, output_path: Path):
-    """Save knowledge graph to file"""
-    logging.debug(f"Saving KG to {output_path}")
-
-    if output_path.suffix == '.json':
-        save_kg_to_json(kg, output_path)
-    else:
-        raise ValueError(f"Unsupported output format: {output_path.suffix}")
+def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
+    """Stream nodes from JSONL file without loading into memory"""
+    logging.debug(f"Streaming nodes from {nodes_file}")
+    
+    with open(nodes_file, 'r') as f:
+        for line_num, line in enumerate(f, 1):
+            try:
+                node = json.loads(line.strip())
+                if 'id' in node:
+                    yield node
+                else:
+                    logging.warning(f"Node missing 'id' at line {line_num}")
+            except json.JSONDecodeError as e:
+                logging.warning(f"Skipping invalid JSON at line {line_num}: {e}")
 
 
-def load_kg_from_json(json_path: Path) -> nx.MultiDiGraph:
-    """Load KG from JSON format"""
-    with open(json_path) as f:
-        data = json.load(f)
-
-    kg = nx.MultiDiGraph()
-
-    # Add nodes
-    if 'nodes' in data:
-        for node in data['nodes']:
-            node_id = node['id']
-            kg.add_node(node_id, **{k: v for k, v in node.items() if k != 'id'})
-
-    # Add edges
-    if 'edges' in data:
-        for edge in data['edges']:
-            subject = edge['subject']
-            obj = edge['object']
-            kg.add_edge(subject, obj, **{k: v for k, v in edge.items() if k not in ['subject', 'object']})
-
-    return kg
+def stream_edges_from_jsonl(edges_file: Path) -> Iterator[Dict[str, Any]]:
+    """Stream edges from JSONL file without loading into memory"""
+    logging.debug(f"Streaming edges from {edges_file}")
+    
+    with open(edges_file, 'r') as f:
+        for line_num, line in enumerate(f, 1):
+            try:
+                edge = json.loads(line.strip())
+                if 'subject' in edge and 'object' in edge:
+                    yield edge
+                else:
+                    logging.warning(f"Edge missing subject/object at line {line_num}")
+            except json.JSONDecodeError as e:
+                logging.warning(f"Skipping invalid JSON at line {line_num}: {e}")
 
 
-def save_kg_to_json(kg: nx.MultiDiGraph, json_path: Path):
-    """Save KG to JSON format"""
-
-    # Convert to JSON-serializable format
-    nodes = []
-    for node_id, node_data in kg.nodes(data=True):
-        nodes.append({'id': node_id, **node_data})
-
-    edges = []
-    for subject, obj, edge_data in kg.edges(data=True):
-        edges.append({'subject': subject, 'object': obj, **edge_data})
-
-    data = {
-        'nodes': nodes,
-        'edges': edges
-    }
-
-    with open(json_path, 'w') as f:
-        json.dump(data, f, indent=2)
+def stream_mixed_jsonl(input_file: Path) -> Iterator[Dict[str, Any]]:
+    """Stream items from mixed JSONL file (nodes and edges together)"""
+    logging.debug(f"Streaming mixed JSONL from {input_file}")
+    
+    with open(input_file, 'r') as f:
+        for line_num, line in enumerate(f, 1):
+            try:
+                item = json.loads(line.strip())
+                yield item
+            except json.JSONDecodeError as e:
+                logging.warning(f"Skipping invalid JSON at line {line_num}: {e}")
 
 
-def stream_kg_nodes(kg_path: Path):
-    """Stream nodes from KG file without loading entire graph into memory"""
-    # This would be more complex for very large files
-    # For now, just load and iterate
-    kg = load_kg(kg_path)
-    for node_id, node_data in kg.nodes(data=True):
-        yield {'id': node_id, **node_data}
+def save_nodes_to_jsonl(nodes: Iterator[Dict], output_file: Path):
+    """Save nodes to JSONL format"""
+    logging.debug(f"Saving nodes to {output_file}")
+    
+    count = 0
+    with open(output_file, 'w') as f:
+        for node in nodes:
+            f.write(json.dumps(node) + '\n')
+            count += 1
+    
+    logging.info(f"Saved {count} nodes to {output_file}")
 
 
-def create_kg_from_nodes_edges(nodes: list, edges: list) -> nx.MultiDiGraph:
-    """Create NetworkX graph from lists of nodes and edges"""
-    kg = nx.MultiDiGraph()
+def save_edges_to_jsonl(edges: Iterator[Dict], output_file: Path):
+    """Save edges to JSONL format"""
+    logging.debug(f"Saving edges to {output_file}")
+    
+    count = 0
+    with open(output_file, 'w') as f:
+        for edge in edges:
+            f.write(json.dumps(edge) + '\n')
+            count += 1
+    
+    logging.info(f"Saved {count} edges to {output_file}")
 
+
+def load_node_mappings(nodes_file: Path, key_field: str = 'id') -> Dict[str, Dict]:
+    """Load node ID mappings into memory for integration operations"""
+    logging.debug(f"Loading node mappings from {nodes_file}")
+    
+    mappings = {}
+    for node in stream_nodes_from_jsonl(nodes_file):
+        node_id = node.get(key_field)
+        if node_id:
+            mappings[node_id] = node
+    
+    logging.info(f"Loaded {len(mappings)} node mappings")
+    return mappings
+
+
+def load_equivalency_mappings(nodes_file: Path) -> Dict[str, set]:
+    """Load equivalency mappings for entity resolution"""
+    logging.debug(f"Loading equivalency mappings from {nodes_file}")
+    
+    equivalencies = {}
+    
+    for node in stream_nodes_from_jsonl(nodes_file):
+        node_id = node.get('id')
+        equiv_ids = node.get('equivalent_identifiers', [])
+        
+        if node_id and equiv_ids:
+            # Create bidirectional mappings
+            all_ids = {node_id} | set(equiv_ids)
+            for id_ in all_ids:
+                equivalencies[id_] = all_ids
+    
+    logging.info(f"Loaded equivalencies for {len(equivalencies)} entities")
+    return equivalencies
+
+
+def count_items_in_jsonl(file_path: Path) -> int:
+    """Count items in JSONL file without loading into memory"""
+    count = 0
+    with open(file_path, 'r') as f:
+        for line in f:
+            if line.strip():
+                count += 1
+    return count
+
+
+def filter_nodes_by_category(nodes: Iterator[Dict], categories: set) -> Iterator[Dict]:
+    """Filter nodes by Biolink category"""
     for node in nodes:
-        node_id = node['id']
-        kg.add_node(node_id, **{k: v for k, v in node.items() if k != 'id'})
+        node_categories = node.get('category', [])
+        if not isinstance(node_categories, list):
+            node_categories = [node_categories]
+        
+        if any(cat in categories for cat in node_categories):
+            yield node
 
+
+def filter_edges_by_predicate(edges: Iterator[Dict], predicates: set) -> Iterator[Dict]:
+    """Filter edges by predicate"""
     for edge in edges:
-        kg.add_edge(edge['subject'], edge['object'],
-                    **{k: v for k, v in edge.items() if k not in ['subject', 'object']})
+        if edge.get('predicate') in predicates:
+            yield edge
 
-    return kg
+
+def merge_jsonl_files(input_files: list, output_file: Path):
+    """Merge multiple JSONL files into one"""
+    logging.info(f"Merging {len(input_files)} files into {output_file}")
+    
+    total_count = 0
+    with open(output_file, 'w') as outfile:
+        for input_file in input_files:
+            if Path(input_file).exists():
+                with open(input_file, 'r') as infile:
+                    for line in infile:
+                        if line.strip():
+                            outfile.write(line)
+                            total_count += 1
+    
+    logging.info(f"Merged {total_count} items into {output_file}")
+
+
+# Legacy functions for compatibility (should be gradually replaced)
+def save_nodes_edges_as_json(nodes: Iterator[Dict], edges: Iterator[Dict], output_path: Path):
+    """Save nodes and edges as traditional JSON format (for compatibility)"""
+    logging.debug(f"Saving as JSON to {output_path}")
+    
+    nodes_list = list(nodes)
+    edges_list = list(edges)
+    
+    data = {
+        'nodes': nodes_list,
+        'edges': edges_list
+    }
+    
+    with open(output_path, 'w') as f:
+        json.dump(data, f, indent=2)
+    
+    logging.info(f"Saved {len(nodes_list)} nodes and {len(edges_list)} edges to {output_path}")
+
+
+def convert_json_to_jsonl(json_file: Path, nodes_output: Path, edges_output: Path):
+    """Convert traditional JSON format to JSONL files"""
+    logging.info(f"Converting {json_file} to JSONL format")
+    
+    with open(json_file, 'r') as f:
+        data = json.load(f)
+    
+    # Save nodes
+    if 'nodes' in data:
+        save_nodes_to_jsonl(iter(data['nodes']), nodes_output)
+    
+    # Save edges  
+    if 'edges' in data:
+        save_edges_to_jsonl(iter(data['edges']), edges_output)

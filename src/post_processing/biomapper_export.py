@@ -5,42 +5,27 @@ Exports node type-specific files for biomapper module
 
 from pathlib import Path
 import logging
+import json
 from collections import defaultdict
-from ..utils.kg_io import save_kg, create_kg_from_nodes_edges
+from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
 
 
-def export_for_biomapper(unified_kg: nx.MultiDiGraph, config: dict):
-    """Export unified KG divided by node types for biomapper"""
-    output_dir = Path(config['output_directory'])
+def export_for_biomapper_streaming(nodes_file: Path, edges_file: Path, output_dir: Path, config: dict):
+    """Export unified KG divided by node types for biomapper using streaming"""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     node_types = config.get('node_types_to_export', [])
     include_edges = config.get('include_edges', True)
 
-    logging.info(f"Exporting {len(node_types)} node types for biomapper...")
+    logging.info(f"Streaming export of {len(node_types)} node types for biomapper...")
 
-    # Group nodes by type
-    nodes_by_type = group_nodes_by_type(unified_kg, node_types)
-
-    # Export each node type as a separate file
-    for node_type, nodes in nodes_by_type.items():
-        if nodes:  # Only export if we have nodes of this type
-            export_node_type_subgraph(
-                unified_kg, nodes, node_type, output_dir, include_edges
-            )
-
-    # Also create a summary file
-    create_biomapper_summary(nodes_by_type, output_dir)
-
-    logging.info(f"Biomapper export complete: {len(nodes_by_type)} files in {output_dir}")
-
-
-def group_nodes_by_type(kg: nx.MultiDiGraph, target_types: list) -> dict:
-    """Group nodes by their biolink category"""
+    # First pass: group nodes by type and collect node IDs for each type
     nodes_by_type = defaultdict(list)
-
-    for node_id, node_data in kg.nodes(data=True):
-        category = node_data.get('category', 'biolink:NamedThing')
+    node_type_membership = {}  # node_id -> node_type (for edge processing)
+    
+    for node in stream_nodes_from_jsonl(nodes_file):
+        node_id = node['id']
+        category = node.get('category', 'biolink:NamedThing')
 
         # Handle both single categories and lists
         if isinstance(category, list):
@@ -50,11 +35,58 @@ def group_nodes_by_type(kg: nx.MultiDiGraph, target_types: list) -> dict:
 
         # Check if any of the node's categories are in our target list
         for cat in categories:
-            if cat in target_types:
-                nodes_by_type[cat].append(node_id)
+            if cat in node_types:
+                nodes_by_type[cat].append(node)
+                node_type_membership[node_id] = cat
                 break  # Only add to one category to avoid duplicates
 
-    return dict(nodes_by_type)
+    logging.info(f"Found nodes in {len(nodes_by_type)} categories")
+
+    # Export each node type as a separate file
+    for node_type, nodes in nodes_by_type.items():
+        if nodes:  # Only export if we have nodes of this type
+            export_node_type_files(nodes, node_type, output_dir, edges_file, 
+                                  node_type_membership, include_edges)
+
+    # Create a summary file
+    create_biomapper_summary({k: len(v) for k, v in nodes_by_type.items()}, output_dir)
+
+    logging.info(f"Biomapper export complete: {len(nodes_by_type)} files in {output_dir}")
+
+
+def export_node_type_files(nodes: list, node_type: str, output_dir: Path, 
+                          edges_file: Path, node_type_membership: dict, include_edges: bool):
+    """Export nodes of a specific type and their associated edges"""
+    
+    # Clean filename
+    clean_type_name = node_type.replace('biolink:', '').replace(':', '_')
+    nodes_output = output_dir / f"{clean_type_name}_nodes.jsonl"
+    edges_output = output_dir / f"{clean_type_name}_edges.jsonl"
+    
+    # Save nodes
+    with open(nodes_output, 'w') as f:
+        for node in nodes:
+            f.write(json.dumps(node) + '\n')
+    
+    logging.info(f"  Exported {len(nodes)} {node_type} nodes to {nodes_output}")
+    
+    if include_edges:
+        # Collect node IDs for this type
+        node_ids_in_type = {node['id'] for node in nodes}
+        
+        # Stream through edges and save those involving nodes of this type
+        edge_count = 0
+        with open(edges_output, 'w') as f:
+            for edge in stream_edges_from_jsonl(edges_file):
+                subject = edge.get('subject')
+                obj = edge.get('object')
+                
+                # Include edge if either endpoint is in this node type
+                if subject in node_ids_in_type or obj in node_ids_in_type:
+                    f.write(json.dumps(edge) + '\n')
+                    edge_count += 1
+        
+        logging.info(f"  Exported {edge_count} edges to {edges_output}")
 
 
 def export_node_type_subgraph(kg: nx.MultiDiGraph, node_ids: list, node_type: str,
@@ -101,20 +133,16 @@ def export_node_type_subgraph(kg: nx.MultiDiGraph, node_ids: list, node_type: st
     logging.info(f"  Exported {len(subgraph_nodes)} {node_type} nodes to {output_path}")
 
 
-def create_biomapper_summary(nodes_by_type: dict, output_dir: Path):
+def create_biomapper_summary(node_counts_by_type: dict, output_dir: Path):
     """Create a summary file with statistics about the export"""
     summary = {
         'export_summary': {
-            'total_node_types': len(nodes_by_type),
-            'node_counts_by_type': {
-                node_type: len(nodes)
-                for node_type, nodes in nodes_by_type.items()
-            },
-            'total_nodes_exported': sum(len(nodes) for nodes in nodes_by_type.values())
+            'total_node_types': len(node_counts_by_type),
+            'node_counts_by_type': node_counts_by_type,
+            'total_nodes_exported': sum(node_counts_by_type.values())
         }
     }
 
-    import json
     summary_path = output_dir / "export_summary.json"
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2)
