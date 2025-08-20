@@ -14,6 +14,7 @@ from ..utils.kg_io import (
     save_nodes_to_jsonl,
     save_edges_to_jsonl
 )
+from ..utils.metagraph import generate_metagraph_for_source, compare_metagraphs
 
 
 def integrate_sources_streaming(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):
@@ -100,6 +101,26 @@ def integrate_sources_streaming(harmonized_sources: Dict[str, Dict[str, Path]], 
     save_edges_to_jsonl(process_edges(), unified_edges)
     
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
+    
+    # Generate metagraph for unified result
+    if config.get('generate_metagraph', True):
+        metagraph_dir = output_dir / "metagraphs"
+        unified_metagraph = generate_metagraph_for_source(unified_nodes, unified_edges, metagraph_dir, "unified")
+        logging.info("Unified metagraph generated")
+        
+        # Compare with source metagraphs if they exist
+        source_metagraphs = []
+        for source_name in harmonized_sources.keys():
+            source_metagraph = metagraph_dir.parent.parent / "harmonized" / source_name / "metagraphs" / f"{source_name}_metagraph.json"
+            if source_metagraph.exists():
+                source_metagraphs.append(source_metagraph)
+        
+        if source_metagraphs:
+            source_metagraphs.append(unified_metagraph)
+            comparison_file = metagraph_dir / "metagraph_comparison.json"
+            compare_metagraphs(source_metagraphs, comparison_file)
+            logging.info("Metagraph comparison generated")
+    
     return unified_nodes, unified_edges
 
 

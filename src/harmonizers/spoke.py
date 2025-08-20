@@ -5,6 +5,7 @@ SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 from pathlib import Path
 import json
 import logging
+from ..utils.metagraph import generate_metagraph_for_source
 
 
 def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, rules: dict):
@@ -43,6 +44,12 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                 logging.warning(f"Skipping invalid item at line {line_num}: {e}")
 
     logging.info(f"SPOKE harmonization complete: {node_count} nodes, {edge_count} edges")
+    
+    # Generate metagraph for harmonized output
+    if rules.get('generate_metagraph', True):
+        metagraph_dir = nodes_output.parent / "metagraphs"
+        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "spoke")
+        logging.info("SPOKE metagraph generated")
 
 
 def harmonize_spoke_node(node_item: dict) -> dict:

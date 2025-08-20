@@ -5,6 +5,7 @@ RTX-KG2 harmonizer - converts RTX-KG2 format to our schema
 from pathlib import Path
 import json
 import logging
+from ..utils.metagraph import generate_metagraph_for_source
 
 
 def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, rules: dict):
@@ -45,6 +46,12 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
                 logging.warning(f"Skipping invalid edge at line {line_num}: {e}")
 
     logging.info(f"RTX-KG2 harmonization complete: {node_count} nodes, {edge_count} edges")
+    
+    # Generate metagraph for harmonized output
+    if rules.get('generate_metagraph', True):
+        metagraph_dir = nodes_output.parent / "metagraphs"
+        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "rtx-kg2")
+        logging.info("RTX-KG2 metagraph generated")
 
 
 def harmonize_kg2_node(node_id: str, node_data: dict) -> dict:
