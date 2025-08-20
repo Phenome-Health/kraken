@@ -43,10 +43,7 @@ post_processing:
     output_files:
       nodes: "arango_nodes.jsonl"
       edges: "arango_edges.jsonl"
-    key_field_config:
-      remove_invalid_chars: true
-      max_length: 254
-      prefix_numbers: true
+    biolink_version: 4.2.5
 
   biomapper_export:
     enabled: true

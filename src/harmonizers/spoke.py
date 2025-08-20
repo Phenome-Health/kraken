@@ -71,7 +71,7 @@ def harmonize_spoke_node(node_item: dict) -> dict:
     
     harmonized = {
         'id': properties.get('identifier') or node_item.get('id'),
-        'category': biolink_category,
+        'categories': [biolink_category],
         'name': properties.get('name'),
         'source': 'spoke'
     }
