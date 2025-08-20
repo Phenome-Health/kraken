@@ -789,13 +789,40 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
         function applyLayout() {{
             if (!cy) return;
             const layoutName = document.getElementById('layout-select').value;
-            const layout = cy.layout({{
+            
+            let layoutOptions = {{
                 name: layoutName,
                 fit: true,
                 padding: 50,
                 animate: true,
                 animationDuration: 1000
-            }});
+            }};
+            
+            // Use the same detailed configuration for COSE as the initial layout
+            if (layoutName === 'cose') {{
+                layoutOptions = {{
+                    name: 'cose',
+                    idealEdgeLength: 120,
+                    nodeOverlap: 30,
+                    refresh: 20,
+                    fit: true,
+                    padding: 50,
+                    randomize: false,
+                    componentSpacing: 150,
+                    nodeRepulsion: 800000,
+                    edgeElasticity: 200,
+                    nestingFactor: 5,
+                    gravity: 100,
+                    numIter: 2000,
+                    initialTemp: 300,
+                    coolingFactor: 0.95,
+                    minTemp: 1.0,
+                    animate: true,
+                    animationDuration: 1000
+                }};
+            }}
+            
+            const layout = cy.layout(layoutOptions);
             layout.run();
         }}
         
