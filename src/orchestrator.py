@@ -9,9 +9,9 @@ import logging
 
 from .harmonizers.kg2 import harmonize_kg2
 from .harmonizers.spoke import harmonize_spoke
-from .integration.entity_resolution import integrate_sources_streaming
-from .post_processing.arango_export import prepare_for_arango_streaming
-from .post_processing.biomapper_export import export_for_biomapper_streaming
+from .integration.entity_resolution import integrate_sources
+from .post_processing.arango_export import prepare_for_arango
+from .post_processing.biomapper_export import export_for_biomapper
 
 
 def run_kg_build(config: dict) -> tuple[Path, Path]:
@@ -30,7 +30,7 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
         'cytoscape_thresholds': [1, 5, 10, 25]
     }
     
-    unified_nodes, unified_edges = integrate_sources_streaming(
+    unified_nodes, unified_edges = integrate_sources(
         harmonized_sources, 
         Path(config['integration']['output_directory']),
         integration_config
@@ -141,7 +141,7 @@ def needs_harmonization(source_name: str, config: dict) -> bool:
     return needs_update
 
 
-def post_process_unified_kg(unified_nodes: Path, unified_edges: Path, config: dict):
+def post_process_unified_kg(unified_nodes_path: Path, unified_edges_path: Path, config: dict):
     """Run all post-processing steps on the unified KG"""
     logging.info("Starting post-processing...")
 
@@ -150,20 +150,20 @@ def post_process_unified_kg(unified_nodes: Path, unified_edges: Path, config: di
         arango_config = config['arango_export']
         output_dir = Path(arango_config['output_directory'])
         
-        if needs_arango_export(unified_nodes, unified_edges, arango_config):
+        if needs_arango_export(unified_nodes_path, unified_edges_path, arango_config):
             logging.info("Preparing ArangoDB export...")
-            prepare_for_arango_streaming(unified_nodes, unified_edges, output_dir, arango_config)
+            arango_unified_nodes_path, arango_unified_edges_path = prepare_for_arango(unified_nodes_path, unified_edges_path, output_dir, arango_config)
         else:
             logging.info("Skipping ArangoDB export - up to date")
 
-    # Step 2: Export for biomapper
+    # Step 2: Export for biomapper (off of Arango export files)
     if 'biomapper_export' in config and config['biomapper_export'].get('enabled', True):
         biomapper_config = config['biomapper_export']
         output_dir = Path(biomapper_config['output_directory'])
         
-        if needs_biomapper_export(unified_nodes, unified_edges, biomapper_config):
+        if needs_biomapper_export(arango_unified_nodes_path, biomapper_config):
             logging.info("Exporting for biomapper...")
-            export_for_biomapper_streaming(unified_nodes, unified_edges, output_dir, biomapper_config)
+            export_for_biomapper(arango_unified_nodes_path, output_dir)
         else:
             logging.info("Skipping biomapper export - up to date")
 
@@ -189,7 +189,7 @@ def needs_arango_export(unified_nodes: Path, unified_edges: Path, config: dict) 
     return unified_mtime > output_mtime
 
 
-def needs_biomapper_export(unified_nodes: Path, unified_edges: Path, config: dict) -> bool:
+def needs_biomapper_export(unified_nodes: Path, config: dict) -> bool:
     """Check if biomapper export needs to run"""
     output_dir = Path(config['output_directory'])
 
@@ -197,7 +197,7 @@ def needs_biomapper_export(unified_nodes: Path, unified_edges: Path, config: dic
         return True
 
     # Check if any of the expected output files are missing or outdated
-    unified_mtime = max(unified_nodes.stat().st_mtime, unified_edges.stat().st_mtime)
+    unified_mtime = unified_nodes.stat().st_mtime
 
     # If output directory is empty, need to export
     output_files = list(output_dir.iterdir())

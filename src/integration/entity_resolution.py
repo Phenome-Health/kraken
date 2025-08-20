@@ -17,7 +17,7 @@ from ..utils.kg_io import (
 from ..utils.metagraph import generate_metagraph_for_source, compare_metagraphs
 
 
-def integrate_sources_streaming(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):
+def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):
     """Merge harmonized sources using streaming approach"""
     output_dir.mkdir(parents=True, exist_ok=True)
     

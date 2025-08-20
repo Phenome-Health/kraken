@@ -25,7 +25,7 @@ EDGE_PROP_NAME_OVERRIDES = {
 }
 
 
-def prepare_for_arango_streaming(nodes_path: Path, edges_path: Path, output_dir: Path, config: dict):
+def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, config: dict) -> Tuple[Path, Path]:
     """Prepare unified KG for ArangoDB import using streaming"""
     output_dir.mkdir(parents=True, exist_ok=True)
     

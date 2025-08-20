@@ -3,91 +3,60 @@ Biomapper export utilities
 Exports node type-specific files for biomapper module
 """
 
+import csv
 from pathlib import Path
 import json
 import logging
-import jsonlines
+from typing import Any, List
 from collections import defaultdict
-from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
+from ..utils.kg_io import stream_nodes_from_jsonl
+
+FILE_MAP = {
+    "biolink:BiologicalProcess": "kg2c_biological_processes",
+    "biolink:CellularComponent": "kg2c_cellular_components",
+    "biolink:ChemicalEntity": "kg2c_chemicals",
+    "biolink:Disease": "kg2c_diseases",
+    "biolink:Drug": "kg2c_drugs",
+    "biolink:Gene": "kg2c_genes",
+    "biolink:SmallMolecule": "kg2c_metabolites",
+    "biolink:MolecularActivity": "kg2c_molecular_activities",
+    "biolink:Pathway": "kg2c_pathways",
+    "biolink:PhenotypicFeature": "kg2c_phenotypes",
+    "biolink:Protein": "kg2c_proteins"
+}
+ARRAY_DELIMITER = '||'
 
 
-def export_for_biomapper_streaming(nodes_file: Path, edges_file: Path, output_dir: Path, config: dict):
-    """Export unified KG divided by node types for biomapper using streaming"""
-    output_dir.mkdir(parents=True, exist_ok=True)
+def write_to_csv(items: List[List[Any]], file_path: str, mode: str):
+    with open(file_path, mode=mode) as tsv_file:
+        writer = csv.writer(tsv_file)
+        writer.writerows(items)
 
-    node_types = config.get('node_types_to_export', [])
-    include_edges = config.get('include_edges', True)
 
-    logging.info(f"Streaming export of {len(node_types)} node types for biomapper...")
+def export_for_biomapper(nodes_path: Path, output_dir: Path):
+    headers = ["id", "name", "category", "description", "synonyms", "xrefs"]
+    for file_name in FILE_MAP.values():
+        write_to_csv([headers], f"{output_dir}/{file_name}.csv", 'w+')
 
-    # First pass: group nodes by type and collect node IDs for each type
-    nodes_by_type = defaultdict(list)
-    node_type_membership = {}  # node_id -> node_type (for edge processing)
+    counter = 0
+    node_counts_by_type = defaultdict(int)
+    for node in stream_nodes_from_jsonl(nodes_path):
+        for category in node['entity_types_ancestral']:
+            if category in FILE_MAP:
+                node_counts_by_type[category] += 1
+                if any(ARRAY_DELIMITER in synonym for synonym in node.get('synonyms', [])):
+                    raise ValueError(f"Found node with a pipe in one of its synonyms: {node}")
+                synonyms_joined = ARRAY_DELIMITER.join(node.get('synonyms', []))
+                equiv_ids_joined = ARRAY_DELIMITER.join(node.get('equivalent_ids', []))
+                row = [node["id"], node.get("name"), category, node.get('description'), synonyms_joined, equiv_ids_joined]
+                write_to_csv([row], f"{output_dir}/{FILE_MAP[category]}.csv", 'a')
+        counter += 1
+        if counter % 100000 == 0:
+            logging.info(f"Have processed {counter} nodes for biomapper export...")
     
-    for node in stream_nodes_from_jsonl(nodes_file):
-        node_id = node['id']
-        category = node.get('category', 'biolink:NamedThing')
-
-        # Handle both single categories and lists
-        if isinstance(category, list):
-            categories = category
-        else:
-            categories = [category]
-
-        # Check if any of the node's categories are in our target list
-        for cat in categories:
-            if cat in node_types:
-                nodes_by_type[cat].append(node)
-                node_type_membership[node_id] = cat
-                break  # Only add to one category to avoid duplicates
-
-    logging.info(f"Found nodes in {len(nodes_by_type)} categories")
-
-    # Export each node type as a separate file
-    for node_type, nodes in nodes_by_type.items():
-        if nodes:  # Only export if we have nodes of this type
-            export_node_type_files(nodes, node_type, output_dir, edges_file, 
-                                  node_type_membership, include_edges)
-
-    # Create a summary file
-    create_biomapper_summary({k: len(v) for k, v in nodes_by_type.items()}, output_dir)
-
-    logging.info(f"Biomapper export complete: {len(nodes_by_type)} files in {output_dir}")
-
-
-def export_node_type_files(nodes: list, node_type: str, output_dir: Path, 
-                          edges_file: Path, node_type_membership: dict, include_edges: bool):
-    """Export nodes of a specific type and their associated edges"""
+    logging.info(f"Found nodes in {len(node_counts_by_type)} categories")
     
-    # Clean filename
-    clean_type_name = node_type.replace('biolink:', '').replace(':', '_')
-    nodes_output = output_dir / f"{clean_type_name}_nodes.jsonl"
-    edges_output = output_dir / f"{clean_type_name}_edges.jsonl"
-    
-    # Save nodes
-    with jsonlines.open(nodes_output, 'w') as writer:
-        for node in nodes:
-            writer.write(node)
-    
-    logging.info(f"  Exported {len(nodes)} {node_type} nodes to {nodes_output}")
-    
-    if include_edges:
-        # Collect node IDs for this type
-        node_ids_in_type = {node['id'] for node in nodes}
-        
-        # Stream through edges and save those involving nodes of this type
-        edge_count = 0
-        with jsonlines.open(edges_output, 'w') as writer:
-            for edge in stream_edges_from_jsonl(edges_file):
-                subject = edge.get('subject')
-                obj = edge.get('object')
-                
-                # Include edge if either endpoint is in this node type
-                if subject in node_ids_in_type or obj in node_ids_in_type:
-                    writer.write(edge)
-                    edge_count += 1
-        
-        logging.info(f"  Exported {edge_count} edges to {edges_output}")
+    create_biomapper_summary(node_counts_by_type, output_dir)
 
 
 def create_biomapper_summary(node_counts_by_type: dict, output_dir: Path):
