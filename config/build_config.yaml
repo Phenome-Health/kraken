@@ -1,0 +1,47 @@
+sources:
+  kg2:
+    input_path: "input_data/kg2/kg2.json"
+    harmonized_output: "artifacts/harmonized/kg2/kg2_harmonized.json"
+    priority: 1  # Highest priority for canonical ID selection
+
+  spoke:
+    input_path: "input_data/spoke/spoke.json"
+    harmonized_output: "artifacts/harmonized/spoke/spoke_harmonized.json"
+    priority: 2
+
+integration:
+  output_path: "artifacts/integrated/phenomekg/phenomekg_v1.json"
+  entity_resolution:
+    namespace_priority:
+      - "CHEMBL.COMPOUND"
+      - "PUBCHEM.COMPOUND"
+      - "DRUGBANK"
+      - "MESH"
+      - "UNIPROT"
+      - "ENSEMBL"
+      - "HGNC"
+    conflict_resolution: "source_priority"  # Use source priority for conflicts
+
+post_processing:
+  arango_export:
+    enabled: true
+    output_path: "artifacts/export/arango/phenomekg_arango.json"
+    key_field_config:
+      remove_invalid_chars: true
+      max_length: 254
+      prefix_numbers: true
+
+  biomapper_export:
+    enabled: true
+    output_directory: "artifacts/export/biomapper/"
+    node_types_to_export:
+      - "biolink:Gene"
+      - "biolink:Protein"
+      - "biolink:SmallMolecule"
+      - "biolink:Disease"
+      - "biolink:Pathway"
+    include_edges: true
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(levelname)s - %(message)s"
