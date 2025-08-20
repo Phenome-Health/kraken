@@ -349,16 +349,107 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
     
     html_file = output_dir / f"{source_name}_viewer.html"
     
-    # Build file list for dropdown
-    file_options = []
+    # Find all Cytoscape files across the entire artifacts structure
+    artifacts_root = Path("artifacts/metagraphs")
+    all_cytoscape_files = []
+    
+    if artifacts_root.exists():
+        # Find all cytoscape files in the entire metagraphs directory
+        for cyto_file in artifacts_root.rglob("*_cytoscape*.json"):
+            try:
+                # Get relative path from current viewer location to the artifacts root
+                # then navigate to the specific file
+                rel_to_artifacts = cyto_file.relative_to(artifacts_root)
+                
+                # Calculate how many levels up to get to artifacts from output_dir
+                try:
+                    output_rel_to_artifacts = output_dir.relative_to(artifacts_root)
+                    levels_up = len(output_rel_to_artifacts.parts)
+                    up_path = "/".join([".."] * levels_up)
+                    rel_path = f"{up_path}/{rel_to_artifacts}" if up_path else str(rel_to_artifacts)
+                except ValueError:
+                    # output_dir is not under artifacts_root, use absolute reference
+                    rel_path = f"../../{rel_to_artifacts}"
+                
+                # Create descriptive name from path
+                path_parts = cyto_file.relative_to(artifacts_root).parts
+                if len(path_parts) >= 2:
+                    section = path_parts[0]  # harmonized, unified, etc.
+                    source = path_parts[1] if len(path_parts) > 2 else path_parts[-1].split('_')[0]
+                    
+                    # Handle different threshold files
+                    filename = cyto_file.stem
+                    if 'min' in filename:
+                        threshold = filename.split('min')[-1]
+                        display_name = f"{section.title()} - {source.title()} (Min {threshold} edges)"
+                    else:
+                        display_name = f"{section.title()} - {source.title()}"
+                else:
+                    display_name = cyto_file.stem.replace('_cytoscape', '').replace('_', ' ').title()
+                
+                all_cytoscape_files.append({
+                    'path': str(rel_path),
+                    'name': display_name,
+                    'section': section if len(path_parts) >= 2 else 'other',
+                    'source': source if len(path_parts) >= 2 else 'unknown'
+                })
+            except ValueError:
+                # Skip files that can't be made relative to output_dir
+                continue
+    
+    # Also include local files (fallback)
     for file_path in metagraph_files:
         if file_path.name.endswith('_cytoscape.json'):
-            # Get relative path from HTML file location
-            rel_path = file_path.relative_to(output_dir)
-            file_options.append({
-                'path': str(rel_path),
-                'name': file_path.stem.replace('_cytoscape', '').replace('_', ' ').title()
-            })
+            try:
+                rel_path = file_path.relative_to(output_dir)
+                display_name = f"Local - {file_path.stem.replace('_cytoscape', '').replace('_', ' ').title()}"
+                
+                # Only add if not already in the global list
+                if not any(opt['path'] == str(rel_path) for opt in all_cytoscape_files):
+                    all_cytoscape_files.append({
+                        'path': str(rel_path),
+                        'name': display_name,
+                        'section': 'local',
+                        'source': source_name
+                    })
+            except ValueError:
+                continue
+    
+    # Sort by section and then by name
+    all_cytoscape_files.sort(key=lambda x: (x['section'], x['name']))
+    
+    file_options = all_cytoscape_files
+    
+    def build_dropdown_options(options):
+        if not options:
+            return ""
+        
+        # Group by section
+        sections = {}
+        for opt in options:
+            section = opt['section']
+            if section not in sections:
+                sections[section] = []
+            sections[section].append(opt)
+        
+        # Build HTML with optgroups
+        html_parts = []
+        section_labels = {
+            'harmonized': 'Source Graphs',
+            'unified': 'Integrated Graph',
+            'local': 'Current Graph',
+            'other': 'Other'
+        }
+        
+        for section in ['harmonized', 'unified', 'local', 'other']:
+            if section in sections and sections[section]:
+                label = section_labels.get(section, section.title())
+                html_parts.append(f'<optgroup label="{label}">')
+                for opt in sections[section]:
+                    html_parts.append(f'  <option value="{opt["path"]}">{opt["name"]}</option>')
+                html_parts.append('</optgroup>')
+        
+        return chr(10).join(html_parts)
     
     html_content = f'''<!DOCTYPE html>
 <html>
@@ -488,7 +579,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             <label for="file-select">Metagraph:</label>
             <select id="file-select" onchange="loadSelectedFile()">
                 <option value="">Select a metagraph...</option>
-                {chr(10).join(f'<option value="{opt["path"]}">{opt["name"]}</option>' for opt in file_options)}
+                {build_dropdown_options(file_options)}
             </select>
         </div>
         
@@ -771,11 +862,38 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             reader.readAsText(file);
         }}
         
-        // Auto-load first available file
+        // Auto-load the current graph's default file
         window.addEventListener('DOMContentLoaded', function() {{
             const select = document.getElementById('file-select');
-            if (select.options.length > 1) {{
-                select.selectedIndex = 1;
+            
+            // First try to find the "Local" option (current graph)
+            let defaultOption = null;
+            for (let i = 0; i < select.options.length; i++) {{
+                const option = select.options[i];
+                if (option.text.includes('Local - {source_name.title()}')) {{
+                    defaultOption = option;
+                    break;
+                }}
+            }}
+            
+            // If no local option found, try to find current source in the list
+            if (!defaultOption) {{
+                for (let i = 0; i < select.options.length; i++) {{
+                    const option = select.options[i];
+                    if (option.text.toLowerCase().includes('{source_name.lower()}') && !option.text.includes('Min')) {{
+                        defaultOption = option;
+                        break;
+                    }}
+                }}
+            }}
+            
+            // Fallback to first available option
+            if (!defaultOption && select.options.length > 1) {{
+                defaultOption = select.options[1];
+            }}
+            
+            if (defaultOption) {{
+                select.value = defaultOption.value;
                 loadSelectedFile();
             }}
         }});
