@@ -47,8 +47,18 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
     
     # Generate metagraph for harmonized output
     if rules.get('generate_metagraph', True):
-        metagraph_dir = nodes_output.parent / "metagraphs"
-        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "spoke")
+        # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
+        artifacts_root = Path("artifacts")
+        metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / "spoke"
+        
+        metagraph_config = rules.get('metagraph_config', {
+            'generate_summaries': True,
+            'generate_cytoscape': True,
+            'generate_html_viewer': True,
+            'cytoscape_thresholds': [1, 5, 10]
+        })
+        
+        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "spoke", metagraph_config)
         logging.info("SPOKE metagraph generated")
 
 

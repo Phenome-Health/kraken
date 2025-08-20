@@ -129,18 +129,57 @@ def save_metagraph(stats: MetagraphStats, output_file: Path):
     logging.info(f"Metagraph saved: {stats.total_nodes} nodes, {stats.total_edges} edges")
 
 
-def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir: Path, source_name: str = None):
-    """Generate and save metagraph for a single source"""
+def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir: Path, source_name: str = None, config: dict = None):
+    """Generate and save complete metagraph suite for a single source"""
     if source_name is None:
         source_name = nodes_file.parent.name
     
+    if config is None:
+        config = {}
+    
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"{source_name}_metagraph.json"
     
+    # Generate core statistics
     stats = generate_metagraph_streaming(nodes_file, edges_file, source_name)
-    save_metagraph(stats, output_file)
     
-    return output_file
+    generated_files = []
+    
+    # 1. Save main JSON statistics
+    json_file = output_dir / f"{source_name}_metagraph.json"
+    save_metagraph(stats, json_file)
+    generated_files.append(json_file)
+    
+    # 2. Generate human-readable summary
+    if config.get('generate_summaries', True):
+        summary = generate_metagraph_summary(stats)
+        summary_file = output_dir / f"{source_name}_metagraph_summary.txt"
+        with open(summary_file, 'w') as f:
+            f.write(summary)
+        generated_files.append(summary_file)
+        logging.info(f"Summary saved: {summary_file}")
+    
+    # 3. Generate Cytoscape files with different thresholds
+    if config.get('generate_cytoscape', True):
+        cytoscape_files = []
+        thresholds = config.get('cytoscape_thresholds', [1, 5, 10])
+        
+        for threshold in thresholds:
+            if threshold == 1:
+                cyto_file = output_dir / f"{source_name}_cytoscape.json"
+            else:
+                cyto_file = output_dir / f"{source_name}_cytoscape_min{threshold}.json"
+            
+            create_cytoscape_metagraph(stats, cyto_file, min_edge_count=threshold)
+            cytoscape_files.append(cyto_file)
+            generated_files.append(cyto_file)
+        
+        # 4. Generate HTML viewer
+        if config.get('generate_html_viewer', True):
+            html_file = create_html_viewer(output_dir, cytoscape_files, source_name)
+            generated_files.append(html_file)
+    
+    logging.info(f"Metagraph suite generated for {source_name}: {len(generated_files)} files")
+    return generated_files
 
 
 def compare_metagraphs(metagraph_files: list, output_file: Path):
@@ -302,3 +341,450 @@ def create_cytoscape_metagraph(stats: MetagraphStats, output_file: Path, min_edg
         json.dump(cytoscape_data, f, indent=2)
     
     logging.info(f"Cytoscape metagraph saved: {len(nodes)} category nodes, {len(edges)} category edges")
+
+
+def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str = "metagraph"):
+    """Create HTML viewer for interactive metagraph visualization"""
+    logging.info(f"Creating HTML viewer for {source_name}")
+    
+    html_file = output_dir / f"{source_name}_viewer.html"
+    
+    # Build file list for dropdown
+    file_options = []
+    for file_path in metagraph_files:
+        if file_path.name.endswith('_cytoscape.json'):
+            # Get relative path from HTML file location
+            rel_path = file_path.relative_to(output_dir)
+            file_options.append({
+                'path': str(rel_path),
+                'name': file_path.stem.replace('_cytoscape', '').replace('_', ' ').title()
+            })
+    
+    html_content = f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Phenome-KG Metagraph Viewer - {source_name.title()}</title>
+    <script src="https://unpkg.com/cytoscape@3.21.0/dist/cytoscape.min.js"></script>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }}
+        
+        .header {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }}
+        
+        .controls {{
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }}
+        
+        #cy {{
+            width: 100%;
+            height: 70vh;
+            border: 1px solid #ddd;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }}
+        
+        button {{
+            padding: 10px 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }}
+        
+        button:hover {{
+            background: #45a049;
+        }}
+        
+        .secondary-btn {{
+            background: #2196F3;
+        }}
+        
+        .secondary-btn:hover {{
+            background: #1976D2;
+        }}
+        
+        select, input[type="file"] {{
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }}
+        
+        .info {{
+            background: white;
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        
+        .stats {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }}
+        
+        .stat-card {{
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }}
+        
+        .stat-value {{
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }}
+        
+        .file-selector {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        
+        .instructions {{
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 6px 6px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Phenome-KG Metagraph Visualization</h1>
+        <p>Interactive network view of knowledge graph structure - {source_name.title()}</p>
+    </div>
+    
+    <div class="controls">
+        <div class="file-selector">
+            <label for="file-select">Metagraph:</label>
+            <select id="file-select" onchange="loadSelectedFile()">
+                <option value="">Select a metagraph...</option>
+                {chr(10).join(f'<option value="{opt["path"]}">{opt["name"]}</option>' for opt in file_options)}
+            </select>
+        </div>
+        
+        <div>
+            <label for="layout-select">Layout:</label>
+            <select id="layout-select">
+                <option value="cose">Force-directed (COSE)</option>
+                <option value="circle">Circle</option>
+                <option value="grid">Grid</option>
+                <option value="breadthfirst">Hierarchical</option>
+                <option value="concentric">Concentric</option>
+                <option value="cola">CoLa</option>
+            </select>
+            <button onclick="applyLayout()">Apply</button>
+        </div>
+        
+        <div>
+            <button onclick="fitGraph()" class="secondary-btn">Fit to Screen</button>
+            <button onclick="resetZoom()" class="secondary-btn">Reset Zoom</button>
+            <button onclick="exportImage()" class="secondary-btn">Export PNG</button>
+        </div>
+        
+        <div>
+            <input type="file" id="file-input" accept=".json" onchange="loadCustomFile(event)" style="display: none;">
+            <button onclick="document.getElementById('file-input').click()" class="secondary-btn">Load Custom File</button>
+        </div>
+    </div>
+    
+    <div id="cy"></div>
+    
+    <div class="info">
+        <div class="instructions">
+            <h3>How to Use:</h3>
+            <ul>
+                <li><strong>Pan:</strong> Click and drag on empty space</li>
+                <li><strong>Zoom:</strong> Mouse wheel or pinch gesture</li>
+                <li><strong>Node Details:</strong> Click on nodes to see category information</li>
+                <li><strong>Edge Details:</strong> Click on edges to see relationship counts</li>
+                <li><strong>Node Sizes:</strong> Proportional to number of entities in each category</li>
+                <li><strong>Edge Thickness:</strong> Proportional to number of connections between categories</li>
+            </ul>
+        </div>
+        
+        <div class="stats" id="stats-container">
+            <div class="stat-card">
+                <div class="stat-value" id="node-count">-</div>
+                <div>Categories</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="edge-count">-</div>
+                <div>Connections</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="total-nodes">-</div>
+                <div>Total Entities</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="total-edges">-</div>
+                <div>Total Relations</div>
+            </div>
+        </div>
+        
+        <p id="status-message">Select a metagraph file to begin visualization...</p>
+    </div>
+
+    <script>
+        let cy;
+        let currentData = null;
+        
+        function initializeCytoscape(data) {{
+            if (cy) {{
+                cy.destroy();
+            }}
+            
+            currentData = data;
+            
+            cy = cytoscape({{
+                container: document.getElementById('cy'),
+                elements: data.elements,
+                style: [
+                    {{
+                        selector: 'node',
+                        style: {{
+                            'background-color': function(ele) {{
+                                const count = ele.data('node_count') || 1;
+                                const intensity = Math.min(255, Math.max(100, count / 5));
+                                return `rgb(${{Math.floor(intensity * 0.3)}}, ${{Math.floor(intensity * 0.8)}}, ${{Math.floor(intensity * 0.5)}})`;
+                            }},
+                            'label': 'data(label)',
+                            'color': '#fff',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'font-size': function(ele) {{
+                                const count = ele.data('node_count') || 1;
+                                return Math.max(10, Math.min(16, 8 + count / 50)) + 'px';
+                            }},
+                            'font-weight': 'bold',
+                            'text-outline-width': 2,
+                            'text-outline-color': '#333',
+                            'width': function(ele) {{
+                                const count = ele.data('node_count') || 1;
+                                return Math.max(40, Math.min(120, 30 + count / 3));
+                            }},
+                            'height': function(ele) {{
+                                const count = ele.data('node_count') || 1;
+                                return Math.max(40, Math.min(120, 30 + count / 3));
+                            }}
+                        }}
+                    }},
+                    {{
+                        selector: 'edge',
+                        style: {{
+                            'width': function(ele) {{
+                                const count = ele.data('edge_count') || 1;
+                                return Math.max(1, Math.min(8, count / 8));
+                            }},
+                            'line-color': '#888',
+                            'target-arrow-color': '#888',
+                            'target-arrow-shape': 'triangle',
+                            'target-arrow-size': function(ele) {{
+                                const count = ele.data('edge_count') || 1;
+                                return Math.max(6, Math.min(12, count / 10));
+                            }},
+                            'curve-style': 'bezier',
+                            'opacity': 0.8
+                        }}
+                    }},
+                    {{
+                        selector: 'node:selected',
+                        style: {{
+                            'border-width': 3,
+                            'border-color': '#FF4444'
+                        }}
+                    }},
+                    {{
+                        selector: 'edge:selected',
+                        style: {{
+                            'line-color': '#FF4444',
+                            'target-arrow-color': '#FF4444',
+                            'opacity': 1
+                        }}
+                    }}
+                ],
+                layout: {{
+                    name: 'cose',
+                    idealEdgeLength: 120,
+                    nodeOverlap: 30,
+                    refresh: 20,
+                    fit: true,
+                    padding: 50,
+                    randomize: false,
+                    componentSpacing: 150,
+                    nodeRepulsion: 800000,
+                    edgeElasticity: 200,
+                    nestingFactor: 5,
+                    gravity: 100,
+                    numIter: 2000,
+                    initialTemp: 300,
+                    coolingFactor: 0.95,
+                    minTemp: 1.0
+                }}
+            }});
+            
+            // Add interaction events
+            cy.on('tap', 'node', function(evt) {{
+                const node = evt.target;
+                const info = {{
+                    category: node.data('label'),
+                    entity_count: node.data('node_count'),
+                    id: node.data('id')
+                }};
+                
+                alert(`Category: ${{info.category}}\\nEntities: ${{info.entity_count.toLocaleString()}}\\nID: ${{info.id}}`);
+                console.log('Node details:', info);
+            }});
+            
+            cy.on('tap', 'edge', function(evt) {{
+                const edge = evt.target;
+                const sourceLabel = cy.getElementById(edge.data('source')).data('label');
+                const targetLabel = cy.getElementById(edge.data('target')).data('label');
+                
+                const info = {{
+                    connection: `${{sourceLabel}} → ${{targetLabel}}`,
+                    edge_count: edge.data('edge_count')
+                }};
+                
+                alert(`Connection: ${{info.connection}}\\nRelations: ${{info.edge_count.toLocaleString()}}`);
+                console.log('Edge details:', info);
+            }});
+            
+            // Update statistics
+            updateStats(data);
+        }}
+        
+        function updateStats(data) {{
+            const nodeCount = data.elements.nodes.length;
+            const edgeCount = data.elements.edges.length;
+            const totalNodes = data.elements.nodes.reduce((sum, n) => sum + (n.data.node_count || 0), 0);
+            const totalEdges = data.elements.edges.reduce((sum, e) => sum + (e.data.edge_count || 0), 0);
+            
+            document.getElementById('node-count').textContent = nodeCount.toLocaleString();
+            document.getElementById('edge-count').textContent = edgeCount.toLocaleString();
+            document.getElementById('total-nodes').textContent = totalNodes.toLocaleString();
+            document.getElementById('total-edges').textContent = totalEdges.toLocaleString();
+        }}
+        
+        function applyLayout() {{
+            if (!cy) return;
+            const layoutName = document.getElementById('layout-select').value;
+            const layout = cy.layout({{
+                name: layoutName,
+                fit: true,
+                padding: 50,
+                animate: true,
+                animationDuration: 1000
+            }});
+            layout.run();
+        }}
+        
+        function fitGraph() {{
+            if (cy) cy.fit(null, 50);
+        }}
+        
+        function resetZoom() {{
+            if (cy) {{
+                cy.zoom(1);
+                cy.center();
+            }}
+        }}
+        
+        function exportImage() {{
+            if (cy) {{
+                const png64 = cy.png({{scale: 2, full: true}});
+                const link = document.createElement('a');
+                link.href = png64;
+                link.download = 'metagraph.png';
+                link.click();
+            }}
+        }}
+        
+        function loadSelectedFile() {{
+            const select = document.getElementById('file-select');
+            const filePath = select.value;
+            
+            if (!filePath) return;
+            
+            document.getElementById('status-message').textContent = `Loading ${{select.options[select.selectedIndex].text}}...`;
+            
+            fetch(filePath)
+                .then(response => {{
+                    if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
+                    return response.json();
+                }})
+                .then(data => {{
+                    initializeCytoscape(data);
+                    document.getElementById('status-message').textContent = 
+                        `Loaded: ${{select.options[select.selectedIndex].text}}`;
+                }})
+                .catch(error => {{
+                    console.error('Error loading file:', error);
+                    document.getElementById('status-message').textContent = 
+                        `Error loading file: ${{error.message}}`;
+                }});
+        }}
+        
+        function loadCustomFile(event) {{
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {{
+                try {{
+                    const data = JSON.parse(e.target.result);
+                    initializeCytoscape(data);
+                    document.getElementById('status-message').textContent = `Loaded custom file: ${{file.name}}`;
+                }} catch (error) {{
+                    alert('Error loading file: ' + error.message);
+                }}
+            }};
+            reader.readAsText(file);
+        }}
+        
+        // Auto-load first available file
+        window.addEventListener('DOMContentLoaded', function() {{
+            const select = document.getElementById('file-select');
+            if (select.options.length > 1) {{
+                select.selectedIndex = 1;
+                loadSelectedFile();
+            }}
+        }});
+    </script>
+</body>
+</html>'''
+    
+    with open(html_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    logging.info(f"HTML viewer created: {html_file}")
+    return html_file

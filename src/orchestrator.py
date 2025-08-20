@@ -22,10 +22,18 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     harmonized_sources = harmonize_all_sources(config['sources'], config.get('metagraph', {}))
 
     # Phase 2: Integrate into unified KG with entity resolution
+    integration_config = config['integration'].copy()
+    integration_config['metagraph_config'] = {
+        'generate_summaries': config.get('metagraph', {}).get('generate_summaries', True),
+        'generate_cytoscape': config.get('metagraph', {}).get('generate_cytoscape', True),
+        'generate_html_viewer': config.get('metagraph', {}).get('generate_cytoscape', True),
+        'cytoscape_thresholds': [1, 5, 10, 25]
+    }
+    
     unified_nodes, unified_edges = integrate_sources_streaming(
         harmonized_sources, 
         Path(config['integration']['output_directory']),
-        config['integration']
+        integration_config
     )
 
     # Phase 3: Post-processing steps
@@ -71,6 +79,12 @@ def harmonize_source(source_name: str, config: dict, metagraph_config: dict) -> 
     # Prepare harmonization rules
     harmonization_rules = config.get('harmonization_rules', {})
     harmonization_rules['generate_metagraph'] = metagraph_config.get('generate_for_sources', True)
+    harmonization_rules['metagraph_config'] = {
+        'generate_summaries': metagraph_config.get('generate_summaries', True),
+        'generate_cytoscape': metagraph_config.get('generate_cytoscape', True),
+        'generate_html_viewer': metagraph_config.get('generate_cytoscape', True),
+        'cytoscape_thresholds': [1, 5, 10]
+    }
 
     # Run source-specific harmonizer
     if source_name == 'kg2':

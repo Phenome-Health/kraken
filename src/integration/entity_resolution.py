@@ -104,22 +104,37 @@ def integrate_sources_streaming(harmonized_sources: Dict[str, Dict[str, Path]], 
     
     # Generate metagraph for unified result
     if config.get('generate_metagraph', True):
-        metagraph_dir = output_dir / "metagraphs"
-        unified_metagraph = generate_metagraph_for_source(unified_nodes, unified_edges, metagraph_dir, "unified")
+        # Store unified metagraphs in artifacts/metagraphs/unified/
+        artifacts_root = Path("artifacts")
+        metagraph_dir = artifacts_root / "metagraphs" / "unified"
+        
+        metagraph_config = config.get('metagraph_config', {
+            'generate_summaries': True,
+            'generate_cytoscape': True,
+            'generate_html_viewer': True,
+            'cytoscape_thresholds': [1, 5, 10, 25]  # Additional threshold for unified graph
+        })
+        
+        unified_metagraph_files = generate_metagraph_for_source(
+            unified_nodes, unified_edges, metagraph_dir, "unified", metagraph_config
+        )
         logging.info("Unified metagraph generated")
         
         # Compare with source metagraphs if they exist
         source_metagraphs = []
         for source_name in harmonized_sources.keys():
-            source_metagraph = metagraph_dir.parent.parent / "harmonized" / source_name / "metagraphs" / f"{source_name}_metagraph.json"
+            source_metagraph = artifacts_root / "metagraphs" / "harmonized" / source_name / f"{source_name}_metagraph.json"
             if source_metagraph.exists():
                 source_metagraphs.append(source_metagraph)
         
         if source_metagraphs:
-            source_metagraphs.append(unified_metagraph)
-            comparison_file = metagraph_dir / "metagraph_comparison.json"
-            compare_metagraphs(source_metagraphs, comparison_file)
-            logging.info("Metagraph comparison generated")
+            # Find the main JSON file from unified metagraph
+            unified_json = next((f for f in unified_metagraph_files if f.name.endswith('_metagraph.json')), None)
+            if unified_json:
+                source_metagraphs.append(unified_json)
+                comparison_file = metagraph_dir / "metagraph_comparison.json"
+                compare_metagraphs(source_metagraphs, comparison_file)
+                logging.info("Metagraph comparison generated")
     
     return unified_nodes, unified_edges
 
