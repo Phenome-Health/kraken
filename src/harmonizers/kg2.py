@@ -8,6 +8,18 @@ import logging
 from ..utils.metagraph import generate_metagraph_for_source
 
 
+KG2_NODE_PROP_NAME_OVERRIDES = {
+    "all_categories": "categories",
+    "equivalent_curies": "equivalent_ids",
+    "all_names": "synonyms",
+    "category": "canonical_category"
+}
+KG2_EDGE_PROP_NAME_OVERRIDES = {
+    "id": "kg2c_id",
+    "kg2_ids": "kg2pre_ids"
+}
+
+
 def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, rules: dict):
     """Harmonize RTX-KG2 to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing RTX-KG2: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
@@ -19,7 +31,7 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
     with jsonlines.open(nodes_input, 'r') as reader, jsonlines.open(nodes_output, 'w') as writer:
         for line_num, node in enumerate(reader, 1):
             try:
-                harmonized_node = harmonize_kg2_node(node['id'], node)
+                harmonized_node = harmonize_kg2_node(node)
                 writer.write(harmonized_node)
                 node_count += 1
                 
@@ -29,11 +41,11 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
             except (KeyError, TypeError) as e:
                 logging.warning(f"Skipping invalid node at line {line_num}: {e}")
 
-    # Stream and harmonize edges  
+    # Stream and harmonize edges
     with jsonlines.open(edges_input, 'r') as reader, jsonlines.open(edges_output, 'w') as writer:
         for line_num, edge in enumerate(reader, 1):
             try:
-                harmonized_edge = harmonize_kg2_edge(edge['subject'], edge['object'], edge)
+                harmonized_edge = harmonize_kg2_edge(edge)
                 writer.write(harmonized_edge)
                 edge_count += 1
                 
@@ -62,33 +74,22 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
         logging.info("RTX-KG2 metagraph generated")
 
 
-def harmonize_kg2_node(node_id: str, node_data: dict) -> dict:
+def harmonize_kg2_node(node: dict) -> dict:
     """Harmonize a single RTX-KG2 node"""
-    harmonized = {
-        'id': node_id,
-        'category': ensure_biolink_category(node_data.get('category')),
-        'name': node_data.get('name'),
-        'equivalent_identifiers': node_data.get('equivalent_identifiers', []),
-        'source': 'rtx-kg2'
-    }
-
-    # Copy other properties
-    for key, value in node_data.items():
-        if key not in harmonized and key != 'id':
-            harmonized[key] = value
-
-    return harmonized
+    harmonized_node = {KG2_NODE_PROP_NAME_OVERRIDES.get(property_name, property_name): value
+                       for property_name, value in node.items()}
+    harmonized_node['categories'] = [ensure_biolink_category(category) for category in harmonized_node['categories']]
+    harmonized_node['canonical_category'] = ensure_biolink_category(harmonized_node['canonical_category'])
+    return harmonized_node
 
 
-def harmonize_kg2_edge(source: str, target: str, edge_data: dict) -> dict:
+def harmonize_kg2_edge(edge: dict) -> dict:
     """Harmonize a single RTX-KG2 edge"""
-    return {
-        'subject': source,
-        'object': target,
-        'predicate': ensure_biolink_predicate(edge_data.get('predicate')),
-        'source': 'rtx-kg2',
-        **{k: v for k, v in edge_data.items() if k not in ['subject', 'object', 'predicate']}
-    }
+    harmonized_edge = {KG2_EDGE_PROP_NAME_OVERRIDES.get(property_name, property_name): value
+                       for property_name, value in edge.items()}
+    harmonized_edge['aggregator_knowledge_source'] = 'infores:rtx-kg2'
+    harmonized_edge['predicate'] = ensure_biolink_predicate(harmonized_edge['predicate'])
+    return harmonized_edge
 
 
 def ensure_biolink_category(category):

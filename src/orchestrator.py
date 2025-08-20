@@ -49,12 +49,8 @@ def harmonize_all_sources(sources_config: dict, metagraph_config: dict) -> Dict[
     harmonized_sources = {}
 
     for source_name, source_config in sources_config.items():
-        if needs_harmonization(source_name, source_config):
-            nodes_path, edges_path = harmonize_source(source_name, source_config, metagraph_config)
-        else:
-            logging.info(f"Skipping {source_name} - already harmonized")
-            nodes_path = Path(source_config['harmonized_output']['nodes'])
-            edges_path = Path(source_config['harmonized_output']['edges'])
+        # NOTE: for now, always re-harmonize with every build
+        nodes_path, edges_path = harmonize_source(source_name, source_config, metagraph_config)
 
         harmonized_sources[source_name] = {
             'nodes': nodes_path,
