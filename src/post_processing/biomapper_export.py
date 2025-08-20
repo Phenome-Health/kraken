@@ -4,8 +4,9 @@ Exports node type-specific files for biomapper module
 """
 
 from pathlib import Path
-import logging
 import json
+import logging
+import jsonlines
 from collections import defaultdict
 from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
 
@@ -64,9 +65,9 @@ def export_node_type_files(nodes: list, node_type: str, output_dir: Path,
     edges_output = output_dir / f"{clean_type_name}_edges.jsonl"
     
     # Save nodes
-    with open(nodes_output, 'w') as f:
+    with jsonlines.open(nodes_output, 'w') as writer:
         for node in nodes:
-            f.write(json.dumps(node) + '\n')
+            writer.write(node)
     
     logging.info(f"  Exported {len(nodes)} {node_type} nodes to {nodes_output}")
     
@@ -76,14 +77,14 @@ def export_node_type_files(nodes: list, node_type: str, output_dir: Path,
         
         # Stream through edges and save those involving nodes of this type
         edge_count = 0
-        with open(edges_output, 'w') as f:
+        with jsonlines.open(edges_output, 'w') as writer:
             for edge in stream_edges_from_jsonl(edges_file):
                 subject = edge.get('subject')
                 obj = edge.get('object')
                 
                 # Include edge if either endpoint is in this node type
                 if subject in node_ids_in_type or obj in node_ids_in_type:
-                    f.write(json.dumps(edge) + '\n')
+                    writer.write(edge)
                     edge_count += 1
         
         logging.info(f"  Exported {edge_count} edges to {edges_output}")

@@ -3,7 +3,7 @@ RTX-KG2 harmonizer - converts RTX-KG2 format to our schema
 """
 
 from pathlib import Path
-import json
+import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
 
@@ -16,33 +16,31 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
     edge_count = 0
 
     # Stream and harmonize nodes
-    with open(nodes_input, 'r') as infile, open(nodes_output, 'w') as outfile:
-        for line_num, line in enumerate(infile, 1):
+    with jsonlines.open(nodes_input, 'r') as reader, jsonlines.open(nodes_output, 'w') as writer:
+        for line_num, node in enumerate(reader, 1):
             try:
-                node = json.loads(line.strip())
                 harmonized_node = harmonize_kg2_node(node['id'], node)
-                outfile.write(json.dumps(harmonized_node) + '\n')
+                writer.write(harmonized_node)
                 node_count += 1
                 
                 if node_count % 10000 == 0:
                     logging.info(f"Processed {node_count} nodes")
                     
-            except (json.JSONDecodeError, KeyError) as e:
+            except (KeyError, TypeError) as e:
                 logging.warning(f"Skipping invalid node at line {line_num}: {e}")
 
     # Stream and harmonize edges  
-    with open(edges_input, 'r') as infile, open(edges_output, 'w') as outfile:
-        for line_num, line in enumerate(infile, 1):
+    with jsonlines.open(edges_input, 'r') as reader, jsonlines.open(edges_output, 'w') as writer:
+        for line_num, edge in enumerate(reader, 1):
             try:
-                edge = json.loads(line.strip())
                 harmonized_edge = harmonize_kg2_edge(edge['subject'], edge['object'], edge)
-                outfile.write(json.dumps(harmonized_edge) + '\n')
+                writer.write(harmonized_edge)
                 edge_count += 1
                 
                 if edge_count % 10000 == 0:
                     logging.info(f"Processed {edge_count} edges")
                     
-            except (json.JSONDecodeError, KeyError) as e:
+            except (KeyError, TypeError) as e:
                 logging.warning(f"Skipping invalid edge at line {line_num}: {e}")
 
     logging.info(f"RTX-KG2 harmonization complete: {node_count} nodes, {edge_count} edges")

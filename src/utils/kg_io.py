@@ -4,6 +4,7 @@ Knowledge graph I/O utilities
 
 from pathlib import Path
 import json
+import jsonlines
 import logging
 from typing import Iterator, Dict, Any, Optional
 
@@ -12,45 +13,42 @@ def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream nodes from JSONL file without loading into memory"""
     logging.debug(f"Streaming nodes from {nodes_file}")
     
-    with open(nodes_file, 'r') as f:
-        for line_num, line in enumerate(f, 1):
+    with jsonlines.open(nodes_file, 'r') as reader:
+        for line_num, node in enumerate(reader, 1):
             try:
-                node = json.loads(line.strip())
                 if 'id' in node:
                     yield node
                 else:
                     logging.warning(f"Node missing 'id' at line {line_num}")
-            except json.JSONDecodeError as e:
-                logging.warning(f"Skipping invalid JSON at line {line_num}: {e}")
+            except (TypeError, ValueError) as e:
+                logging.warning(f"Skipping invalid data at line {line_num}: {e}")
 
 
 def stream_edges_from_jsonl(edges_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream edges from JSONL file without loading into memory"""
     logging.debug(f"Streaming edges from {edges_file}")
     
-    with open(edges_file, 'r') as f:
-        for line_num, line in enumerate(f, 1):
+    with jsonlines.open(edges_file, 'r') as reader:
+        for line_num, edge in enumerate(reader, 1):
             try:
-                edge = json.loads(line.strip())
                 if 'subject' in edge and 'object' in edge:
                     yield edge
                 else:
                     logging.warning(f"Edge missing subject/object at line {line_num}")
-            except json.JSONDecodeError as e:
-                logging.warning(f"Skipping invalid JSON at line {line_num}: {e}")
+            except (TypeError, ValueError) as e:
+                logging.warning(f"Skipping invalid data at line {line_num}: {e}")
 
 
 def stream_mixed_jsonl(input_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream items from mixed JSONL file (nodes and edges together)"""
     logging.debug(f"Streaming mixed JSONL from {input_file}")
     
-    with open(input_file, 'r') as f:
-        for line_num, line in enumerate(f, 1):
+    with jsonlines.open(input_file, 'r') as reader:
+        for line_num, item in enumerate(reader, 1):
             try:
-                item = json.loads(line.strip())
                 yield item
-            except json.JSONDecodeError as e:
-                logging.warning(f"Skipping invalid JSON at line {line_num}: {e}")
+            except (TypeError, ValueError) as e:
+                logging.warning(f"Skipping invalid data at line {line_num}: {e}")
 
 
 def save_nodes_to_jsonl(nodes: Iterator[Dict], output_file: Path):
@@ -58,9 +56,9 @@ def save_nodes_to_jsonl(nodes: Iterator[Dict], output_file: Path):
     logging.debug(f"Saving nodes to {output_file}")
     
     count = 0
-    with open(output_file, 'w') as f:
+    with jsonlines.open(output_file, 'w') as writer:
         for node in nodes:
-            f.write(json.dumps(node) + '\n')
+            writer.write(node)
             count += 1
     
     logging.info(f"Saved {count} nodes to {output_file}")
@@ -71,9 +69,9 @@ def save_edges_to_jsonl(edges: Iterator[Dict], output_file: Path):
     logging.debug(f"Saving edges to {output_file}")
     
     count = 0
-    with open(output_file, 'w') as f:
+    with jsonlines.open(output_file, 'w') as writer:
         for edge in edges:
-            f.write(json.dumps(edge) + '\n')
+            writer.write(edge)
             count += 1
     
     logging.info(f"Saved {count} edges to {output_file}")
@@ -116,10 +114,9 @@ def load_equivalency_mappings(nodes_file: Path) -> Dict[str, set]:
 def count_items_in_jsonl(file_path: Path) -> int:
     """Count items in JSONL file without loading into memory"""
     count = 0
-    with open(file_path, 'r') as f:
-        for line in f:
-            if line.strip():
-                count += 1
+    with jsonlines.open(file_path, 'r') as reader:
+        for _ in reader:
+            count += 1
     return count
 
 
@@ -146,14 +143,13 @@ def merge_jsonl_files(input_files: list, output_file: Path):
     logging.info(f"Merging {len(input_files)} files into {output_file}")
     
     total_count = 0
-    with open(output_file, 'w') as outfile:
+    with jsonlines.open(output_file, 'w') as writer:
         for input_file in input_files:
             if Path(input_file).exists():
-                with open(input_file, 'r') as infile:
-                    for line in infile:
-                        if line.strip():
-                            outfile.write(line)
-                            total_count += 1
+                with jsonlines.open(input_file, 'r') as reader:
+                    for item in reader:
+                        writer.write(item)
+                        total_count += 1
     
     logging.info(f"Merged {total_count} items into {output_file}")
 

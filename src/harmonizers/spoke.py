@@ -3,7 +3,7 @@ SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 """
 
 from pathlib import Path
-import json
+import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
 
@@ -15,18 +15,17 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
     node_count = 0
     edge_count = 0
 
-    with open(input_file, 'r') as infile, \
-         open(nodes_output, 'w') as nodes_out, \
-         open(edges_output, 'w') as edges_out:
+    with jsonlines.open(input_file, 'r') as reader, \
+         jsonlines.open(nodes_output, 'w') as nodes_writer, \
+         jsonlines.open(edges_output, 'w') as edges_writer:
         
-        for line_num, line in enumerate(infile, 1):
+        for line_num, item in enumerate(reader, 1):
             try:
-                item = json.loads(line.strip())
                 item_type = item.get('type')
                 
                 if item_type == 'node':
                     harmonized_node = harmonize_spoke_node(item)
-                    nodes_out.write(json.dumps(harmonized_node) + '\n')
+                    nodes_writer.write(harmonized_node)
                     node_count += 1
                     
                     if node_count % 10000 == 0:
@@ -34,13 +33,13 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                 
                 elif item_type == 'edge':
                     harmonized_edge = harmonize_spoke_edge(item)
-                    edges_out.write(json.dumps(harmonized_edge) + '\n')
+                    edges_writer.write(harmonized_edge)
                     edge_count += 1
                     
                     if edge_count % 10000 == 0:
                         logging.info(f"Processed {edge_count} edges")
                         
-            except (json.JSONDecodeError, KeyError) as e:
+            except (KeyError, TypeError) as e:
                 logging.warning(f"Skipping invalid item at line {line_num}: {e}")
 
     logging.info(f"SPOKE harmonization complete: {node_count} nodes, {edge_count} edges")

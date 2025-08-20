@@ -6,7 +6,7 @@ Prepares the unified KG for import into ArangoDB
 from pathlib import Path
 import re
 import logging
-import json
+import jsonlines
 from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
 
 
@@ -23,7 +23,7 @@ def prepare_for_arango_streaming(nodes_file: Path, edges_file: Path, output_dir:
     
     # Process nodes
     node_count = 0
-    with open(arango_nodes, 'w') as outfile:
+    with jsonlines.open(arango_nodes, 'w') as writer:
         for node in stream_nodes_from_jsonl(nodes_file):
             # Add ArangoDB _key
             arango_key = create_arango_key(
@@ -34,7 +34,7 @@ def prepare_for_arango_streaming(nodes_file: Path, edges_file: Path, output_dir:
             )
             node['_key'] = arango_key
             
-            outfile.write(json.dumps(node) + '\n')
+            writer.write(node)
             node_count += 1
             
             if node_count % 10000 == 0:
@@ -42,7 +42,7 @@ def prepare_for_arango_streaming(nodes_file: Path, edges_file: Path, output_dir:
     
     # Process edges
     edge_count = 0
-    with open(arango_edges, 'w') as outfile:
+    with jsonlines.open(arango_edges, 'w') as writer:
         for edge in stream_edges_from_jsonl(edges_file):
             # Add ArangoDB _key
             predicate = edge.get('predicate', 'related_to')
@@ -50,7 +50,7 @@ def prepare_for_arango_streaming(nodes_file: Path, edges_file: Path, output_dir:
             arango_key = create_arango_key(edge_key, True, 254, True)
             edge['_key'] = arango_key
             
-            outfile.write(json.dumps(edge) + '\n')
+            writer.write(edge)
             edge_count += 1
             
             if edge_count % 10000 == 0:
