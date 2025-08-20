@@ -1,16 +1,30 @@
 sources:
   kg2:
-    input_path: "input_data/kg2/kg2.json"
-    harmonized_output: "artifacts/harmonized/kg2/kg2_harmonized.json"
+    # RTX-KG2 has separate nodes and edges files
+    nodes_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-nodes-test.jsonl"
+    edges_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-edges-test.jsonl"
+    harmonized_output:
+      nodes: "artifacts/harmonized/kg2/nodes.jsonl"
+      edges: "artifacts/harmonized/kg2/edges.jsonl"
     priority: 1  # Highest priority for canonical ID selection
+    source_type: "separate_files"
 
   spoke:
-    input_path: "input_data/spoke/spoke.json"
-    harmonized_output: "artifacts/harmonized/spoke/spoke_harmonized.json"
+    # SPOKE has mixed nodes and edges in one file
+    input_file: "input_data/spoke/v6/spokeV6_test_human.jsonl"
+    harmonized_output:
+      nodes: "artifacts/harmonized/spoke/nodes.jsonl"
+      edges: "artifacts/harmonized/spoke/edges.jsonl"
     priority: 2
+    source_type: "mixed_file"
 
 integration:
-  output_path: "artifacts/integrated/phenomekg/phenomekg_v1.json"
+  output_directory: "artifacts/integrated/phenomekg/"
+  unified_output:
+    nodes: "unified_nodes.jsonl"
+    edges: "unified_edges.jsonl"
+  primary_source: "kg2"  # Source to use for equivalency mappings
+  generate_metagraph: true
   entity_resolution:
     namespace_priority:
       - "CHEMBL.COMPOUND"
@@ -25,7 +39,10 @@ integration:
 post_processing:
   arango_export:
     enabled: true
-    output_path: "artifacts/export/arango/phenomekg_arango.json"
+    output_directory: "artifacts/export/arango/"
+    output_files:
+      nodes: "arango_nodes.jsonl"
+      edges: "arango_edges.jsonl"
     key_field_config:
       remove_invalid_chars: true
       max_length: 254
@@ -40,7 +57,17 @@ post_processing:
       - "biolink:SmallMolecule"
       - "biolink:Disease"
       - "biolink:Pathway"
+      - "biolink:AnatomicalEntity"
+      - "biolink:ChemicalEntity"
+      - "biolink:MolecularActivity"
     include_edges: true
+
+metagraph:
+  generate_for_sources: true  # Generate metagraph for each harmonized source
+  generate_for_unified: true  # Generate metagraph for unified result
+  generate_comparisons: true  # Generate comparison between source and unified metagraphs
+  generate_cytoscape: true    # Generate Cytoscape visualization files
+  generate_summaries: true    # Generate human-readable summaries
 
 logging:
   level: "INFO"
