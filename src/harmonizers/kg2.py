@@ -7,7 +7,7 @@ import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
 
-
+KG2_IGNORE_PROPS = {'domain_range_exclusion'}
 KG2_NODE_PROP_NAME_OVERRIDES = {
     "all_categories": "categories",
     "equivalent_curies": "equivalent_ids",
@@ -45,12 +45,14 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
     with jsonlines.open(edges_input, 'r') as reader, jsonlines.open(edges_output, 'w') as writer:
         for line_num, edge in enumerate(reader, 1):
             try:
-                harmonized_edge = harmonize_kg2_edge(edge)
-                writer.write(harmonized_edge)
-                edge_count += 1
-                
-                if edge_count % 10000 == 0:
-                    logging.info(f"Processed {edge_count} edges")
+                # Exclude semmeddb edges and edges with conflicting domain/range
+                if not edge.get('domain_range_exclusion') and edge['primary_knowledge_source'] != 'infores:semmeddb':
+                    harmonized_edge = harmonize_kg2_edge(edge)
+                    writer.write(harmonized_edge)
+                    edge_count += 1
+                    
+                    if edge_count % 10000 == 0:
+                        logging.info(f"Processed {edge_count} edges")
                     
             except (KeyError, TypeError) as e:
                 logging.warning(f"Skipping invalid edge at line {line_num}: {e}")
@@ -77,7 +79,7 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
 def harmonize_kg2_node(node: dict) -> dict:
     """Harmonize a single RTX-KG2 node"""
     harmonized_node = {KG2_NODE_PROP_NAME_OVERRIDES.get(property_name, property_name): value
-                       for property_name, value in node.items()}
+                       for property_name, value in node.items() if property_name not in KG2_IGNORE_PROPS}
     harmonized_node['categories'] = [ensure_biolink_category(category) for category in harmonized_node['categories']]
     harmonized_node['canonical_category'] = ensure_biolink_category(harmonized_node['canonical_category'])
     return harmonized_node
@@ -86,7 +88,7 @@ def harmonize_kg2_node(node: dict) -> dict:
 def harmonize_kg2_edge(edge: dict) -> dict:
     """Harmonize a single RTX-KG2 edge"""
     harmonized_edge = {KG2_EDGE_PROP_NAME_OVERRIDES.get(property_name, property_name): value
-                       for property_name, value in edge.items()}
+                       for property_name, value in edge.items() if property_name not in KG2_IGNORE_PROPS}
     harmonized_edge['aggregator_knowledge_source'] = 'infores:rtx-kg2'
     harmonized_edge['predicate'] = ensure_biolink_predicate(harmonized_edge['predicate'])
     return harmonized_edge
