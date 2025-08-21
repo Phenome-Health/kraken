@@ -46,7 +46,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
             node_id = node['id']
             
             # Find canonical ID for this node
-            canonical_id = find_canonical_id(node_id, node.get('equivalent_identifiers', []), equivalency_index)
+            canonical_id = find_canonical_id(node_id, node.get('equivalent_ids', []), equivalency_index)
             
             if canonical_id in processed_nodes:
                 # Merge with existing canonical node
@@ -64,8 +64,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     # Save unified nodes
     save_nodes_to_jsonl(canonical_nodes.values(), unified_nodes)
     
-    # Phase 3: Process all edges with node ID resolution
-    edge_dedup = set()  # (canonical_subject, canonical_object, predicate) for deduplication
+    # Phase 3: Process all edges with node ID resolution (no merging)
     
     def process_edges():
         for source_name, source_files in harmonized_sources.items():
@@ -81,19 +80,12 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                     edge['object'], [], equivalency_index
                 )
                 
-                # Create edge key for deduplication
-                predicate = edge.get('predicate', 'biolink:related_to')
-                edge_key = (canonical_subject, canonical_object, predicate)
+                # Update edge with canonical IDs (no deduplication)
+                unified_edge = edge.copy()
+                unified_edge['subject'] = canonical_subject
+                unified_edge['object'] = canonical_object
                 
-                if edge_key not in edge_dedup:
-                    edge_dedup.add(edge_key)
-                    
-                    # Update edge with canonical IDs
-                    unified_edge = edge.copy()
-                    unified_edge['subject'] = canonical_subject
-                    unified_edge['object'] = canonical_object
-                    
-                    yield unified_edge
+                yield unified_edge
     
     # Save unified edges
     save_edges_to_jsonl(process_edges(), unified_edges)
@@ -190,8 +182,7 @@ def merge_source_with_resolution(base_kg, source_kg, node_index, source_name, co
 
             nodes_added += 1
 
-    # Process edges (with node ID resolution)
-    edges_merged = 0
+    # Process edges (with node ID resolution, no merging)
     edges_added = 0
 
     for source_edge in source_kg.edges(data=True):
@@ -201,20 +192,12 @@ def merge_source_with_resolution(base_kg, source_kg, node_index, source_name, co
         canonical_subject = node_index.get(source_subject, source_subject)
         canonical_object = node_index.get(source_object, source_object)
 
-        # Check if edge already exists
-        if base_kg.has_edge(canonical_subject, canonical_object):
-            # Merge edge data
-            existing_edge_data = base_kg.edges[canonical_subject, canonical_object]
-            merged_edge_data = merge_edge_data(existing_edge_data, edge_data, source_name)
-            base_kg.edges[canonical_subject, canonical_object].update(merged_edge_data)
-            edges_merged += 1
-        else:
-            # Add new edge
-            base_kg.add_edge(canonical_subject, canonical_object, **edge_data)
-            edges_added += 1
+        # Add edge (no deduplication)
+        base_kg.add_edge(canonical_subject, canonical_object, **edge_data)
+        edges_added += 1
 
     logging.info(f"  Nodes: {nodes_merged} merged, {nodes_added} added")
-    logging.info(f"  Edges: {edges_merged} merged, {edges_added} added")
+    logging.info(f"  Edges: {edges_added} added")
 
     return base_kg, node_index
 
@@ -230,20 +213,17 @@ def find_matching_node(node_id: str, equiv_ids: List[str], node_index: Dict[str,
     return None
 
 
-def merge_node_data(existing_node: dict, new_node: dict, source_name: str, config: dict) -> dict:
+def merge_node_data(existing_node: dict, new_node: dict, source_name: str, config: dict = None) -> dict:
     """Merge data from new node into existing node"""
     merged = existing_node.copy()
 
     # Merge equivalent_ids
-    existing_equivs = set(merged.get('equivalent_identifiers', []))
-    new_equivs = set(new_node.get('equivalent_identifiers', []))
-    merged['equivalent_identifiers'] = list(existing_equivs | new_equivs)
+    existing_equivs = set(merged.get('equivalent_ids', []))
+    new_equivs = set(new_node.get('equivalent_ids', []))
+    merged['equivalent_ids'] = list(existing_equivs | new_equivs)
 
-    # Add source provenance  
-    existing_provided_bys = merged.get('provided_by', [])
-    if source_name not in existing_provided_bys:
-        existing_provided_bys.append(source_name)
-    merged['provided_by'] = existing_provided_bys
+    # Merge sources
+    merged['provided_by'] = existing_node.get('provided_by', []) + new_node.get('provided_by', [])
 
     # Merge other properties (simple first-wins strategy for now)
     for key, value in new_node.items():
@@ -258,32 +238,8 @@ def merge_node_data(existing_node: dict, new_node: dict, source_name: str, confi
     return merged
 
 
-def merge_edge_data(existing_edge: dict, new_edge: dict, source_name: str) -> dict:
-    """Merge edge data, combining sources and handling conflicts"""
-    merged = existing_edge.copy()
-
-    # Add source provenance
-    sources = set(merged.get('sources', [existing_edge.get('source', '')]))
-    sources.add(source_name)
-    merged['sources'] = list(sources)
-
-    # For edges, we mostly just want to track multiple sources
-    # Could add more sophisticated conflict resolution here if needed
-
-    return merged
 
 
-def resolve_property_conflict(existing_value, new_value, property_name: str, namespace_priority: List[str]):
-    """Resolve conflicts between property values from different sources"""
-
-    # If values are the same, no conflict
-    if existing_value == new_value:
-        return existing_value
-
-    # For now, just keep the existing value (first source wins)
-    # Could implement more sophisticated resolution based on source priority
-    logging.debug(f"Property conflict for {property_name}: keeping '{existing_value}' over '{new_value}'")
-    return existing_value
 
 
 def choose_canonical_id(equivalent_ids: set, namespace_priority: List[str] = None) -> str:
