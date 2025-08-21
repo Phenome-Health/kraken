@@ -659,18 +659,21 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 // Genomic/Genetic entities (blues)
                                 if (category.includes('Gene') || category.includes('Protein') || 
                                     category.includes('Transcript') || category.includes('MicroRNA') ||
-                                    category.includes('RNA') || category.includes('Genomic')) {{
+                                    category.includes('RNA') || category.includes('Genomic') ||
+                                    category.includes('Polypeptide') || category.includes('NucleicAcidEntity')) {{
                                     baseColor = [173, 216, 230]; // Light blue
                                 }}
                                 // Chemical/Drug entities (greens) 
                                 else if (category.includes('Chemical') || category.includes('Drug') ||
                                          category.includes('SmallMolecule') || category.includes('Compound') ||
-                                         category.includes('MolecularMixture') || category.includes('Metabolite')) {{
+                                         category.includes('MolecularMixture') || category.includes('Metabolite') ||
+                                         category.includes('Food') || category.includes('MolecularEntity')) {{
                                     baseColor = [180, 215, 180]; // Softer sage green
                                 }}
                                 // Disease/Phenotype entities (reds/pinks)
                                 else if (category.includes('Disease') || category.includes('Phenotypic') ||
-                                         category.includes('Symptom') || category.includes('ClinicalFinding')) {{
+                                         category.includes('Symptom') || category.includes('ClinicalFinding') ||
+                                         category.includes('BehavioralFeature')) {{
                                     baseColor = [255, 182, 193]; // Light pink
                                 }}
                                 // Anatomy/Biology entities (purples)
