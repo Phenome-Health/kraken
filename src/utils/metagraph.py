@@ -703,7 +703,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                             'text-halign': 'center',
                             'font-size': function(ele) {{
                                 const count = ele.data('node_count') || 1;
-                                return Math.max(10, Math.min(16, 8 + count / 50)) + 'px';
+                                return Math.max(14, Math.min(20, 12 + count / 50)) + 'px';
                             }},
                             'font-weight': 'bold',
                             'text-outline-width': 1,
