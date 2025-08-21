@@ -29,7 +29,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     logging.info("Starting streaming source integration...")
     
     # Phase 1: Build equivalency mappings from primary source
-    primary_source_name = config.get('primary_source', 'rtx-kg2')
+    primary_source_name = config.get('primary_source', 'kg2')
     primary_nodes_path = harmonized_sources[primary_source_name]['nodes']
     
     logging.info(f"Loading equivalency mappings from {primary_source_name}")

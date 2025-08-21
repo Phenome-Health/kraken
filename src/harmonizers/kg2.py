@@ -35,8 +35,8 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
                 writer.write(harmonized_node)
                 node_count += 1
                 
-                if node_count % 10000 == 0:
-                    logging.info(f"Processed {node_count} nodes")
+                if node_count % 100000 == 0:
+                    logging.info(f"Processed {node_count} KG2 nodes")
                     
             except (KeyError, TypeError) as e:
                 logging.warning(f"Skipping invalid node at line {line_num}: {e}")
@@ -51,8 +51,8 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
                     writer.write(harmonized_edge)
                     edge_count += 1
                     
-                    if edge_count % 10000 == 0:
-                        logging.info(f"Processed {edge_count} edges")
+                    if edge_count % 100000 == 0:
+                        logging.info(f"Processed {edge_count} KG2 edges")
                     
             except (KeyError, TypeError) as e:
                 logging.warning(f"Skipping invalid edge at line {line_num}: {e}")

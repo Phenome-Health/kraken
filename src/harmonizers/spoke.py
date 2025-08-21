@@ -29,16 +29,16 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                     nodes_writer.write(harmonized_node)
                     node_count += 1
                     
-                    if node_count % 10000 == 0:
-                        logging.info(f"Processed {node_count} nodes")
+                    if node_count % 100000 == 0:
+                        logging.info(f"Processed {node_count} SPOKE nodes")
                 
                 elif item_type == 'relationship':
                     harmonized_edge = harmonize_spoke_edge(item)
                     edges_writer.write(harmonized_edge)
                     edge_count += 1
                     
-                    if edge_count % 10000 == 0:
-                        logging.info(f"Processed {edge_count} edges")
+                    if edge_count % 100000 == 0:
+                        logging.info(f"Processed {edge_count} SPOKE edges")
                         
             except (KeyError, TypeError) as e:
                 logging.warning(f"Skipping invalid item at line {line_num}: {e}")
@@ -135,7 +135,8 @@ def map_spoke_edge_type_to_biolink(edge_type: str) -> str:
         'TREATS': 'biolink:treats',
         'CAUSES': 'biolink:causes',
         'ASSOCIATED_WITH': 'biolink:associated_with',
-        'UPREGULATES': 'biolink:affects',  # TODO: Use qualifiers here... 
+
+        'UPREGULATES': 'biolink:affects',  # TODO: Use qualifiers here... regulates vs. affects?
         'ISA': 'biolink:subclass_of'
     }
     

@@ -1,8 +1,8 @@
 sources:
   kg2:
     # RTX-KG2 has separate nodes and edges files
-    nodes_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-nodes-test.jsonl"
-    edges_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-edges-test.jsonl"
+    nodes_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-nodes.jsonl"
+    edges_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-edges.jsonl"
     harmonized_output:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
@@ -11,7 +11,7 @@ sources:
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
-    input_file: "input_data/spoke/v6/spokeV6_test_human.jsonl"
+    input_file: "input_data/spoke/v6/spokeV6_human.jsonl"
     harmonized_output:
       nodes: "artifacts/harmonized/spoke/nodes.jsonl"
       edges: "artifacts/harmonized/spoke/edges.jsonl"
@@ -24,17 +24,6 @@ integration:
     nodes: "unified_nodes.jsonl"
     edges: "unified_edges.jsonl"
   primary_source: "kg2"  # Source to use for equivalency mappings
-  generate_metagraph: true
-  entity_resolution:
-    namespace_priority:
-      - "CHEMBL.COMPOUND"
-      - "PUBCHEM.COMPOUND"
-      - "DRUGBANK"
-      - "MESH"
-      - "UNIPROT"
-      - "ENSEMBL"
-      - "HGNC"
-    conflict_resolution: "source_priority"  # Use source priority for conflicts
 
 post_processing:
   arango_export:
@@ -48,15 +37,6 @@ post_processing:
   biomapper_export:
     enabled: true
     output_directory: "artifacts/export/biomapper/"
-    node_types_to_export:
-      - "biolink:Gene"
-      - "biolink:Protein"
-      - "biolink:SmallMolecule"
-      - "biolink:Disease"
-      - "biolink:Pathway"
-      - "biolink:AnatomicalEntity"
-      - "biolink:ChemicalEntity"
-      - "biolink:MolecularActivity"
     include_edges: true
 
 metagraph:
