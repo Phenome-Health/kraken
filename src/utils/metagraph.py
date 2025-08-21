@@ -650,12 +650,52 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                         selector: 'node',
                         style: {{
                             'background-color': function(ele) {{
+                                const category = ele.data('id') || '';
                                 const count = ele.data('node_count') || 1;
-                                const intensity = Math.min(255, Math.max(100, count / 5));
-                                return `rgb(${{Math.floor(intensity * 0.3)}}, ${{Math.floor(intensity * 0.8)}}, ${{Math.floor(intensity * 0.5)}})`;
+                                
+                                // Determine theme based on category
+                                let baseColor = [200, 200, 200]; // Default gray
+                                
+                                // Genomic/Genetic entities (blues)
+                                if (category.includes('Gene') || category.includes('Protein') || 
+                                    category.includes('Transcript') || category.includes('MicroRNA') ||
+                                    category.includes('RNA') || category.includes('Genomic')) {{
+                                    baseColor = [173, 216, 230]; // Light blue
+                                }}
+                                // Chemical/Drug entities (greens) 
+                                else if (category.includes('Chemical') || category.includes('Drug') ||
+                                         category.includes('SmallMolecule') || category.includes('Compound') ||
+                                         category.includes('MolecularMixture') || category.includes('Metabolite')) {{
+                                    baseColor = [180, 215, 180]; // Softer sage green
+                                }}
+                                // Disease/Phenotype entities (reds/pinks)
+                                else if (category.includes('Disease') || category.includes('Phenotypic') ||
+                                         category.includes('Symptom') || category.includes('ClinicalFinding')) {{
+                                    baseColor = [255, 182, 193]; // Light pink
+                                }}
+                                // Anatomy/Biology entities (purples)
+                                else if (category.includes('Anatomical') || category.includes('Cell') ||
+                                         category.includes('Tissue') || category.includes('Organ') ||
+                                         category.includes('OrganismTaxon') || category.includes('Cellular')) {{
+                                    baseColor = [221, 160, 221]; // Plum
+                                }}
+                                // Pathway/Process entities (oranges)
+                                else if (category.includes('Pathway') || category.includes('Process') ||
+                                         category.includes('Activity') || category.includes('Function') ||
+                                         category.includes('Event')) {{
+                                    baseColor = [255, 218, 185]; // Peach
+                                }}
+                                
+                                // Adjust intensity based on count (darker for more entities)
+                                const intensity = Math.min(0.4, Math.max(0.1, count / 10000));
+                                const r = Math.floor(baseColor[0] - (baseColor[0] - 255) * intensity);
+                                const g = Math.floor(baseColor[1] - (baseColor[1] - 255) * intensity);
+                                const b = Math.floor(baseColor[2] - (baseColor[2] - 255) * intensity);
+                                
+                                return `rgb(${{r}}, ${{g}}, ${{b}})`;
                             }},
                             'label': 'data(label)',
-                            'color': '#fff',
+                            'color': '#000',
                             'text-valign': 'center',
                             'text-halign': 'center',
                             'font-size': function(ele) {{
@@ -663,8 +703,8 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 return Math.max(10, Math.min(16, 8 + count / 50)) + 'px';
                             }},
                             'font-weight': 'bold',
-                            'text-outline-width': 2,
-                            'text-outline-color': '#333',
+                            'text-outline-width': 1,
+                            'text-outline-color': '#fff',
                             'width': function(ele) {{
                                 const count = ele.data('node_count') || 1;
                                 return Math.max(40, Math.min(120, 30 + count / 3));

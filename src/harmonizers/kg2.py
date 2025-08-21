@@ -35,7 +35,7 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
                 writer.write(harmonized_node)
                 node_count += 1
                 
-                if node_count % 100000 == 0:
+                if node_count % 500000 == 0:
                     logging.info(f"Processed {node_count} KG2 nodes")
                     
             except (KeyError, TypeError) as e:
@@ -51,7 +51,7 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
                     writer.write(harmonized_edge)
                     edge_count += 1
                     
-                    if edge_count % 100000 == 0:
+                    if edge_count % 1000000 == 0:
                         logging.info(f"Processed {edge_count} KG2 edges")
                     
             except (KeyError, TypeError) as e:

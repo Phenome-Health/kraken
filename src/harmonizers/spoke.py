@@ -29,7 +29,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                     nodes_writer.write(harmonized_node)
                     node_count += 1
                     
-                    if node_count % 100000 == 0:
+                    if node_count % 500000 == 0:
                         logging.info(f"Processed {node_count} SPOKE nodes")
                 
                 elif item_type == 'relationship':
@@ -37,7 +37,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                     edges_writer.write(harmonized_edge)
                     edge_count += 1
                     
-                    if edge_count % 100000 == 0:
+                    if edge_count % 1000000 == 0:
                         logging.info(f"Processed {edge_count} SPOKE edges")
                         
             except (KeyError, TypeError) as e:
