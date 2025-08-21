@@ -34,6 +34,7 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
     
     logging.info("Preparing KG for ArangoDB...")
     
+    logging.info(f"Initiating Biolink Model Toolkit..")
     biolink_url = f"https://raw.githubusercontent.com/biolink/biolink-model/refs/tags/v{config['biolink_version']}/biolink-model.yaml"
     bmt = Toolkit(schema=biolink_url)
     ancestor_map = defaultdict(set)
@@ -117,7 +118,7 @@ def create_arango_node(node: dict, ancestor_map: defaultdict[set], bmt: Toolkit,
                     for property_name, value in node.items() if property_name not in IGNORE_PROPS}
     arango_node['_key'] = get_cleaned_node_key(node['id'])
 
-                # Handle missing equivalent_curies property (happens with KG2pre build node)
+    # Handle missing equivalent_curies property (happens with KG2pre build node)
     if "equivalent_ids" not in arango_node:
         arango_node["equivalent_ids"] = [arango_node["id"]]
     arango_node["equivalent_ids"] = sorted(arango_node["equivalent_ids"], key=custom_sort_key)
@@ -187,24 +188,28 @@ def create_arango_edge(edge: dict, ancestor_map: dict, bmt: Toolkit) -> dict:
 
 
 def count_neighbors(nodes_file_path: str, edges_file_path: str) -> Tuple[defaultdict, defaultdict]:
-    print(f"Beginning to count neighbors..")
     neighbor_counts = defaultdict(int)
     neighbor_counts_by_type = defaultdict(lambda: defaultdict(int))
 
+    logging.info(f"Loading categories map")
     with jsonlines.open(nodes_file_path, "r") as reader:
         categories_map = {node["id"]: node["categories"] for node in reader}
 
     # Tally up neighbor counts
+    logging.info(f"Beginning to count neighbors")
     with jsonlines.open(edges_file_path, "r") as reader:
         for edge in reader:
             subject_id = edge["subject"]
             object_id = edge["object"]
             neighbor_counts[subject_id] += 1
             neighbor_counts[object_id] += 1
-            for subj_category in categories_map[subject_id]:
-                neighbor_counts_by_type[object_id][subj_category] += 1
-            for obj_category in categories_map[object_id]:
-                neighbor_counts_by_type[subject_id][obj_category] += 1
+            if subject_id in categories_map and object_id in categories_map:
+                for subj_category in categories_map[subject_id]:
+                    neighbor_counts_by_type[object_id][subj_category] += 1
+                for obj_category in categories_map[object_id]:
+                    neighbor_counts_by_type[subject_id][obj_category] += 1
+            else:
+                logging.warning(f"Edge from {subject_id} to {object_id} is an orphan")
 
     return neighbor_counts, neighbor_counts_by_type
 

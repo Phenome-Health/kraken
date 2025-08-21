@@ -82,6 +82,7 @@ def harmonize_kg2_node(node: dict) -> dict:
                        for property_name, value in node.items() if property_name not in KG2_IGNORE_PROPS}
     harmonized_node['categories'] = [ensure_biolink_category(category) for category in harmonized_node['categories']]
     harmonized_node['canonical_category'] = ensure_biolink_category(harmonized_node['canonical_category'])
+    harmonized_node['provided_by'] = ['infores:kg2']
     return harmonized_node
 
 

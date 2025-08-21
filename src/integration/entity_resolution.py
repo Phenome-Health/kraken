@@ -57,7 +57,6 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                 # First time seeing this canonical entity
                 canonical_nodes[canonical_id] = node.copy()
                 canonical_nodes[canonical_id]['id'] = canonical_id
-                canonical_nodes[canonical_id]['sources'] = [source_name]
                 processed_nodes.add(canonical_id)
     
     logging.info(f"Processed {len(canonical_nodes)} unique nodes")
@@ -93,7 +92,6 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                     unified_edge = edge.copy()
                     unified_edge['subject'] = canonical_subject
                     unified_edge['object'] = canonical_object
-                    unified_edge['sources'] = [source_name]
                     
                     yield unified_edge
     
@@ -242,10 +240,10 @@ def merge_node_data(existing_node: dict, new_node: dict, source_name: str, confi
     merged['equivalent_identifiers'] = list(existing_equivs | new_equivs)
 
     # Add source provenance  
-    existing_sources = merged.get('sources', [])
-    if source_name not in existing_sources:
-        existing_sources.append(source_name)
-    merged['sources'] = existing_sources
+    existing_provided_bys = merged.get('provided_by', [])
+    if source_name not in existing_provided_bys:
+        existing_provided_bys.append(source_name)
+    merged['provided_by'] = existing_provided_bys
 
     # Merge other properties (simple first-wins strategy for now)
     for key, value in new_node.items():

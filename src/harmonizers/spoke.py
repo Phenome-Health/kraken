@@ -3,6 +3,7 @@ SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 """
 
 from pathlib import Path
+from typing import List
 import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
@@ -31,7 +32,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                     if node_count % 10000 == 0:
                         logging.info(f"Processed {node_count} nodes")
                 
-                elif item_type == 'edge':
+                elif item_type == 'relationship':
                     harmonized_edge = harmonize_spoke_edge(item)
                     edges_writer.write(harmonized_edge)
                     edge_count += 1
@@ -65,53 +66,41 @@ def harmonize_spoke_node(node_item: dict) -> dict:
     """Harmonize a single SPOKE node"""
     properties = node_item.get('properties', {})
     labels = node_item.get('labels', [])
+    if not labels:
+        raise ValueError(f"SPOKE node is missing labels: {node_item}")
     
-    # Map SPOKE labels to Biolink categories
-    biolink_category = map_spoke_labels_to_biolink(labels)
-    
-    harmonized = {
-        'id': properties.get('identifier') or node_item.get('id'),
-        'categories': [biolink_category],
+    # TODO: Stuff other properties into standardized ones..
+    harmonized_node = {
+        'id': node_item['id'],  # TODO: Convert to standard curies here..
+        'categories': map_spoke_labels_to_biolink(labels),
         'name': properties.get('name'),
-        'source': 'spoke'
+        'provided_by': ['infores:spoke'],
+        'spoke_node': node_item
     }
-    
-    # Copy other properties
-    for key, value in properties.items():
-        if key not in ['identifier', 'name'] and key not in harmonized:
-            harmonized[key] = value
-    
-    # Add original labels for reference
-    if labels:
-        harmonized['spoke_labels'] = labels
-    
-    return harmonized
+    return harmonized_node
 
 
 def harmonize_spoke_edge(edge_item: dict) -> dict:
     """Harmonize a single SPOKE edge"""
-    properties = edge_item.get('properties', {})
+    edge_type = edge_item.get('label')
+    if not edge_type:
+        raise ValueError(f"SPOKE edge is missing type: {edge_item}")
     
-    harmonized = {
-        'subject': edge_item.get('startNode') or edge_item.get('source'),
-        'object': edge_item.get('endNode') or edge_item.get('target'),  
-        'predicate': map_spoke_edge_type_to_biolink(edge_item.get('type')),
-        'source': 'spoke'
+     # TODO: Stuff other properties into standardized ones..
+    harmonized_edge = {
+        'subject': edge_item['start']['id'],  # TODO: Use standard curies here..
+        'object': edge_item['start']['id'],
+        'predicate': map_spoke_edge_type_to_biolink(edge_type),
+        'primary_knowledge_source': "TODO",  # TODO: Replace this placeholder.. 
+        'aggregator_knowledge_source': 'infores:spoke',
+        'spoke_edge': edge_item
     }
-    
-    # Copy other properties
-    for key, value in properties.items():
-        if key not in harmonized:
-            harmonized[key] = value
-    
-    return harmonized
+    return harmonized_edge
 
 
-def map_spoke_labels_to_biolink(labels: list) -> str:
+def map_spoke_labels_to_biolink(labels: List[str]) -> List[str]:
     """Map SPOKE node labels to Biolink categories"""
-    if not labels:
-        return "biolink:NamedThing"
-    
+
     # Simple mapping - extend as needed
     label_mapping = {
         'Anatomy': 'biolink:AnatomicalEntity',
@@ -125,27 +114,22 @@ def map_spoke_labels_to_biolink(labels: list) -> str:
         'CellularComponent': 'biolink:CellularComponent'
     }
     
-    # Use first recognized label
-    for label in labels:
-        if label in label_mapping:
-            return label_mapping[label]
-    
-    return "biolink:NamedThing"
+    return [label_mapping.get(label, label) for label in labels]
 
 
 def map_spoke_edge_type_to_biolink(edge_type: str) -> str:
     """Map SPOKE edge types to Biolink predicates"""
-    if not edge_type:
-        return "biolink:related_to"
-    
+    core_edge_type = edge_type.split('_')[0]
+
     # Simple mapping - extend as needed
     type_mapping = {
         'INTERACTS_WITH': 'biolink:interacts_with',
-        'REGULATES': 'biolink:regulates', 
+        'REGULATES': 'biolink:regulates',  # TODO: is this real? think may be old..
         'PART_OF': 'biolink:part_of',
         'TREATS': 'biolink:treats',
         'CAUSES': 'biolink:causes',
-        'ASSOCIATED_WITH': 'biolink:associated_with'
+        'ASSOCIATED_WITH': 'biolink:associated_with',
+        'UPREGULATES': 'biolink:affects'  # TODO: Use qualifiers here... 
     }
     
-    return type_mapping.get(edge_type, f"biolink:{edge_type.lower()}")
+    return type_mapping.get(core_edge_type, core_edge_type)
