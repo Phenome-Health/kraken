@@ -83,6 +83,19 @@ def harmonize_kg2_node(node: dict) -> dict:
     harmonized_node['categories'] = [ensure_biolink_category(category) for category in harmonized_node['categories']]
     harmonized_node['canonical_category'] = ensure_biolink_category(harmonized_node['canonical_category'])
     harmonized_node['provided_by'] = ['infores:kg2']
+
+    # Handle missing equivalent_curies property (happens with KG2pre build node)
+    if "equivalent_ids" not in harmonized_node:
+        harmonized_node["equivalent_ids"] = [harmonized_node["id"]]
+    harmonized_node["equivalent_ids"] = sorted(harmonized_node["equivalent_ids"], key=str.casefold)
+
+    # Ensure all nodes have 'synonyms' as expected, and 'name' is in it
+    if harmonized_node.get("name"):
+        if not harmonized_node.get("synonyms"):
+            harmonized_node["synonyms"] = [harmonized_node["name"]]
+        if harmonized_node["name"] not in harmonized_node["synonyms"]:
+            harmonized_node["synonyms"].append(harmonized_node["name"])
+
     return harmonized_node
 
 

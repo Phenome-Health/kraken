@@ -118,38 +118,27 @@ def create_arango_node(node: dict, ancestor_map: defaultdict[set], bmt: Toolkit,
                     for property_name, value in node.items() if property_name not in IGNORE_PROPS}
     arango_node['_key'] = get_cleaned_node_key(node['id'])
 
-    # Handle missing equivalent_curies property (happens with KG2pre build node)
-    if "equivalent_ids" not in arango_node:
-        arango_node["equivalent_ids"] = [arango_node["id"]]
-    arango_node["equivalent_ids"] = sorted(arango_node["equivalent_ids"], key=custom_sort_key)
-
-    # Ensure all nodes have 'synonyms' as expected, and 'name' is in it
-    if arango_node.get("name"):
-        if not arango_node.get("synonyms"):
-            arango_node["synonyms"] = [arango_node["name"]]
-        if arango_node["name"] not in arango_node["synonyms"]:
-            arango_node["synonyms"].append(arango_node["name"])
-
-        # Clean name and make normalized versions of it
-        arango_node["name"] = clean_text(arango_node["name"])
-        arango_node["name_normalized"] = normalize_text(arango_node["name"])
+    # Clean name and make normalized versions of it
+    if arango_node.get('name'):
+        arango_node['name'] = clean_text(arango_node['name'])
+        arango_node['name_normalized'] = normalize_text(arango_node['name'])
     
     # Clean synonyms and make normalized version of it
-    if arango_node.get("synonyms"):
-        arango_node["synonyms"] = sorted(list({clean_text(synonym)
-                                                for synonym in arango_node["synonyms"]}),
+    if arango_node.get('synonyms'):
+        arango_node['synonyms'] = sorted(list({clean_text(synonym)
+                                                for synonym in arango_node['synonyms']}),
                                             key=custom_sort_key)
-        arango_node["synonyms_normalized"] = sorted(list({normalize_text(synonym)
-                                                            for synonym in arango_node["synonyms"]}),
+        arango_node['synonyms_normalized'] = sorted(list({normalize_text(synonym)
+                                                            for synonym in arango_node['synonyms']}),
                                                     key=custom_sort_key)
 
     # Clean the description field, if present (get rid of html-encoded characters)
-    if arango_node.get("description"):
-        arango_node["description"] = clean_text(arango_node["description"])
+    if arango_node.get('description'):
+        arango_node['description'] = clean_text(arango_node['description'])
 
     # Add expanded entity types (includes Biolink ancestors)
     ancestors = set()
-    for entity_type in arango_node["entity_types"]:
+    for entity_type in arango_node['entity_types']:
         if entity_type not in ancestor_map:
             ancestor_map[entity_type] = set(bmt.get_ancestors(entity_type,
                                                                 formatted=True,
@@ -159,6 +148,8 @@ def create_arango_node(node: dict, ancestor_map: defaultdict[set], bmt: Toolkit,
     arango_node["entity_types_ancestral"] = list(ancestors)
 
     # Extract prefixes from equivalent IDs for easy lookup later
+    if 'equivalent_ids' not in arango_node:
+        print(arango_node)
     prefixes = {equivalent_id.split(":")[0] for equivalent_id in arango_node["equivalent_ids"]}
     arango_node["id_prefixes"] = sorted(list(prefixes))
 

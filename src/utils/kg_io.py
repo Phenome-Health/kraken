@@ -91,21 +91,18 @@ def load_node_mappings(nodes_file: Path, key_field: str = 'id') -> Dict[str, Dic
     return mappings
 
 
-def load_equivalency_mappings(nodes_file: Path) -> Dict[str, set]:
+def load_equivalency_mappings(nodes_file: Path) -> Dict[str, str]:
     """Load equivalency mappings for entity resolution"""
     logging.debug(f"Loading equivalency mappings from {nodes_file}")
     
     equivalencies = {}
     
     for node in stream_nodes_from_jsonl(nodes_file):
-        node_id = node.get('id')
-        equiv_ids = node.get('equivalent_identifiers', [])
-        
-        if node_id and equiv_ids:
-            # Create bidirectional mappings
-            all_ids = {node_id} | set(equiv_ids)
-            for id_ in all_ids:
-                equivalencies[id_] = all_ids
+        canonical_id = node['id']
+        equiv_ids = node['equivalent_ids']
+
+        for equiv_id in equiv_ids:
+            equivalencies[equiv_id] = canonical_id
     
     logging.info(f"Loaded equivalencies for {len(equivalencies)} entities")
     return equivalencies

@@ -75,6 +75,7 @@ def harmonize_spoke_node(node_item: dict) -> dict:
         'categories': map_spoke_labels_to_biolink(labels),
         'name': properties.get('name'),
         'provided_by': ['infores:spoke'],
+        'equivalent_ids': [node_item['id']],  # TODO: load any equivalent ids as well..
         'spoke_node': node_item
     }
     return harmonized_node
