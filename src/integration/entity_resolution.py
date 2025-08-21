@@ -27,51 +27,52 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     logging.info("Starting streaming source integration...")
     
     # Phase 1: Build equivalency mappings from primary source
-    primary_source = config.get('primary_source', 'rtx-kg2')
-    primary_nodes_file = harmonized_sources[primary_source]['nodes']
+    primary_source_name = config.get('primary_source', 'rtx-kg2')
+    primary_nodes_path = harmonized_sources[primary_source_name]['nodes']
     
-    logging.info(f"Loading equivalency mappings from {primary_source}")
-    equivalency_index = load_equivalency_mappings(primary_nodes_file)
-    processed_canonical_nodes = {}  # canonical_id -> merged_node_data
+    logging.info(f"Loading equivalency mappings from {primary_source_name}")
+    equivalency_index = load_equivalency_mappings(primary_nodes_path)
+    processed_canonical_nodes = {node['id']: node for node in stream_nodes_from_jsonl(primary_nodes_path)}  # canonical_id -> merged_node_data
     
     # Phase 2: Process all nodes, merging as we go
 
     for source_name, source_files in harmonized_sources.items():
-        logging.info(f"Processing nodes from {source_name}")
-        nodes_file = source_files['nodes']
-        
-        for node in stream_nodes_from_jsonl(nodes_file):
-            node_id = node['id']
-            node_equiv_ids = node.get('equivalent_ids', [node_id])
+        if source_name != primary_source_name:  # Already loaded these as the starting point
+            logging.info(f"Processing nodes from {source_name}")
+            nodes_file = source_files['nodes']
             
-            # Find canonical ID for this node
-            canonical_id = find_canonical_id(node_id, node_equiv_ids, equivalency_index)
-            
-            if canonical_id in processed_canonical_nodes:
-                # Merge with existing canonical node
-                existing_canonical_node = processed_canonical_nodes[canonical_id]
-                merge_into_existing_node(node, existing_canonical_node)
-            else:
-                # First time seeing this canonical entity
-                processed_canonical_nodes[canonical_id] = node
-                processed_canonical_nodes[canonical_id]['id'] = canonical_id
-                # Update our equivalency index with these new canonical mappings
-                for equiv_id in node_equiv_ids:
-                    equivalency_index[equiv_id] = canonical_id
+            for node in stream_nodes_from_jsonl(nodes_file):
+                node_id = node['id']
+                node_equiv_ids = node['equivalent_ids']
+                
+                # Find canonical ID for this node
+                canonical_id = find_canonical_id(node_id, node_equiv_ids, equivalency_index)
+                
+                if canonical_id in processed_canonical_nodes:
+                    # Merge with existing canonical node
+                    existing_canonical_node = processed_canonical_nodes[canonical_id]
+                    merge_into_existing_node(node, existing_canonical_node)
+                else:
+                    # First time seeing this canonical entity
+                    processed_canonical_nodes[canonical_id] = node
+                    processed_canonical_nodes[canonical_id]['id'] = canonical_id
+                    # Update our equivalency index with these new canonical mappings
+                    for equiv_id in node_equiv_ids:
+                        equivalency_index[equiv_id] = canonical_id
 
     
-    logging.info(f"Processed {len(processed_canonical_nodes)} unique nodes")
+    logging.info(f"Formed {len(processed_canonical_nodes)} merged nodes")
     
     # Save unified nodes
     save_nodes_to_jsonl(processed_canonical_nodes.values(), unified_nodes_path)
     
     # Phase 3: Process all edges with node ID resolution (no merging)
 
-    for source_name, source_files in harmonized_sources.items():
-        logging.info(f"Processing edges from {source_name}")
-        edges_file = source_files['edges']
-        
-        with jsonlines.open(unified_edges_path, 'w') as writer:
+    with jsonlines.open(unified_edges_path, 'w') as writer:
+        for source_name, source_files in harmonized_sources.items():
+            logging.info(f"Processing edges from {source_name}")
+            edges_file = source_files['edges']
+            
             for edge in stream_edges_from_jsonl(edges_file):
                 # Resolve subject and object to canonical IDs
                 subj_id = edge['subject']

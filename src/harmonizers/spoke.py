@@ -87,10 +87,15 @@ def harmonize_spoke_edge(edge_item: dict) -> dict:
     if not edge_type:
         raise ValueError(f"SPOKE edge is missing type: {edge_item}")
     
-     # TODO: Stuff other properties into standardized ones..
+    # TODO: Stuff other properties into standardized ones..
+    spoke_subject_id = edge_item['start']['id']
+    spoke_object_id = edge_item['end']['id']
+    # Remove the full start/end node objects (replace with their SPOKE IDs instead - saves a lot of space)
+    edge_item['start'] = spoke_subject_id
+    edge_item['end'] = spoke_object_id
     harmonized_edge = {
-        'subject': edge_item['start']['id'],  # TODO: Use standard curies here..
-        'object': edge_item['start']['id'],
+        'subject': spoke_subject_id,  # TODO: Use standard curies here..
+        'object': spoke_object_id,
         'predicate': map_spoke_edge_type_to_biolink(edge_type),
         'primary_knowledge_source': "TODO",  # TODO: Replace this placeholder.. 
         'aggregator_knowledge_source': 'infores:spoke',
@@ -130,7 +135,8 @@ def map_spoke_edge_type_to_biolink(edge_type: str) -> str:
         'TREATS': 'biolink:treats',
         'CAUSES': 'biolink:causes',
         'ASSOCIATED_WITH': 'biolink:associated_with',
-        'UPREGULATES': 'biolink:affects'  # TODO: Use qualifiers here... 
+        'UPREGULATES': 'biolink:affects',  # TODO: Use qualifiers here... 
+        'ISA': 'biolink:subclass_of'
     }
     
     return type_mapping.get(core_edge_type, core_edge_type)

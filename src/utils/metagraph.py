@@ -71,15 +71,15 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
     stats = MetagraphStats(source_name)
     
     # Phase 1: Analyze nodes and build category mapping
-    node_categories = {}  # node_id -> category
+    categories_map = {}  # node_id -> categories
     
     logging.info("Analyzing nodes...")
     for node in stream_nodes_from_jsonl(nodes_file):
         node_id = node['id']
-        category = normalize_category(node.get('category', 'biolink:NamedThing'))
-        
-        node_categories[node_id] = category
-        stats.node_categories[category] += 1
+        categories = node['categories']
+        for category in categories:
+            categories_map[node_id] = category
+            stats.node_categories[category] += 1
         stats.total_nodes += 1
         
         if stats.total_nodes % 50000 == 0:
@@ -92,25 +92,27 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
     for edge in stream_edges_from_jsonl(edges_file):
         subject_id = edge['subject']
         object_id = edge['object']
-        predicate = edge.get('predicate', 'biolink:related_to')
-        
-        # Get categories (default to NamedThing if not found)
-        subject_category = node_categories.get(subject_id, 'biolink:NamedThing')
-        object_category = node_categories.get(object_id, 'biolink:NamedThing')
-        
-        # Update statistics
-        stats.edge_predicates[predicate] += 1
-        stats.category_pairs[(subject_category, object_category)] += 1
-        stats.predicate_category_pairs[(predicate, subject_category, object_category)] += 1
-        
-        # Update node degrees
-        stats.node_degrees[subject_id] += 1
-        stats.node_degrees[object_id] += 1
-        
-        # Update category connectivity
-        stats.category_connectivity[subject_category][object_category] += 1
-        
-        stats.total_edges += 1
+        predicate = edge['predicate']
+        if subject_id in categories_map and object_id in categories_map:
+            # Get categories (default to NamedThing if not found)
+            subject_category = categories_map[subject_id]
+            object_category = categories_map[object_id]
+            
+            # Update statistics
+            stats.edge_predicates[predicate] += 1
+            stats.category_pairs[(subject_category, object_category)] += 1
+            stats.predicate_category_pairs[(predicate, subject_category, object_category)] += 1
+            
+            # Update node degrees
+            stats.node_degrees[subject_id] += 1
+            stats.node_degrees[object_id] += 1
+            
+            # Update category connectivity
+            stats.category_connectivity[subject_category][object_category] += 1
+
+            stats.total_edges += 1
+        else:
+            logging.warning(f"Orphan edge: Edge between {subject_id} and {object_id} is missing from categories map")
         
         if stats.total_edges % 100000 == 0:
             logging.info(f"Processed {stats.total_edges} edges")
@@ -274,22 +276,6 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         summary_lines.append(f"  {subj_cat} -> {obj_cat}: {count:,} ({percentage:.1f}%)")
     
     return "\n".join(summary_lines)
-
-
-def normalize_category(category: Any) -> str:
-    """Normalize category to consistent format"""
-    if isinstance(category, list):
-        # Use first category if multiple
-        category = category[0] if category else 'biolink:NamedThing'
-    
-    if not isinstance(category, str):
-        return 'biolink:NamedThing'
-    
-    # Ensure biolink prefix
-    if not category.startswith('biolink:'):
-        category = f'biolink:{category}'
-    
-    return category
 
 
 def create_cytoscape_metagraph(stats: MetagraphStats, output_file: Path, min_edge_count: int = 1):
