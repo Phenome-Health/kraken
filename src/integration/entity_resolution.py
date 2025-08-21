@@ -15,6 +15,8 @@ from ..utils.kg_io import (
 )
 from ..utils.metagraph import generate_metagraph_for_source, compare_metagraphs
 
+LIST_PROPERTIES = ["equivalent_ids", "synonyms", "provided_by"]
+
 
 def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):
     """Merge harmonized sources using streaming approach"""
@@ -140,12 +142,9 @@ def find_canonical_id(node_id: str, equiv_ids: List[str], equivalency_index: Dic
 def merge_into_existing_node(new_node: dict, existing_node: dict):
     """Merge data from new node into existing node (edits in place)"""
     # Merge equivalent_ids
-    existing_equivs = set(existing_node.get('equivalent_ids', []))
-    new_equivs = set(new_node.get('equivalent_ids', []))
-    existing_node['equivalent_ids'] = list(existing_equivs | new_equivs)
-
-    # Merge sources
-    existing_node['provided_by'] = existing_node.get('provided_by', []) + new_node.get('provided_by', [])
+    for property_name in LIST_PROPERTIES:
+        existing_node[property_name] = list(set(existing_node[property_name]) | set(new_node[property_name]))
+    existing_node['equivalent_ids'] = list(set(existing_node['equivalent_ids']) | set(new_node['equivalent_ids']))
 
     # Merge other properties (simple first-wins strategy for now)
     for key, value in new_node.items():
