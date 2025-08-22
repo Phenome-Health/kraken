@@ -35,6 +35,8 @@ class SimpleIdentifierNormalizer:
             prefix_map['USZIPCODE'] = "https://www.unitedstateszipcodes.org/"
             prefix_map['SMILES'] = "https://pubchem.ncbi.nlm.nih.gov/compound/"
             prefix_map['CELLOSAURUS'] = "https://web.expasy.org/cellosaurus/"
+            prefix_map['VESICLEPEDIA'] = "http://microvesicles.org/exp_summary?exp_id="
+            prefix_map['NDFRT'] = "http://purl.bioontology.org/ontology/NDFRT/"
 
             return prefix_map
         else:
@@ -43,7 +45,7 @@ class SimpleIdentifierNormalizer:
     
     def _load_prefix_lowercase_map(self) -> Dict[str, str]:
         prefix_lowercase_map = {prefix.lower(): prefix for prefix in self.biolink_prefixes.keys()}
-        direct_shortnames = {
+        direct_shortnames = {  # Need to preload those relevant to the equiv_id extraction (otherwise not guaranteed to be there)
             'entrez': 'ncbigene',
             'uniprot': 'uniprotkb',
             'pubchem': 'pubchem.compound',
@@ -81,7 +83,7 @@ class SimpleIdentifierNormalizer:
         """Assign prefix based on node source, type and simple heuristics"""
         
         # Source/type-based assignments
-        if source:
+        if source:  # TODO: if these prefixes/their shortcuts are already in prefix map, can remove the if block? or want the flexible 'if in'?
             source_lower = source.lower()
             if "entrez" in source_lower or "ncbi" in source_lower:
                 return self._construct_normalized_curie(source_lower, 'ncbigene', identifier)
@@ -132,8 +134,12 @@ class SimpleIdentifierNormalizer:
                 return self._construct_normalized_curie(source_lower, 'react', identifier)
             elif source_lower == 'unitedstateszipcode_database':
                 return self._construct_normalized_curie(source_lower, 'uszipcode', identifier)
+            elif source_lower == 'fda via drugcentral':
+                return self._construct_normalized_curie(source_lower, 'ndfrt', identifier)
             elif 'smiles' in source_lower:
                 return self._construct_normalized_curie(source_lower, 'smiles', identifier)
+            elif 'vesiclepedia' in source_lower:
+                return self._construct_normalized_curie(source_lower, 'vesiclepedia', identifier)
             elif "ontology" in source_lower and node_type == "CellType":
                 return self._construct_normalized_curie(source_lower, 'cl', identifier)
             elif "ontology" in source_lower and node_type in ["BiologicalProcess", "MolecularFunction", "CellularComponent"]:
