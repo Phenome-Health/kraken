@@ -46,32 +46,34 @@ class SimpleIdentifierNormalizer:
         for shortname, prefix_lower in direct_shortnames.items():
             prefix_lowercase_map[shortname] = prefix_lowercase_map[prefix_lower]
         return prefix_lowercase_map
-
-    def normalize_prefix_case(self, prefix: str) -> str:
-        """Normalize prefix to correct Biolink capitalization"""
-        return self.prefix_lowercase_map[prefix.lower()]
     
-    def normalize_spoke_identifier(self, node_type: str, source: str, identifier: str) -> str:
+    def normalize_spoke_identifier(self, node_type: str, source: str, identifier: Any) -> str:
         """
         Simple identifier normalization - handles most cases with minimal complexity
         """
+        identifier = str(identifier)  # Sometimes SPOKE gives ints here
+
         # 1. If it's already a CURIE, use the prefix as our source (prefix overrides source info for determining what vocabulary this is from)
         if ":" in identifier:
             source, identifier = identifier.split(":", 1)
         
         # 2. Construct the normalized curie
         source_lower = source.lower()
-        if source_lower in self.prefix_lowercase_map or (source_lower, node_type) in self.prefix_lowercase_map:
-            normalized_prefix = self.normalize_prefix_case(source_lower)
+        if source_lower in self.prefix_lowercase_map:
+            normalized_prefix = self.prefix_lowercase_map[source_lower]
+            curie = f"{normalized_prefix}:{identifier}"
+        elif (source_lower, node_type) in self.prefix_lowercase_map:
+            normalized_prefix = self.prefix_lowercase_map[(source_lower, node_type)]
             curie = f"{normalized_prefix}:{identifier}"
         else:
             curie = self._derive_curie(node_type, source, identifier)
+        
         return curie
     
     def _derive_curie(self, node_type: str, source: str, identifier: str) -> str:
         """Assign prefix based on node source, type and simple heuristics"""
         
-        # Source/type -based assignments
+        # Source/type-based assignments
         if source:
             source_lower = source.lower()
             if "entrez" in source_lower or "ncbi" in source_lower:
@@ -94,6 +96,10 @@ class SimpleIdentifierNormalizer:
                 return self._construct_normalized_curie(source_lower, 'chembl.compound', identifier)
             elif "uberon" in source_lower:
                 return self._construct_normalized_curie(source_lower, 'uberon', identifier)
+            elif node_type == 'EC':
+                return self._construct_normalized_curie((source_lower, node_type), 'ec', identifier)
+            elif node_type == 'ClinicalLab':
+                return self._construct_normalized_curie((source_lower, node_type), 'loinc', identifier)
             elif "disease" in source_lower and "ontology" in source_lower:
                 return self._construct_normalized_curie(source_lower, 'doid', identifier)
             elif "pfam" in source_lower:
@@ -121,9 +127,14 @@ class SimpleIdentifierNormalizer:
                 return self._construct_normalized_curie(source_lower, 'go', identifier)
         
         # Back up to identifier pattern-based heuristics (simple ones only)
+        types_mesh_used_for = {'Symptom', 'SideEffect'}
         if identifier.startswith("rs") and identifier[2:].isdigit():
             return f"{self.prefix_lowercase_map['dbsnp']}:{identifier}"
-        elif re.match(r'^\d+\.\d+\.\d+\.\d+$', identifier):  # EC number
+        elif node_type in types_mesh_used_for and self._is_mesh_id(identifier):
+            return f"{self.prefix_lowercase_map['mesh']}:{identifier}"
+        elif node_type == 'Pathway' and source_lower == 'unknown' and self._is_metacyc_pathway_id(identifier):
+            return f"{self.prefix_lowercase_map['metacyc.reaction']}:{identifier}"
+        elif node_type == 'EC' and re.match(r'^\d+\.\d+\.\d+\.\d+$', identifier):  # EC number
             return f"{self.prefix_lowercase_map['ec']}:{identifier}"
         elif re.match(r'^\d+$', identifier):  # Pure number
             if node_type == "Gene":
@@ -138,17 +149,15 @@ class SimpleIdentifierNormalizer:
         """Extract equivalent IDs from properties - simplified approach"""
         equivalent_ids = set()
         none_strings = {'null', 'none', 'nan'}
+        straightforward_equiv_id_sources = {'chembl', 'drugbank', 'chebi', 'pubchem', 'kegg', 'mesh', 'ensembl', 'omim', 'icd10', 'snomedct'}
         
         # Figure out which properties probably contain an identifier
         relevant_properties = set()
         for property_name in properties.keys():
             property_name_lower = property_name.lower()
-            if property_name_lower in self.prefix_lowercase_map:
+            first_word = property_name.split('_')[0].lower()
+            if first_word in straightforward_equiv_id_sources and ('id' in property_name_lower or '_list' in property_name_lower):
                 relevant_properties.add(property_name)
-            else:
-                first_word = property_name.split('_')[0].lower()
-                if first_word in self.prefix_lowercase_map and ('id' in property_name_lower or '_list' in property_name_lower):
-                    relevant_properties.add(property_name)
         
         # Construct proper curie(s) for each of those properties
         for id_prop_name in relevant_properties:
@@ -172,3 +181,11 @@ class SimpleIdentifierNormalizer:
         # Cache this mapping (source --> normalized prefix), for faster processing later
         self.prefix_lowercase_map[prefix_key] = normalized_prefix
         return f"{normalized_prefix}:{identifier}"
+    
+    @staticmethod
+    def _is_mesh_id(local_id: str) -> bool:
+        return bool(re.match(r'^D\d+$', local_id)) or bool(re.match(r'^C\d+$', local_id))
+
+    @staticmethod
+    def _is_metacyc_pathway_id(local_id: str) -> bool:
+        return bool(re.match(r'^[A-Z0-9][A-Z0-9-]*$', local_id)) and 'PWY' in local_id

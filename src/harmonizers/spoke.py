@@ -84,6 +84,7 @@ def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -
     
     # Normalize the identifier
     original_identifier = properties.get('identifier', node_item['id'])
+    print(f"Getting normalized identifier for node:\n{node_item}")
     normalized_id = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier)
     
     # Extract additional equivalent identifiers from properties
@@ -118,8 +119,13 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> dict:
     primary_source, secondary_sources = get_all_sources(edge_item)
 
     # Map SPOKE internal IDs to normalized CURIEs
-    normalized_subject_id = spoke_to_normalized_id.get(subject_id, subject_id)
-    normalized_object_id = spoke_to_normalized_id.get(object_id, object_id)
+    if subject_id in spoke_to_normalized_id and object_id in spoke_to_normalized_id:
+        normalized_subject_id = spoke_to_normalized_id[subject_id]
+        normalized_object_id = spoke_to_normalized_id[object_id]
+    else:
+        logging.warning(f"No normalized IDs available for {subject_id} and {object_id}.")
+        normalized_subject_id = subject_id
+        normalized_object_id = object_id
     
     # Remove the full start/end node objects (replace with their SPOKE IDs instead - saves a lot of space)
     edge_item['start'] = subject_id
@@ -278,5 +284,6 @@ def get_all_sources(item: dict) -> Tuple[str, List[str]]:
 
     primary_source = sources[0] if sources else 'unknown'
     secondary_sources = sources[1:] if len(sources) > 1 else []
+    print(f"Primary source is {primary_source}, secondary source is {secondary_sources}")
 
     return primary_source, secondary_sources
