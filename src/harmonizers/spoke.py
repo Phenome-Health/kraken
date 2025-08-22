@@ -164,7 +164,7 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
     core_edge_type = '_'.join(edge_type.split('_')[:-1])  # Gets rid of suffix indicating node categories, like _GiP
 
     # Simple mapping - extend as needed
-    predicate: 'type'
+    predicate = 'type'
     flip = 'flip'
     qual_predicate = 'qualified_predicate'
     qual_direction = 'qualified_direction'
