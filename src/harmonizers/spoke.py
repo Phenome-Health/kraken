@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple
 import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
+from .identifier_utils import IdentifierNormalizer
 
 
 def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, rules: dict):
@@ -15,6 +16,12 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
 
     node_count = 0
     edge_count = 0
+    
+    # Initialize identifier normalizer
+    identifier_normalizer = IdentifierNormalizer()
+    
+    # Keep track of normalized node IDs for edge mapping
+    spoke_to_normalized_id = {}
 
     with jsonlines.open(input_file, 'r') as reader, \
          jsonlines.open(nodes_output, 'w') as nodes_writer, \
@@ -25,7 +32,11 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                 item_type = item.get('type')
                 
                 if item_type == 'node':
-                    harmonized_node = harmonize_spoke_node(item)
+                    harmonized_node = harmonize_spoke_node(item, identifier_normalizer)
+                    
+                    # Store mapping for edge processing
+                    spoke_to_normalized_id[item['id']] = harmonized_node['id']
+                    
                     nodes_writer.write(harmonized_node)
                     node_count += 1
                     
@@ -33,7 +44,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                         logging.info(f"Processed {node_count} SPOKE nodes")
                 
                 elif item_type == 'relationship':
-                    harmonized_edge = harmonize_spoke_edge(item)
+                    harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id)
                     edges_writer.write(harmonized_edge)
                     edge_count += 1
                     
@@ -62,48 +73,74 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
         logging.info("SPOKE metagraph generated")
 
 
-def harmonize_spoke_node(node_item: dict) -> dict:
+def harmonize_spoke_node(node_item: dict, identifier_normalizer: IdentifierNormalizer) -> dict:
     """Harmonize a single SPOKE node"""
     properties = node_item.get('properties', {})
     labels = node_item.get('labels', [])
     if not labels:
         raise ValueError(f"SPOKE node is missing labels: {node_item}")
     
-    # TODO: Stuff other properties into standardized ones..
+    # Get node type and source for identifier normalization
+    node_type = labels[0]  # Primary label
+    
+    # Get source(s) - handle both 'source' and 'sources' 
+    primary_source, secondary_sources = get_all_sources(node_item)
+    
+    # Normalize the identifier
+    original_identifier = properties.get('identifier', node_item['id'])
+    normalized_id, primary_equivalent_ids = identifier_normalizer.normalize_spoke_identifier(
+        node_type, primary_source, original_identifier, properties
+    )
+    
+    # Extract additional equivalent identifiers from properties
+    additional_equivalent_ids = identifier_normalizer.extract_equivalent_identifiers(properties)
+    
+    # Combine all equivalent IDs, removing duplicates
+    all_equivalent_ids = list(set(primary_equivalent_ids + additional_equivalent_ids + [node_item['id']]))
+    
     harmonized_node = {
-        'id': node_item['id'],  # TODO: Convert to standard curies here..
+        'id': normalized_id,
         'categories': map_spoke_labels_to_biolink(labels),
         'name': properties.get('name'),
         'provided_by': ['infores:spoke'],
-        'equivalent_ids': [node_item['id']],  # TODO: load any equivalent ids as well..
+        'equivalent_ids': all_equivalent_ids,
         'spoke_node': node_item
     }
     return harmonized_node
 
 
-def harmonize_spoke_edge(edge_item: dict) -> dict:
+def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> dict:
     """Harmonize a single SPOKE edge"""
     edge_type = edge_item.get('label')
     if not edge_type:
         raise ValueError(f"SPOKE edge is missing type: {edge_item}")
-    
+
     spoke_subject_id = edge_item['start']['id']
     spoke_object_id = edge_item['end']['id']
     predicate, subject_id, object_id, qual_predicate, qual_direction, qual_aspect = map_spoke_edge_type_to_biolink(edge_type, spoke_subject_id, spoke_object_id)
+    
+    # Get source(s) - handle both 'source' and 'sources' 
+    primary_source, secondary_sources = get_all_sources(edge_item)
+
+    # Map SPOKE internal IDs to normalized CURIEs
+    normalized_subject_id = spoke_to_normalized_id.get(subject_id, subject_id)
+    normalized_object_id = spoke_to_normalized_id.get(object_id, object_id)
     
     # Remove the full start/end node objects (replace with their SPOKE IDs instead - saves a lot of space)
     edge_item['start'] = subject_id
     edge_item['end'] = object_id
 
-    # TODO: Stuff other properties into standardized ones..
     harmonized_edge = {
-        'subject': subject_id,  # TODO: Use standard curies here..
-        'object': object_id,  # TODO: Use standard curies here..
+        'subject': normalized_subject_id,
+        'object': normalized_object_id,
         'predicate': predicate,
-        'primary_knowledge_source': "TODO",  # TODO: Replace this placeholder.. 
+        'primary_knowledge_source': primary_source,  # TODO: Convert to infores curies where possible...
         'aggregator_knowledge_source': 'infores:spoke',
         'spoke_edge': edge_item
     }
+    # Tack on any additional sources
+    if secondary_sources:
+        harmonized_edge['supporting_data_sources'] = secondary_sources  # TODO: Convert to infores curies where possible...
     # Tack on any qualifiers
     if qual_predicate:
         harmonized_edge['qualified_predicate'] = qual_predicate
@@ -231,3 +268,20 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
     
     return (f"biolink:{type_mapping[predicate]}", subject_id, object_id, 
             type_mapping.get(qual_predicate), type_mapping.get(qual_direction), type_mapping.get(qual_aspect))
+
+
+def get_all_sources(item: dict) -> Tuple[str, List[str]]:
+    properties = item['properties']
+    sources = []
+    if 'source' in properties and properties['source']:
+        sources.append(properties['source'])
+    if 'sources' in properties and properties['sources']:
+        if isinstance(properties['sources'], list):
+            sources.extend(properties['sources'])
+        else:
+            sources.append(str(properties['sources']))
+
+    primary_source = sources[0] if sources else 'unknown'
+    secondary_sources = sources[1:] if len(sources) > 1 else []
+
+    return primary_source, secondary_sources
