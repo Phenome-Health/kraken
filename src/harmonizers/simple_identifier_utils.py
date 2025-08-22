@@ -27,8 +27,15 @@ class SimpleIdentifierNormalizer:
         response = requests.get(url)
         if response.ok:
             prefix_map = response.json()
+
+            # Remove prefixes as needed
             if 'KEGG' in prefix_map:
                 del prefix_map['KEGG']  # We want to use only KEGG.COMPOUND, KEGG.REACTION, etc.
+            # Add prefixes as needed (ones we're making up, that don't exist in biolink)
+            prefix_map['USZIPCODE'] = "https://www.unitedstateszipcodes.org/"
+            prefix_map['SMILES'] = "https://pubchem.ncbi.nlm.nih.gov/compound/"
+            prefix_map['CELLOSAURUS'] = "https://web.expasy.org/cellosaurus/"
+
             return prefix_map
         else:
             logging.error(f"Failed to download Biolink prefix map ({response.status_code} error). {response.text}")
@@ -96,6 +103,8 @@ class SimpleIdentifierNormalizer:
                 return self._construct_normalized_curie(source_lower, 'chembl.compound', identifier)
             elif "uberon" in source_lower:
                 return self._construct_normalized_curie(source_lower, 'uberon', identifier)
+            elif "metacyc" in source_lower and node_type == 'Reaction':
+                return self._construct_normalized_curie((source_lower, node_type), 'metacyc.reaction', identifier)
             elif node_type == 'EC':
                 return self._construct_normalized_curie((source_lower, node_type), 'ec', identifier)
             elif node_type == 'ClinicalLab':
@@ -121,6 +130,10 @@ class SimpleIdentifierNormalizer:
                 return self._construct_normalized_curie(source_lower, 'snomedct', identifier)
             elif 'react' in source_lower or 'reactome' in source_lower:
                 return self._construct_normalized_curie(source_lower, 'react', identifier)
+            elif source_lower == 'unitedstateszipcode_database':
+                return self._construct_normalized_curie(source_lower, 'uszipcode', identifier)
+            elif 'smiles' in source_lower:
+                return self._construct_normalized_curie(source_lower, 'smiles', identifier)
             elif "ontology" in source_lower and node_type == "CellType":
                 return self._construct_normalized_curie(source_lower, 'cl', identifier)
             elif "ontology" in source_lower and node_type in ["BiologicalProcess", "MolecularFunction", "CellularComponent"]:
@@ -136,11 +149,15 @@ class SimpleIdentifierNormalizer:
             return f"{self.prefix_lowercase_map['metacyc.reaction']}:{identifier}"
         elif node_type == 'EC' and re.match(r'^\d+\.\d+\.\d+\.\d+$', identifier):  # EC number
             return f"{self.prefix_lowercase_map['ec']}:{identifier}"
+        elif node_type == 'CellLine' and self.is_cellosaurus_id(identifier):
+            return f"{self.prefix_lowercase_map['cellosaurus']}:{identifier}"
         elif re.match(r'^\d+$', identifier):  # Pure number
             if node_type == "Gene":
                 return f"{self.prefix_lowercase_map['ncbigene']}:{identifier}"
             elif node_type == "Organism":
                 return f"{self.prefix_lowercase_map['ncbitaxon']}:{identifier}"
+        elif node_type == 'Pathway' and source_lower == 'unknown':
+            return f"SPOKE:{re.sub(r'\s+', '_', identifier.strip())}"  # For identifiers like 'Glycan biosynthesis - 2' 
         
         logging.error(f"Could not determine prefix for identifier: type: {node_type}, source: {source}, identifier: {identifier}")
         sys.exit(1)
@@ -149,14 +166,15 @@ class SimpleIdentifierNormalizer:
         """Extract equivalent IDs from properties - simplified approach"""
         equivalent_ids = set()
         none_strings = {'null', 'none', 'nan'}
-        straightforward_equiv_id_sources = {'chembl', 'drugbank', 'chebi', 'pubchem', 'kegg', 'mesh', 'ensembl', 'omim', 'icd10', 'snomedct'}
+        equiv_id_sources = {'chembl', 'drugbank', 'chebi', 'pubchem', 'kegg', 'mesh', 'ensembl', 'omim', 'icd10', 'snomedct'}
+        exact_fields = {'standardized_smiles'}
         
         # Figure out which properties probably contain an identifier
         relevant_properties = set()
         for property_name in properties.keys():
             property_name_lower = property_name.lower()
             first_word = property_name.split('_')[0].lower()
-            if first_word in straightforward_equiv_id_sources and ('id' in property_name_lower or '_list' in property_name_lower):
+            if property_name in exact_fields or (first_word in equiv_id_sources and ('id' in property_name_lower or '_list' in property_name_lower)):
                 relevant_properties.add(property_name)
         
         # Construct proper curie(s) for each of those properties
@@ -189,3 +207,7 @@ class SimpleIdentifierNormalizer:
     @staticmethod
     def _is_metacyc_pathway_id(local_id: str) -> bool:
         return bool(re.match(r'^[A-Z0-9][A-Z0-9-]*$', local_id)) and 'PWY' in local_id
+
+    @staticmethod
+    def is_cellosaurus_id(local_id: str) -> bool:
+        return bool(re.match(r'^CVCL_\d+$', local_id))
