@@ -20,7 +20,7 @@ KG2_EDGE_PROP_NAME_OVERRIDES = {
 }
 
 
-def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, rules: dict):
+def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, biolink_version: str, rules: dict):
     """Harmonize RTX-KG2 to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing RTX-KG2: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
 

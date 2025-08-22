@@ -25,7 +25,7 @@ EDGE_PROP_NAME_OVERRIDES = {
 }
 
 
-def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, config: dict) -> Tuple[Path, Path]:
+def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, config: dict, biolink_version: str) -> Tuple[Path, Path]:
     """Prepare unified KG for ArangoDB import using streaming"""
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -35,7 +35,7 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
     logging.info("Preparing KG for ArangoDB...")
     
     logging.info(f"Initiating Biolink Model Toolkit..")
-    biolink_url = f"https://raw.githubusercontent.com/biolink/biolink-model/refs/tags/v{config['biolink_version']}/biolink-model.yaml"
+    biolink_url = f"https://raw.githubusercontent.com/biolink/biolink-model/refs/tags/v{biolink_version}/biolink-model.yaml"
     bmt = Toolkit(schema=biolink_url)
     ancestor_map = defaultdict(set)
 

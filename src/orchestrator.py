@@ -17,9 +17,10 @@ from .post_processing.biomapper_export import export_for_biomapper
 def run_kg_build(config: dict) -> tuple[Path, Path]:
     """Main orchestration function for building PhenomeKG"""
     logging.info("Starting PhenomeKG build...")
+    biolink_version = config['biolink_version']
 
     # Phase 1: Harmonize all sources to Biolink schema
-    harmonized_sources = harmonize_all_sources(config['sources'], config.get('metagraph', {}))
+    harmonized_sources = harmonize_all_sources(config['sources'], config.get('metagraph', {}), biolink_version)
 
     # Phase 2: Integrate into unified KG with entity resolution
     integration_config = config['integration'].copy()
@@ -38,19 +39,19 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
 
     # Phase 3: Post-processing steps
     if 'post_processing' in config:
-        post_process_unified_kg(unified_nodes, unified_edges, config['post_processing'])
+        post_process_unified_kg(unified_nodes, unified_edges, config['post_processing'], biolink_version)
 
     logging.info(f"Build complete: {unified_nodes}, {unified_edges}")
     return unified_nodes, unified_edges
 
 
-def harmonize_all_sources(sources_config: dict, metagraph_config: dict) -> Dict[str, Dict[str, Path]]:
+def harmonize_all_sources(sources_config: dict, metagraph_config: dict, biolink_version: str) -> Dict[str, Dict[str, Path]]:
     """Harmonize each source that needs it"""
     harmonized_sources = {}
 
     for source_name, source_config in sources_config.items():
         # NOTE: for now, always re-harmonize with every build
-        nodes_path, edges_path = harmonize_source(source_name, source_config, metagraph_config)
+        nodes_path, edges_path = harmonize_source(source_name, source_config, metagraph_config, biolink_version)
 
         harmonized_sources[source_name] = {
             'nodes': nodes_path,
@@ -60,7 +61,7 @@ def harmonize_all_sources(sources_config: dict, metagraph_config: dict) -> Dict[
     return harmonized_sources
 
 
-def harmonize_source(source_name: str, config: dict, metagraph_config: dict) -> tuple[Path, Path]:
+def harmonize_source(source_name: str, config: dict, metagraph_config: dict, biolink_version: str) -> tuple[Path, Path]:
     """Harmonize a single source to Biolink schema"""
     logging.info(f"Harmonizing {source_name}...")
 
@@ -89,6 +90,7 @@ def harmonize_source(source_name: str, config: dict, metagraph_config: dict) -> 
             Path(config['edges_input']),
             nodes_output,
             edges_output,
+            biolink_version,
             harmonization_rules
         )
     elif source_name == 'spoke':
@@ -96,6 +98,7 @@ def harmonize_source(source_name: str, config: dict, metagraph_config: dict) -> 
             Path(config['input_file']),
             nodes_output,
             edges_output,
+            biolink_version,
             harmonization_rules
         )
     else:
@@ -141,7 +144,7 @@ def needs_harmonization(source_name: str, config: dict) -> bool:
     return needs_update
 
 
-def post_process_unified_kg(unified_nodes_path: Path, unified_edges_path: Path, config: dict):
+def post_process_unified_kg(unified_nodes_path: Path, unified_edges_path: Path, config: dict, biolink_version: str):
     """Run all post-processing steps on the unified KG"""
     logging.info("Starting post-processing...")
 
@@ -152,7 +155,7 @@ def post_process_unified_kg(unified_nodes_path: Path, unified_edges_path: Path, 
         
         if needs_arango_export(unified_nodes_path, unified_edges_path, arango_config):
             logging.info("Preparing ArangoDB export...")
-            arango_unified_nodes_path, arango_unified_edges_path = prepare_for_arango(unified_nodes_path, unified_edges_path, output_dir, arango_config)
+            arango_unified_nodes_path, arango_unified_edges_path = prepare_for_arango(unified_nodes_path, unified_edges_path, output_dir, arango_config, biolink_version)
         else:
             logging.info("Skipping ArangoDB export - up to date")
 

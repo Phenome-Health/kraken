@@ -7,10 +7,10 @@ from typing import List, Optional, Tuple
 import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
-from .identifier_utils import IdentifierNormalizer
+from .simple_identifier_utils import SimpleIdentifierNormalizer
 
 
-def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, rules: dict):
+def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str, rules: dict):
     """Harmonize SPOKE mixed JSONL to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing SPOKE: {input_file} -> {nodes_output}, {edges_output}")
 
@@ -18,7 +18,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
     edge_count = 0
     
     # Initialize identifier normalizer
-    identifier_normalizer = IdentifierNormalizer()
+    id_norm = SimpleIdentifierNormalizer(biolink_version=biolink_version)
     
     # Keep track of normalized node IDs for edge mapping
     spoke_to_normalized_id = {}
@@ -32,7 +32,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
                 item_type = item.get('type')
                 
                 if item_type == 'node':
-                    harmonized_node = harmonize_spoke_node(item, identifier_normalizer)
+                    harmonized_node = harmonize_spoke_node(item, id_norm)
                     
                     # Store mapping for edge processing
                     spoke_to_normalized_id[item['id']] = harmonized_node['id']
@@ -73,7 +73,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, ru
         logging.info("SPOKE metagraph generated")
 
 
-def harmonize_spoke_node(node_item: dict, identifier_normalizer: IdentifierNormalizer) -> dict:
+def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -> dict:
     """Harmonize a single SPOKE node"""
     properties = node_item.get('properties', {})
     labels = node_item.get('labels', [])
@@ -88,24 +88,22 @@ def harmonize_spoke_node(node_item: dict, identifier_normalizer: IdentifierNorma
     
     # Normalize the identifier
     original_identifier = properties.get('identifier', node_item['id'])
-    normalized_id, primary_equivalent_ids = identifier_normalizer.normalize_spoke_identifier(
-        node_type, primary_source, original_identifier, properties
-    )
+    normalized_id = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier)
     
     # Extract additional equivalent identifiers from properties
-    additional_equivalent_ids = identifier_normalizer.extract_equivalent_identifiers(properties)
-    
-    # Combine all equivalent IDs, removing duplicates
-    all_equivalent_ids = list(set(primary_equivalent_ids + additional_equivalent_ids + [node_item['id']]))
+    additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, primary_source, properties)
+    all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
     
     harmonized_node = {
         'id': normalized_id,
         'categories': map_spoke_labels_to_biolink(labels),
-        'name': properties.get('name'),
         'provided_by': ['infores:spoke'],
         'equivalent_ids': all_equivalent_ids,
         'spoke_node': node_item
     }
+    if properties.get('name'):
+        harmonized_node['name'] = properties['name']
+    
     return harmonized_node
 
 
