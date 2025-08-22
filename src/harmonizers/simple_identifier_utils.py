@@ -18,7 +18,7 @@ class SimpleIdentifierNormalizer:
     def __init__(self, biolink_version: str):
         self.biolink_version = biolink_version
         self.biolink_prefixes = self._load_biolink_prefixes()
-        self.prefix_lowercase_map = {prefix.lower(): prefix for prefix in self.biolink_prefixes.keys()}
+        self.prefix_lowercase_map = self._load_prefix_lowercase_map()
     
     def _load_biolink_prefixes(self) -> Dict[str, str]:
         """Load Biolink model prefix map"""
@@ -33,6 +33,19 @@ class SimpleIdentifierNormalizer:
         else:
             logging.error(f"Failed to download Biolink prefix map ({response.status_code} error). {response.text}")
             sys.exit(1)
+    
+    def _load_prefix_lowercase_map(self) -> Dict[str, str]:
+        prefix_lowercase_map = {prefix.lower(): prefix for prefix in self.biolink_prefixes.keys()}
+        direct_shortnames = {
+            'entrez': 'ncbigene',
+            'uniprot': 'uniprotkb',
+            'pubchem': 'pubchem.compound',
+            'chembl': 'chembl.compound',
+            'reactome': 'react'
+        }
+        for shortname, prefix_lower in direct_shortnames.items():
+            prefix_lowercase_map[shortname] = prefix_lowercase_map[prefix_lower]
+        return prefix_lowercase_map
 
     def normalize_prefix_case(self, prefix: str) -> str:
         """Normalize prefix to correct Biolink capitalization"""
@@ -58,7 +71,7 @@ class SimpleIdentifierNormalizer:
     def _derive_curie(self, node_type: str, source: str, identifier: str) -> str:
         """Assign prefix based on node source, type and simple heuristics"""
         
-        # Source-based assignments (most reliable)
+        # Source/type -based assignments
         if source:
             source_lower = source.lower()
             if "entrez" in source_lower or "ncbi" in source_lower:
@@ -121,15 +134,21 @@ class SimpleIdentifierNormalizer:
         logging.error(f"Could not determine prefix for identifier: type: {node_type}, source: {source}, identifier: {identifier}")
         sys.exit(1)
     
-    def extract_equivalent_identifiers(self, node_type: str, primary_source: str, properties: Dict) -> List[str]:
+    def extract_equivalent_identifiers(self, node_type: str, properties: Dict) -> List[str]:
         """Extract equivalent IDs from properties - simplified approach"""
         equivalent_ids = set()
+        none_strings = {'null', 'none', 'nan'}
         
         # Figure out which properties probably contain an identifier
-        relevant_properties = {property_name for property_name in properties.keys() 
-                               if property_name.lower() in self.prefix_lowercase_map or 
-                               (property_name.split('_')[0].lower() in self.prefix_lowercase_map and 
-                                ('id' in property_name.lower() or '_list' in property_name.lower()))}
+        relevant_properties = set()
+        for property_name in properties.keys():
+            property_name_lower = property_name.lower()
+            if property_name_lower in self.prefix_lowercase_map:
+                relevant_properties.add(property_name)
+            else:
+                first_word = property_name.split('_')[0].lower()
+                if first_word in self.prefix_lowercase_map and ('id' in property_name_lower or '_list' in property_name_lower):
+                    relevant_properties.add(property_name)
         
         # Construct proper curie(s) for each of those properties
         for id_prop_name in relevant_properties:
@@ -138,10 +157,10 @@ class SimpleIdentifierNormalizer:
                 # Handle list values
                 if isinstance(id_prop_value, list):
                     for item in id_prop_value:
-                        if item and str(item).strip():
+                        if item and str(item).strip() and item.lower() not in none_strings:
                             equivalent_ids.add(self.normalize_spoke_identifier(node_type, id_prop_name, str(item)))
                 # Handle string values
-                elif isinstance(id_prop_value, str) and id_prop_value.strip():
+                elif isinstance(id_prop_value, str) and id_prop_value.strip() and id_prop_value.lower() not in none_strings:
                     equivalent_ids.add(self.normalize_spoke_identifier(node_type, id_prop_name, id_prop_value))
         
         # NOTE: Skipping xrefs for now; quite complicated to determine correct prefix. 

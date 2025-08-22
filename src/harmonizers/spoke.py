@@ -28,32 +28,28 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
          jsonlines.open(edges_output, 'w') as edges_writer:
         
         for line_num, item in enumerate(reader, 1):
-            try:
-                item_type = item.get('type')
+            item_type = item.get('type')
+            
+            if item_type == 'node':
+                harmonized_node = harmonize_spoke_node(item, id_norm)
                 
-                if item_type == 'node':
-                    harmonized_node = harmonize_spoke_node(item, id_norm)
-                    
-                    # Store mapping for edge processing
-                    spoke_to_normalized_id[item['id']] = harmonized_node['id']
-                    
-                    nodes_writer.write(harmonized_node)
-                    node_count += 1
-                    
-                    if node_count % 500000 == 0:
-                        logging.info(f"Processed {node_count} SPOKE nodes")
+                # Store mapping for edge processing
+                spoke_to_normalized_id[item['id']] = harmonized_node['id']
                 
-                elif item_type == 'relationship':
-                    harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id)
-                    edges_writer.write(harmonized_edge)
-                    edge_count += 1
-                    
-                    if edge_count % 1000000 == 0:
-                        logging.info(f"Processed {edge_count} SPOKE edges")
-                        
-            except (KeyError, TypeError) as e:
-                logging.warning(f"Skipping invalid item at line {line_num}: {e}")
-
+                nodes_writer.write(harmonized_node)
+                node_count += 1
+                
+                if node_count % 500000 == 0:
+                    logging.info(f"Processed {node_count} SPOKE nodes")
+            
+            elif item_type == 'relationship':
+                harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id)
+                edges_writer.write(harmonized_edge)
+                edge_count += 1
+                
+                if edge_count % 1000000 == 0:
+                    logging.info(f"Processed {edge_count} SPOKE edges")
+    
     logging.info(f"SPOKE harmonization complete: {node_count} nodes, {edge_count} edges")
     
     # Generate metagraph for harmonized output
@@ -91,7 +87,7 @@ def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -
     normalized_id = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier)
     
     # Extract additional equivalent identifiers from properties
-    additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, primary_source, properties)
+    additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, properties)
     all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
     
     harmonized_node = {
@@ -103,6 +99,7 @@ def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -
     }
     if properties.get('name'):
         harmonized_node['name'] = properties['name']
+        harmonized_node['synonyms'] = [harmonized_node['name']]  # TODO: down the road see about extracting SPOKE synonyms
     
     return harmonized_node
 
