@@ -82,8 +82,8 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
             stats.node_categories[category] += 1
         stats.total_nodes += 1
         
-        if stats.total_nodes % 50000 == 0:
-            logging.info(f"Processed {stats.total_nodes} nodes")
+        if stats.total_nodes % 1000000 == 0:
+            logging.info(f"Processed {stats.total_nodes} nodes for metagraph")
     
     logging.info(f"Found {len(stats.node_categories)} unique node categories")
     
@@ -114,8 +114,8 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
         else:
             logging.warning(f"Orphan edge: Edge between {subject_id} and {object_id} is missing from categories map")
         
-        if stats.total_edges % 100000 == 0:
-            logging.info(f"Processed {stats.total_edges} edges")
+        if stats.total_edges % 2000000 == 0:
+            logging.info(f"Processed {stats.total_edges} edges for metagraph")
     
     logging.info(f"Metagraph analysis complete: {stats.total_nodes} nodes, {stats.total_edges} edges")
     return stats
