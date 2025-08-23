@@ -37,6 +37,7 @@ class SimpleIdentifierNormalizer:
             prefix_map['CELLOSAURUS'] = "https://web.expasy.org/cellosaurus/"
             prefix_map['VESICLEPEDIA'] = "http://microvesicles.org/exp_summary?exp_id="
             prefix_map['NDFRT'] = "http://purl.bioontology.org/ontology/NDFRT/"
+            prefix_map['BVBRC'] = "https://www.bv-brc.org/view/Genome/"
 
             return prefix_map
         else:
@@ -136,6 +137,8 @@ class SimpleIdentifierNormalizer:
                 return self._construct_normalized_curie(source_lower, 'uszipcode', identifier)
             elif source_lower == 'fda via drugcentral':
                 return self._construct_normalized_curie(source_lower, 'ndfrt', identifier)
+            elif source_lower == 'bv-brc':
+                return self._construct_normalized_curie(source_lower, 'bvbrc', identifier)
             elif 'smiles' in source_lower:
                 return self._construct_normalized_curie(source_lower, 'smiles', identifier)
             elif 'vesiclepedia' in source_lower:

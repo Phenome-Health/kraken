@@ -93,7 +93,7 @@ def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -
     
     harmonized_node = {
         'id': normalized_id,
-        'categories': map_spoke_labels_to_biolink(labels),
+        'categories': map_spoke_labels_to_biolink(labels, primary_source),
         'provided_by': ['infores:spoke'],
         'equivalent_ids': all_equivalent_ids,
         'spoke_node': node_item
@@ -153,14 +153,15 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> dict:
     return harmonized_edge
 
 
-def map_spoke_labels_to_biolink(labels: List[str]) -> List[str]:
+def map_spoke_labels_to_biolink(labels: List[str], source: str) -> List[str]:
     """Map SPOKE node labels to Biolink categories"""
 
     # Simple mapping - extend as needed
     label_mapping = {
         'Compound': 'ChemicalEntity',  # This more accurate than SmallMolecule?
         'Variant': 'SequenceVariant',
-        'Organism': 'OrganismTaxon',
+        'Organism--ncbi-taxonomy': 'OrganismTaxon',  # Need to consider source for these
+        'Organism--BV-BRC': 'OrganismalEntity',  # Need to consider source for these
         'Protein': 'Protein',
         'Location': 'GeographicLocation',
         'ClinicalLab': 'ClinicalFinding',
@@ -191,8 +192,14 @@ def map_spoke_labels_to_biolink(labels: List[str]) -> List[str]:
         'PharmacologicClass': 'Drug',  # Need to flag these as *classes* of drugs somehow?
         'Environment': 'EnvironmentalFeature'
     }
-    
-    return [f"biolink:{label_mapping[label]}" for label in labels]
+    biolink_types = set()
+    for label in labels:
+        if label in label_mapping:
+            node_type = label_mapping[label]
+        else:
+            node_type = label_mapping[f"{label}--{source}"]
+        biolink_types.add(f"biolink:{node_type}")
+    return list(biolink_types)
 
 
 def map_spoke_edge_type_to_biolink(edge_type: str, 
