@@ -32,15 +32,16 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
             
             if item_type == 'node':
                 harmonized_node = harmonize_spoke_node(item, id_norm)
-                
-                # Store mapping for edge processing
-                spoke_to_normalized_id[item['id']] = harmonized_node['id']
-                
-                nodes_writer.write(harmonized_node)
-                node_count += 1
-                
-                if node_count % 500000 == 0:
-                    logging.info(f"Processed {node_count} SPOKE nodes")
+
+                if harmonized_node:  # Occasionally we skip nodes (if invalid identifier, etc...)
+                    # Store mapping for edge processing
+                    spoke_to_normalized_id[item['id']] = harmonized_node['id']
+                    
+                    nodes_writer.write(harmonized_node)
+                    node_count += 1
+                    
+                    if node_count % 500000 == 0:
+                        logging.info(f"Processed {node_count} SPOKE nodes")
             
             elif item_type == 'relationship':
                 harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id)
@@ -82,10 +83,15 @@ def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -
     # Get source(s) - handle both 'source' and 'sources' 
     primary_source, secondary_sources = get_all_sources(node_item)
     
-    # Normalize the identifier
     original_identifier = properties.get('identifier', node_item['id'])
+
+    # Skip invalid/unhelpful nodes
+    if primary_source == 'CellLineOntology' and original_identifier.startswith('http'):
+        return None  # Example of such a node's 'identifier': 'http://www.ebi.ac.uk/cellline#cancer_cell_line'
+
+    # Normalize the identifier
     print(f"Getting normalized identifier for node:\n{node_item}")
-    normalized_id = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier)
+    normalized_id = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier, properties)
     
     # Extract additional equivalent identifiers from properties
     additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, properties)
