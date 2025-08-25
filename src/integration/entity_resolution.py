@@ -33,6 +33,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     
     logging.info(f"Loading equivalency mappings from {primary_source_name}")
     equivalency_index = load_equivalency_mappings(primary_nodes_path)
+    assert equivalency_index
     processed_canonical_nodes = {node['id']: node for node in stream_nodes_from_jsonl(primary_nodes_path)}  # canonical_id -> merged_node_data
     
     # Phase 2: Process all nodes, merging as we go
@@ -52,7 +53,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                 if canonical_id in processed_canonical_nodes:
                     # Merge with existing canonical node
                     existing_canonical_node = processed_canonical_nodes[canonical_id]
-                    merge_into_existing_node(node, existing_canonical_node)
+                    merge_into_existing_node(node, existing_canonical_node, equivalency_index)
                 else:
                     # First time seeing this canonical entity
                     processed_canonical_nodes[canonical_id] = node
@@ -86,11 +87,9 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                 writer.write(edge)
     
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
-    
-    return unified_nodes_path, unified_edges_path
 
 
-def find_canonical_id(node_id: str, equiv_ids: List[str], equivalency_index: Dict[str, set]) -> str:
+def find_canonical_id(node_id: str, equiv_ids: List[str], equivalency_index: Dict[str, str]) -> str:
     """Find canonical ID for this node using equivalency mappings"""
     # Check if this node or any equivalent ID is in our index
     all_ids = [node_id] + equiv_ids
@@ -104,13 +103,17 @@ def find_canonical_id(node_id: str, equiv_ids: List[str], equivalency_index: Dic
     return node_id
 
 
-def merge_into_existing_node(new_node: dict, existing_node: dict):
+def merge_into_existing_node(new_node: dict, existing_node: dict, equivalency_index: Dict[str, set]):
     """Merge data from new node into existing node (edits in place)"""
-    # Merge equivalent_ids
+    # Update the equivalent id index with new mappings
+    new_equiv_ids = new_node['equivalent_ids']
+    for new_equiv_id in new_equiv_ids:
+        equivalency_index[new_equiv_id] = existing_node['id']
+
+    # Merge equivalent_ids and other list properties
     for property_name in LIST_PROPERTIES:
         existing_node[property_name] = list(set(existing_node.get(property_name, [])) | set(new_node.get(property_name, [])))
-    existing_node['equivalent_ids'] = list(set(existing_node['equivalent_ids']) | set(new_node['equivalent_ids']))
-
+    
     # Merge other properties (simple first-wins strategy for now)
     for key, value in new_node.items():
         if key == 'id':

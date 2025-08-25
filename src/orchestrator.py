@@ -31,8 +31,7 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config['steps'].get('integrate'):
-        integration_config = config['integration'].copy()    
-        _, _ = integrate_sources(harmonized_source_paths, unified_dir_path, integration_config)
+        integrate_sources(harmonized_source_paths, unified_dir_path, config['integration'].copy())
 
     # Phase 3: Generate metagraph for unified result
     if config['steps'].get('metagraph'):

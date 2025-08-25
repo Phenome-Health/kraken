@@ -659,9 +659,9 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 if (category.includes('Gene') || category.includes('Protein') || 
                                     category.includes('Transcript') || category.includes('MicroRNA') ||
                                     category.includes('RNA') || category.includes('Genomic') ||
-                                    category.includes('Polypeptide') || category.includes('NucleicAcidEntity')) ||
+                                    category.includes('Polypeptide') || category.includes('NucleicAcidEntity') ||
                                     category.includes('SequenceVariant') || category.includes('Haplotype') ||
-                                    category.includes('MacromolecularComplex')  {{
+                                    category.includes('MacromolecularComplex'))  {{
                                     baseColor = [173, 216, 230]; // Light blue
                                 }}
                                 // Chemical/Drug entities (greens) 
@@ -686,7 +686,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 // Pathway/Process entities (oranges)
                                 else if (category.includes('Pathway') || category.includes('Process') ||
                                          category.includes('Activity') || category.includes('Function') ||
-                                         category.includes('Event')) || category.includes('BiologicalEntity') {{
+                                         category.includes('Event') || category.includes('BiologicalEntity')) {{
                                     baseColor = [255, 218, 185]; // Peach
                                 }}
                                 
