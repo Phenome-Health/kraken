@@ -43,6 +43,9 @@ class SimpleIdentifierNormalizer:
             prefix_map['NHANES'] = "https://dsld.od.nih.gov/label/"  # These IRIs work, but weirdly SPOKE's identifiers for these nodes don't match what they have..
             prefix_map['MIRDB'] = "https://mirdb.org/cgi-bin/mature_mir.cgi?name="
             prefix_map['CYTOBAND'] = ""  # Haven't found good iri for these yet..
+            prefix_map['CHR'] = ""  # Haven't found good iri for these yet..
+            prefix_map['AHRQ'] = ""
+            prefix_map['HPS'] = ""  # Household Pulse Survey
 
             return prefix_map
         else:
@@ -100,6 +103,10 @@ class SimpleIdentifierNormalizer:
             return identifier.removeprefix('ENVO_')
         elif 'snomedct' in source_cleaned:
             return identifier.removeprefix('SNOMED_')
+        elif source_cleaned == 'countyhealthrankings':
+            return identifier.removeprefix('CHR_')
+        elif 'householdpulsesurvey' in source_cleaned:
+            return identifier.removeprefix('HPS_')
         else:
             return str(identifier)  # Sometimes SPOKE gives ints here
 
@@ -178,6 +185,12 @@ class SimpleIdentifierNormalizer:
                 return self._construct_normalized_curie(source_cleaned, 'vesiclepedia', local_id)
             elif 'complexportal' in source_cleaned:
                 return self._construct_normalized_curie(source_cleaned, 'complexportal', local_id)
+            elif source_cleaned == 'countyhealthrankings':
+                return self._construct_normalized_curie(source_cleaned, 'chr', local_id)
+            elif source_cleaned == 'ahrqsdohdatabase':
+                return self._construct_normalized_curie(source_cleaned, 'ahrq', local_id)
+            elif 'householdpulsesurvey' in source_cleaned:
+                return self._construct_normalized_curie(source_cleaned, 'hps', local_id)
             elif node_type == 'Cytoband' and source_cleaned == 'unknown':
                 return self._construct_normalized_curie(source_cleaned, 'cytoband', local_id)
             elif "ontology" in source_cleaned and node_type == "CellType":

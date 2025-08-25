@@ -3,6 +3,7 @@ SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 """
 
 from pathlib import Path
+import sys
 from typing import List, Optional, Tuple
 import jsonlines
 import logging
@@ -88,9 +89,10 @@ def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -
     # Skip invalid/unhelpful nodes
     if primary_source == 'CellLineOntology' and original_identifier.startswith('http'):
         return None  # Example of such a node's 'identifier': 'http://www.ebi.ac.uk/cellline#cancer_cell_line'
+    if primary_source == 'CDC/ATSDR Social Vulnerability Index':
+        return None  # There's only one node from this source in SPOKE v6, and it doesn't exactly map to the right mesh term
 
     # Normalize the identifier
-    print(f"Getting normalized identifier for node:\n{node_item}")
     normalized_id = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier, properties)
     
     # Extract additional equivalent identifiers from properties
@@ -119,7 +121,13 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> dict:
 
     spoke_subject_id = edge_item['start']['id']
     spoke_object_id = edge_item['end']['id']
-    predicate, subject_id, object_id, qual_predicate, qual_direction, qual_aspect = map_spoke_edge_type_to_biolink(edge_type, spoke_subject_id, spoke_object_id)
+    try:
+        predicate, subject_id, object_id, qual_predicate, qual_direction, qual_aspect = map_spoke_edge_type_to_biolink(edge_type, 
+                                                                                                                       spoke_subject_id, 
+                                                                                                                       spoke_object_id)
+    except:
+        logging.error(f"Failed to find biolink type for spoke edge type '{edge_type}': {edge_item}")
+        sys.exit(1)
     
     # Get source(s) - handle both 'source' and 'sources' 
     primary_source, secondary_sources = get_all_sources(edge_item)
@@ -223,12 +231,14 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
     type_map = {
         'PREVALENCEIN': {predicate: 'associated_with'},  # SPOKE only uses for SocioeconomicExposure-->GeographicLocation edges TODO: would occurs_in be better?
         'INTERACTS': {predicate: 'interacts_with'},
+        'INTERACTS_as_LR': {predicate: 'physically_interacts_with'},
         'MAPS': {predicate: 'is_sequence_variant_of'},  # SPOKE only uses for SequenceVariant-->Gene edges
         'TARGETS': {predicate: 'regulates'},  # SPOKE only uses for MiRNA-->Gene edges
         'EXPRESSES': {predicate: 'expressed_in', flip: True},  # SPOKE only uses for Anatomy-->Gene edges
         'DOWNREGULATES': {predicate: 'regulates', qual_direction: 'downregulated'},  # Anatomy-->Gene, Compound-->Gene, Gene-->Gene, Variant-->Gene
         'BINDS': {predicate: 'binds'},  # Compound-->Protein/ProteinDomain
         'UPREGULATES': {predicate: 'regulates', qual_direction: 'upregulated'},  # Protein-->Gene
+        'REGULATES': {predicate: 'regulates'},
         'EXPRESSEDIN': {predicate: 'expressed_in'},  # Gene/Protein-->CellType
         'EXPRESSEDIN_GeiD': {predicate: 'gene_associated_with_condition'},  # Gene-->Disease
         'PARTICIPATES': {predicate: 'has_participant', flip: True},  # Gene-->BioProcess, Gene-->CellComponent, etc. TODO: these violate domain/range! 
@@ -258,7 +268,8 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
         'MENTIONED_CLINICAL_TRIALS_FOR': {predicate: 'mentioned_in_clinical_trials_for'},  # TODO: ask Gwenlyn what she does with these mentions..
         'IN_CLINICAL_TRIALS_FOR': {predicate: 'in_clinical_trials_for'},
         'CATALYZES': {predicate: 'catalyzes'},  # EC-->Reaction
-        'MARKER': {predicate: 'biomarker_for'},  # Gene-->Disease
+        'MARKER_NEG': {predicate: 'exacerbates_condition'},  # Gene-->Disease. technically gene is not in the domain, but hard to find a better one..
+        'MARKER_POS': {predicate: 'ameliorates_condition'},  # Gene-->Disease. technically gene is not in the domain, but hard to find a better one..
         'AFFECTS': {predicate: 'affects'},
         'INCREASEDIN': {predicate: 'has_increased_amount', flip: True},  # Protein-->Disease
         'CONTRAINDICATES': {predicate: 'contraindicated_in'},  # Compound-->Disease
@@ -297,6 +308,5 @@ def get_all_sources(item: dict) -> Tuple[str, List[str]]:
 
     primary_source = sources[0] if sources else 'unknown'
     secondary_sources = sources[1:] if len(sources) > 1 else []
-    print(f"Primary source is {primary_source}, secondary source is {secondary_sources}")
 
     return primary_source, secondary_sources
