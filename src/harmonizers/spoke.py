@@ -11,7 +11,7 @@ from ..utils.metagraph import generate_metagraph_for_source
 from .simple_identifier_utils import SimpleIdentifierNormalizer
 
 
-def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str, rules: dict):
+def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     """Harmonize SPOKE mixed JSONL to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing SPOKE: {input_file} -> {nodes_output}, {edges_output}")
 
@@ -28,7 +28,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
          jsonlines.open(nodes_output, 'w') as nodes_writer, \
          jsonlines.open(edges_output, 'w') as edges_writer:
         
-        for line_num, item in enumerate(reader, 1):
+        for item in reader:
             item_type = item.get('type')
             
             if item_type == 'node':
@@ -39,36 +39,28 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
                     spoke_to_normalized_id[item['id']] = harmonized_node['id']
                     
                     nodes_writer.write(harmonized_node)
-                    node_count += 1
-                    
-                    if node_count % 500000 == 0:
-                        logging.info(f"Processed {node_count} SPOKE nodes")
+                
+                node_count += 1    
+                if node_count % 500000 == 0:
+                    logging.info(f"Processed {node_count} SPOKE nodes")
             
             elif item_type == 'relationship':
                 harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id)
-                edges_writer.write(harmonized_edge)
-                edge_count += 1
+                if harmonized_edge:
+                    edges_writer.write(harmonized_edge)
                 
+                edge_count += 1
                 if edge_count % 1000000 == 0:
                     logging.info(f"Processed {edge_count} SPOKE edges")
     
     logging.info(f"SPOKE harmonization complete: {node_count} nodes, {edge_count} edges")
     
     # Generate metagraph for harmonized output
-    if rules.get('generate_metagraph', True):
-        # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
-        artifacts_root = Path("artifacts")
-        metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / "spoke"
-        
-        metagraph_config = rules.get('metagraph_config', {
-            'generate_summaries': True,
-            'generate_cytoscape': True,
-            'generate_html_viewer': True,
-            'cytoscape_thresholds': [1, 5, 10]
-        })
-        
-        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "spoke", metagraph_config)
-        logging.info("SPOKE metagraph generated")
+    # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
+    artifacts_root = Path("artifacts")
+    metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / "spoke"
+    generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "spoke")
+    logging.info("SPOKE metagraph generated")
 
 
 def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -> dict:
@@ -113,7 +105,7 @@ def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -
     return harmonized_node
 
 
-def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> dict:
+def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optional[dict]:
     """Harmonize a single SPOKE edge"""
     edge_type = edge_item.get('label')
     if not edge_type:
@@ -137,9 +129,8 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> dict:
         normalized_subject_id = spoke_to_normalized_id[subject_id]
         normalized_object_id = spoke_to_normalized_id[object_id]
     else:
-        logging.warning(f"No normalized IDs available for {subject_id} and {object_id}.")
-        normalized_subject_id = subject_id
-        normalized_object_id = object_id
+        logging.warning(f"No normalized IDs available for {subject_id} and/or {object_id}. Skipping this edge.")
+        return None
     
     # Remove the full start/end node objects (replace with their SPOKE IDs instead - saves a lot of space)
     edge_item['start'] = subject_id
@@ -187,7 +178,7 @@ def map_spoke_labels_to_biolink(labels: List[str], source: str) -> List[str]:
         'BiologicalProcess': 'BiologicalProcess',
         'CellLine': 'CellLine',
         'Disease': 'Disease',
-        'EC': 'EC',  # TODO: Collapse these nodes into annotations on Protein nodes (see issue)
+        'EC': 'BiologicalEntity',  # TODO: Collapse these nodes into annotations on Protein nodes (see issue)
         'PwGroup': 'MacromolecularComplex',  # Think these are protein working groups?
         'Pathway': 'Pathway',
         'SideEffect': 'DiseaseOrPhenotypicFeature',  # The fact that this is a side effect would be implied by the edge from the drug
@@ -252,7 +243,7 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
         'HAS': {predicate: 'related_to'},  # Protein-->EC, CellLine-->Variant  TODO: improve this?
         'PREVALENCE': {predicate: 'associated_with'},  # Disease-->GeographicLocation... TODO: would occurs_in be better?
         'ISOLATEDIN': {predicate: 'located_in'},  # Organism-->GeographicLocation
-        'RESPONDS': {predicate: 'affects', flip: True},  # Organism-->Compoound
+        'RESPONDS_TO': {predicate: 'affects', flip: True},  # Organism-->Compound
         'CAUSES': {predicate: 'causes'},
         'CONTAINS': {predicate: 'has_part'},
         'FOUNDIN': {predicate: 'located_in'},
@@ -278,7 +269,7 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
         'INCLUDES': {predicate: 'has_member'},  # PharmacologicClass-->Compound
         'AFFECT': {predicate: 'affects_response_to'},  # Variant-->Compound
         'TRANSPORTS': {predicate: 'affects', qual_aspect: 'transport'},  # Protein-->Compound
-        'DERIVES': {predicate: 'derives_from'},  # CellLine-->Disease
+        'DERIVES_FROM': {predicate: 'derives_from'},  # CellLine-->Disease
         'CLEAVESTO': {predicate: 'affects', qual_aspect: 'cleavage'},  # Protein-->Protein
         'RESPONSE_TO': {predicate: 'affects_response_to'},  # Gene-->Compound
         'SAME': {predicate: 'same_as'},  # CellLine-->CellLine TODO: maybe check this one.. (look at example edges)

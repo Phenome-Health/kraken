@@ -1,4 +1,10 @@
 biolink_version: 4.2.5
+steps:
+  harmonize: True
+  integrate: True
+  metagraph: True
+  postprocess: False
+
 sources:
   kg2:
     # RTX-KG2 has separate nodes and edges files
@@ -12,7 +18,7 @@ sources:
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
-    input_file: "input_data/spoke/v6/spokeV6_test_human.jsonl"
+    input_file: "input_data/spoke/v6/spokeV6_human.jsonl"
     harmonized_output:
       nodes: "artifacts/harmonized/spoke/nodes.jsonl"
       edges: "artifacts/harmonized/spoke/edges.jsonl"
@@ -28,23 +34,14 @@ integration:
 
 post_processing:
   arango_export:
-    enabled: true
     output_directory: "artifacts/export/arango/"
     output_files:
       nodes: "arango_nodes.jsonl"
       edges: "arango_edges.jsonl"
 
   biomapper_export:
-    enabled: true
     output_directory: "artifacts/export/biomapper/"
     include_edges: true
-
-metagraph:
-  generate_for_sources: true  # Generate metagraph for each harmonized source
-  generate_for_unified: true  # Generate metagraph for unified result
-  generate_comparisons: true  # Generate comparison between source and unified metagraphs
-  generate_cytoscape: true    # Generate Cytoscape visualization files
-  generate_summaries: true    # Generate human-readable summaries
 
 logging:
   level: "INFO"

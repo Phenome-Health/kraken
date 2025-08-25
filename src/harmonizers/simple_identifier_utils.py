@@ -73,13 +73,16 @@ class SimpleIdentifierNormalizer:
         """
         identifier = str(identifier)
 
-        # 1. If it's already a CURIE, use the prefix as our source (prefix overrides source info for determining what vocabulary this is from)
+        # 1. Extract the properly-formatted local ID
         if ':' in identifier and not identifier.startswith('http'):  # Sometimes SPOKE gives full URL as node 'identifier'
+            # If it's already a CURIE, use the prefix as our source (prefix overrides source info for determining what vocabulary this is from)
             source, local_id = identifier.split(':', 1)
-
-        # 2. Extract the local ID for the curie, reformatting it as necessary
-        source_cleaned = source.lower().replace(' ', '')
-        local_id = self._get_local_id(identifier, source_cleaned, properties)
+            source_cleaned = source.lower().replace(' ', '')
+            print(f"got prefix and local id of {source} and {local_id}")
+        else:
+            # Extract the local ID for the curie, reformatting it as necessary
+            source_cleaned = source.lower().replace(' ', '')
+            local_id = self._get_local_id(identifier, source_cleaned, properties)
         
         # 3. Construct the normalized curie (using cached prefix mapping if available)
         if source_cleaned in self.prefix_lowercase_map:
@@ -91,6 +94,7 @@ class SimpleIdentifierNormalizer:
         else:
             curie = self._derive_curie(node_type, source_cleaned, local_id)
         
+        print(f"Final normalized curie is: {curie}\n")
         return curie
     
 
@@ -192,7 +196,7 @@ class SimpleIdentifierNormalizer:
             elif 'householdpulsesurvey' in source_cleaned:
                 return self._construct_normalized_curie(source_cleaned, 'hps', local_id)
             elif node_type == 'Cytoband' and source_cleaned == 'unknown':
-                return self._construct_normalized_curie(source_cleaned, 'cytoband', local_id)
+                return self._construct_normalized_curie(source_cleaned, 'cytoband', local_id)  # TODO: Seems like we're getting a lot of CYTOBAND:rs1591517484 (fix)
             elif "ontology" in source_cleaned and node_type == "CellType":
                 return self._construct_normalized_curie(source_cleaned, 'cl', local_id)
             elif "ontology" in source_cleaned and node_type in ["BiologicalProcess", "MolecularFunction", "CellularComponent"]:

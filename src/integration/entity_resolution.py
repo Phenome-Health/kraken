@@ -13,7 +13,6 @@ from ..utils.kg_io import (
     load_equivalency_mappings,
     save_nodes_to_jsonl
 )
-from ..utils.metagraph import generate_metagraph_for_source, compare_metagraphs
 
 LIST_PROPERTIES = ["equivalent_ids", "synonyms", "provided_by"]
 
@@ -23,8 +22,8 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Output files
-    unified_nodes_path = output_dir / "unified_nodes.jsonl"
-    unified_edges_path = output_dir / "unified_edges.jsonl"
+    unified_nodes_path = output_dir / config['unified_output']['nodes']
+    unified_edges_path = output_dir / config['unified_output']['edges']
     
     logging.info("Starting streaming source integration...")
     
@@ -88,40 +87,6 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
     
-    # Generate metagraph for unified result
-    if config.get('generate_metagraph', True):
-        # Store unified metagraphs in artifacts/metagraphs/unified/
-        artifacts_root = Path("artifacts")
-        metagraph_dir = artifacts_root / "metagraphs" / "unified"
-        
-        metagraph_config = config.get('metagraph_config', {
-            'generate_summaries': True,
-            'generate_cytoscape': True,
-            'generate_html_viewer': True,
-            'cytoscape_thresholds': [1, 5, 10, 25]  # Additional threshold for unified graph
-        })
-        
-        unified_metagraph_files = generate_metagraph_for_source(
-            unified_nodes_path, unified_edges_path, metagraph_dir, "unified", metagraph_config
-        )
-        logging.info("Unified metagraph generated")
-        
-        # Compare with source metagraphs if they exist
-        source_metagraphs = []
-        for source_name in harmonized_sources.keys():
-            source_metagraph = artifacts_root / "metagraphs" / "harmonized" / source_name / f"{source_name}_metagraph.json"
-            if source_metagraph.exists():
-                source_metagraphs.append(source_metagraph)
-        
-        if source_metagraphs:
-            # Find the main JSON file from unified metagraph
-            unified_json = next((f for f in unified_metagraph_files if f.name.endswith('_metagraph.json')), None)
-            if unified_json:
-                source_metagraphs.append(unified_json)
-                comparison_file = metagraph_dir / "metagraph_comparison.json"
-                compare_metagraphs(source_metagraphs, comparison_file)
-                logging.info("Metagraph comparison generated")
-    
     return unified_nodes_path, unified_edges_path
 
 
@@ -143,7 +108,7 @@ def merge_into_existing_node(new_node: dict, existing_node: dict):
     """Merge data from new node into existing node (edits in place)"""
     # Merge equivalent_ids
     for property_name in LIST_PROPERTIES:
-        existing_node[property_name] = list(set(existing_node[property_name]) | set(new_node[property_name]))
+        existing_node[property_name] = list(set(existing_node.get(property_name, [])) | set(new_node.get(property_name, [])))
     existing_node['equivalent_ids'] = list(set(existing_node['equivalent_ids']) | set(new_node['equivalent_ids']))
 
     # Merge other properties (simple first-wins strategy for now)

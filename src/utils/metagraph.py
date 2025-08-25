@@ -5,6 +5,7 @@ Analyzes node categories, edge predicates, and connectivity patterns
 
 from pathlib import Path
 from collections import defaultdict, Counter
+import sys
 from typing import Dict, Set, Tuple, Any, Iterator
 import json
 import logging
@@ -86,6 +87,10 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
             logging.info(f"Processed {stats.total_nodes} nodes for metagraph")
     
     logging.info(f"Found {len(stats.node_categories)} unique node categories")
+
+    if not categories_map:
+        logging.error(f"Categories map is empty.")
+        sys.exit(1)
     
     # Phase 2: Analyze edges
     logging.info("Analyzing edges...")
@@ -131,13 +136,10 @@ def save_metagraph(stats: MetagraphStats, output_file: Path):
     logging.info(f"Metagraph saved: {stats.total_nodes} nodes, {stats.total_edges} edges")
 
 
-def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir: Path, source_name: str = None, config: dict = None):
+def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir: Path, source_name: str = None):
     """Generate and save complete metagraph suite for a single source"""
     if source_name is None:
         source_name = nodes_file.parent.name
-    
-    if config is None:
-        config = {}
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -152,33 +154,30 @@ def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir
     generated_files.append(json_file)
     
     # 2. Generate human-readable summary
-    if config.get('generate_summaries', True):
-        summary = generate_metagraph_summary(stats)
-        summary_file = output_dir / f"{source_name}_metagraph_summary.txt"
-        with open(summary_file, 'w') as f:
-            f.write(summary)
-        generated_files.append(summary_file)
-        logging.info(f"Summary saved: {summary_file}")
+    summary = generate_metagraph_summary(stats)
+    summary_file = output_dir / f"{source_name}_metagraph_summary.txt"
+    with open(summary_file, 'w') as f:
+        f.write(summary)
+    generated_files.append(summary_file)
+    logging.info(f"Summary saved: {summary_file}")
     
     # 3. Generate Cytoscape files with different thresholds
-    if config.get('generate_cytoscape', True):
-        cytoscape_files = []
-        thresholds = config.get('cytoscape_thresholds', [1, 5, 10])
+    cytoscape_files = []
+    thresholds = [1, 5, 10]
+    
+    for threshold in thresholds:
+        if threshold == 1:
+            cyto_file = output_dir / f"{source_name}_cytoscape.json"
+        else:
+            cyto_file = output_dir / f"{source_name}_cytoscape_min{threshold}.json"
         
-        for threshold in thresholds:
-            if threshold == 1:
-                cyto_file = output_dir / f"{source_name}_cytoscape.json"
-            else:
-                cyto_file = output_dir / f"{source_name}_cytoscape_min{threshold}.json"
-            
-            create_cytoscape_metagraph(stats, cyto_file, min_edge_count=threshold)
-            cytoscape_files.append(cyto_file)
-            generated_files.append(cyto_file)
-        
-        # 4. Generate HTML viewer
-        if config.get('generate_html_viewer', True):
-            html_file = create_html_viewer(output_dir, cytoscape_files, source_name)
-            generated_files.append(html_file)
+        create_cytoscape_metagraph(stats, cyto_file, min_edge_count=threshold)
+        cytoscape_files.append(cyto_file)
+        generated_files.append(cyto_file)
+    
+    # 4. Generate HTML viewer
+    html_file = create_html_viewer(output_dir, cytoscape_files, source_name)
+    generated_files.append(html_file)
     
     logging.info(f"Metagraph suite generated for {source_name}: {len(generated_files)} files")
     return generated_files
@@ -660,7 +659,9 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 if (category.includes('Gene') || category.includes('Protein') || 
                                     category.includes('Transcript') || category.includes('MicroRNA') ||
                                     category.includes('RNA') || category.includes('Genomic') ||
-                                    category.includes('Polypeptide') || category.includes('NucleicAcidEntity')) {{
+                                    category.includes('Polypeptide') || category.includes('NucleicAcidEntity')) ||
+                                    category.includes('SequenceVariant') || category.includes('Haplotype') ||
+                                    category.includes('MacromolecularComplex')  {{
                                     baseColor = [173, 216, 230]; // Light blue
                                 }}
                                 // Chemical/Drug entities (greens) 
@@ -685,7 +686,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 // Pathway/Process entities (oranges)
                                 else if (category.includes('Pathway') || category.includes('Process') ||
                                          category.includes('Activity') || category.includes('Function') ||
-                                         category.includes('Event')) {{
+                                         category.includes('Event')) || category.includes('BiologicalEntity') {{
                                     baseColor = [255, 218, 185]; // Peach
                                 }}
                                 

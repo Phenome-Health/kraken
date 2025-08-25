@@ -20,7 +20,7 @@ KG2_EDGE_PROP_NAME_OVERRIDES = {
 }
 
 
-def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, biolink_version: str, rules: dict):
+def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     """Harmonize RTX-KG2 to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing RTX-KG2: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
 
@@ -60,20 +60,11 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
     logging.info(f"RTX-KG2 harmonization complete: {node_count} nodes, {edge_count} edges")
     
     # Generate metagraph for harmonized output
-    if rules.get('generate_metagraph', True):
-        # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
-        artifacts_root = Path("artifacts")
-        metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / "kg2"
-        
-        metagraph_config = rules.get('metagraph_config', {
-            'generate_summaries': True,
-            'generate_cytoscape': True,
-            'generate_html_viewer': True,
-            'cytoscape_thresholds': [1, 5, 10]
-        })
-        
-        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "kg2", metagraph_config)
-        logging.info("RTX-KG2 metagraph generated")
+    # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
+    artifacts_root = Path("artifacts")
+    metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / "kg2"
+    generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "kg2")
+    logging.info("RTX-KG2 metagraph generated")
 
 
 def harmonize_kg2_node(node: dict) -> dict:

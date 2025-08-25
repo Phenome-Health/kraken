@@ -50,7 +50,7 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
             writer.write(arango_node)
             node_count += 1
             
-            if node_count % 10000 == 0:
+            if node_count % 1000000 == 0:
                 logging.info(f"Processed {node_count} nodes")
 
     # Process edges
@@ -61,7 +61,7 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
             writer.write(arango_edge)
             edge_count += 1
             
-            if edge_count % 10000 == 0:
+            if edge_count % 1000000 == 0:
                 logging.info(f"Processed {edge_count} edges")
 
     logging.info(f"ArangoDB export complete: {node_count} nodes, {edge_count} edges")
