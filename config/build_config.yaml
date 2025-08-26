@@ -43,7 +43,6 @@ post_processing:
 
   biomapper_export:
     output_directory: "artifacts/export/biomapper/"
-    include_edges: true
 
 logging:
   level: "INFO"

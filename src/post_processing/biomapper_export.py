@@ -11,18 +11,19 @@ from typing import Any, List
 from collections import defaultdict
 from ..utils.kg_io import stream_nodes_from_jsonl
 
+kg_name = 'kraken'
 FILE_MAP = {
-    "biolink:BiologicalProcess": "kg2c_biological_processes",
-    "biolink:CellularComponent": "kg2c_cellular_components",
-    "biolink:ChemicalEntity": "kg2c_chemicals",
-    "biolink:Disease": "kg2c_diseases",
-    "biolink:Drug": "kg2c_drugs",
-    "biolink:Gene": "kg2c_genes",
-    "biolink:SmallMolecule": "kg2c_metabolites",
-    "biolink:MolecularActivity": "kg2c_molecular_activities",
-    "biolink:Pathway": "kg2c_pathways",
-    "biolink:PhenotypicFeature": "kg2c_phenotypes",
-    "biolink:Protein": "kg2c_proteins"
+    "biolink:BiologicalProcess": f"{kg_name}_biological_processes",
+    "biolink:CellularComponent": f"{kg_name}_cellular_components",
+    "biolink:ChemicalEntity": f"{kg_name}_chemicals",
+    "biolink:Disease": f"{kg_name}_diseases",
+    "biolink:Drug": f"{kg_name}_drugs",
+    "biolink:Gene": f"{kg_name}_genes",
+    "biolink:SmallMolecule": f"{kg_name}_metabolites",
+    "biolink:MolecularActivity": f"{kg_name}_molecular_activities",
+    "biolink:Pathway": f"{kg_name}_pathways",
+    "biolink:PhenotypicFeature": f"{kg_name}_phenotypes",
+    "biolink:Protein": f"{kg_name}_proteins"
 }
 ARRAY_DELIMITER = '||'
 
