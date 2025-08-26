@@ -25,7 +25,7 @@ def harmonize_umls(input_file: Path, nodes_output: Path, edges_output: Path, bio
             if loinc_observable_curie not in nodes:
                 observable_node = {'id': loinc_observable_curie, 
                                     'equivalent_ids': [loinc_observable_curie], 
-                                    'categories': ['biolink:NamedThing'],
+                                    'categories': ['biolink:ClinicalFinding'],
                                     'provided_by': [umls_infores]}
                 nodes[observable_node['id']] = observable_node
             

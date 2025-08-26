@@ -19,11 +19,12 @@ FILE_MAP = {
     "biolink:Disease": f"{kg_name}_diseases",
     "biolink:Drug": f"{kg_name}_drugs",
     "biolink:Gene": f"{kg_name}_genes",
-    "biolink:SmallMolecule": f"{kg_name}_metabolites",
+    "biolink:SmallMolecule": f"{kg_name}_metabolites",  # TODO: Will this capture all? Some LOINC:LP nodes have type protein... 
     "biolink:MolecularActivity": f"{kg_name}_molecular_activities",
     "biolink:Pathway": f"{kg_name}_pathways",
     "biolink:PhenotypicFeature": f"{kg_name}_phenotypes",
-    "biolink:Protein": f"{kg_name}_proteins"
+    "biolink:Protein": f"{kg_name}_proteins",
+    "biolink:ClinicalFinding": f"{kg_name}_clinical_findings"
 }
 ARRAY_DELIMITER = '||'
 
