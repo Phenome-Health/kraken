@@ -114,6 +114,10 @@ def merge_into_existing_node(new_node: dict, existing_node: dict, equivalency_in
     for property_name in LIST_PROPERTIES:
         existing_node[property_name] = list(set(existing_node.get(property_name, [])) | set(new_node.get(property_name, [])))
     
+    # Remove NamedThing as a category if a more specific category is provided
+    if len(existing_node['categories']) > 1 and 'biolink:NamedThing' in existing_node['categories']:
+        existing_node['categories'].remove('biolink:NamedThing')
+    
     # Merge other properties (simple first-wins strategy for now)
     for key, value in new_node.items():
         if key == 'id':
