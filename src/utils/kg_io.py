@@ -104,7 +104,7 @@ def load_equivalency_mappings(nodes_file: Path) -> Dict[str, str]:
         for equiv_id in equiv_ids:
             equivalencies[equiv_id] = canonical_id
     
-    logging.info(f"Loaded equivalencies for {len(equivalencies)} entities")
+    logging.info(f"Loaded equivalencies for {len(equivalencies)} ids")
     return equivalencies
 
 

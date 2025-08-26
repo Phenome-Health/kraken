@@ -279,7 +279,7 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
 
 def create_cytoscape_metagraph(stats: MetagraphStats, output_file: Path, min_edge_count: int = 1):
     """Create Cytoscape-compatible metagraph visualization file"""
-    logging.info(f"Creating Cytoscape metagraph for {stats.source_name}")
+    logging.info(f"Creating Cytoscape metagraph for {stats.source_name} with min_edge_count={min_edge_count}")
     
     # Create nodes (categories)
     nodes = []

@@ -78,7 +78,6 @@ class SpokeIDNormalizer:
             # If it's already a CURIE, use the prefix as our source (prefix overrides source info for determining what vocabulary this is from)
             source, local_id = identifier.split(':', 1)
             source_cleaned = source.lower().replace(' ', '')
-            print(f"got prefix and local id of {source} and {local_id}")
         else:
             # Extract the local ID for the curie, reformatting it as necessary
             source_cleaned = source.lower().replace(' ', '')
@@ -94,7 +93,6 @@ class SpokeIDNormalizer:
         else:
             curie = self._derive_curie(node_type, source_cleaned, local_id)
         
-        print(f"Final normalized curie is: {curie}\n")
         return curie
     
 
