@@ -215,4 +215,6 @@ def create_edge_key(edge: dict) -> str:
     conglom_predicate_str = f"{conglomerate_predicate}--" if conglomerate_predicate else ""
     cleaned_subject = get_cleaned_node_key(edge["subject"])
     cleaned_object = get_cleaned_node_key(edge["object"])
-    return f"{cleaned_subject}--{edge['predicate']}--{conglom_predicate_str}{cleaned_object}--{edge['primary_knowledge_source']}"
+    primary_ks = edge['primary_knowledge_source']
+    aggregator_ks = edge.get('aggregator_knowledge_source')
+    return f"{cleaned_subject}--{edge['predicate']}--{conglom_predicate_str}{cleaned_object}--{primary_ks}{'--' + aggregator_ks if aggregator_ks else ''}"
