@@ -14,7 +14,7 @@ import jsonlines
 from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
 from bmt import Toolkit
 
-ILLEGAL_KEY_PATTERN = r"[^a-zA-Z0-9_\-\.:%\+]"
+ILLEGAL_KEY_PATTERN = r"[^a-zA-Z0-9_\-\.:%\+\*]"
 IGNORE_PROPS = {}
 NODE_PROP_NAME_OVERRIDES = {
     "categories": "entity_types",

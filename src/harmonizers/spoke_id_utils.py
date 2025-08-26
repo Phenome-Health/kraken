@@ -82,6 +82,7 @@ class SpokeIDNormalizer:
             # Extract the local ID for the curie, reformatting it as necessary
             source_cleaned = source.lower().replace(' ', '')
             local_id = self._get_local_id(identifier, source_cleaned, properties)
+        local_id = local_id.strip()
         
         # 3. Construct the normalized curie (using cached prefix mapping if available)
         if source_cleaned in self.prefix_lowercase_map:
