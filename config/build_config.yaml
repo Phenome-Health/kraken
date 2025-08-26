@@ -3,7 +3,7 @@ steps:
   harmonize: True
   integrate: True
   metagraph: True
-  postprocess: False
+  postprocess: True
 
 sources:
   kg2:
@@ -13,24 +13,26 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
-    priority: 1  # Highest priority for canonical ID selection
-    source_type: "separate_files"
+  
+  umls:
+    input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
+    harmonized_output:
+      nodes: "artifacts/harmonized/umls/nodes.jsonl"
+      edges: "artifacts/harmonized/umls/edges.jsonl"
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
-    input_file: "input_data/spoke/v6/spokeV6_human.jsonl"
+    input_file: "input_data/spoke/v6/spokeV6_test_human.jsonl"
     harmonized_output:
       nodes: "artifacts/harmonized/spoke/nodes.jsonl"
       edges: "artifacts/harmonized/spoke/edges.jsonl"
-    priority: 2
-    source_type: "mixed_file"
 
 integration:
   output_directory: "artifacts/integrated/phenomekg/"
   unified_output:
     nodes: "unified_nodes.jsonl"
     edges: "unified_edges.jsonl"
-  primary_source: "kg2"  # Source to use for equivalency mappings
+  primary_source: "kg2"  # Source to use for equivalency mappings (base)
 
 post_processing:
   arango_export:

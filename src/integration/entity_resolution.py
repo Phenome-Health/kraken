@@ -14,7 +14,7 @@ from ..utils.kg_io import (
     save_nodes_to_jsonl
 )
 
-LIST_PROPERTIES = ["equivalent_ids", "synonyms", "provided_by"]
+LIST_PROPERTIES = ["equivalent_ids", "synonyms", "provided_by", "categories"]
 
 
 def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):

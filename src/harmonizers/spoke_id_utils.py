@@ -12,7 +12,7 @@ from typing import Any, List, Dict, Set, Tuple, Union
 import requests
 
 
-class SimpleIdentifierNormalizer:
+class SpokeIDNormalizer:
     """Simple, robust identifier normalization focused on case handling"""
     
     def __init__(self, biolink_version: str):

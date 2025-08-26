@@ -9,6 +9,7 @@ import logging
 
 from .harmonizers.kg2 import harmonize_kg2
 from .harmonizers.spoke import harmonize_spoke
+from .harmonizers.umls import harmonize_umls
 from .integration.entity_resolution import integrate_sources
 from .post_processing.arango_export import prepare_for_arango
 from .post_processing.biomapper_export import export_for_biomapper
@@ -80,6 +81,13 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str) -> tu
             edges_output,
             biolink_version
         )
+    elif source_name == 'umls':
+        harmonize_umls(
+            Path(config['input_file']),
+            nodes_output,
+            edges_output,
+            biolink_version
+        )
     else:
         raise ValueError(f"Unknown source type: {source_name}")
 
@@ -90,10 +98,7 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str) -> tu
 def needs_harmonization(source_name: str, config: dict) -> bool:
     """Check if harmonization step needs to run based on file timestamps"""
     # Get input paths based on source type
-    if config.get('source_type') == 'separate_files':
-        input_paths = [Path(config['nodes_input']), Path(config['edges_input'])]
-    else:
-        input_paths = [Path(config['input_file'])]
+    input_paths = [Path(config['input_file'])] if config.get('input_file') else [Path(config['nodes_input']), Path(config['edges_input'])]
     
     # Get output paths
     nodes_output = Path(config['harmonized_output']['nodes'])

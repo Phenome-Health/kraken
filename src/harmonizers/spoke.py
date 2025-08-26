@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple
 import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
-from .simple_identifier_utils import SimpleIdentifierNormalizer
+from .spoke_id_utils import SpokeIDNormalizer
 
 
 def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
@@ -19,7 +19,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
     edge_count = 0
     
     # Initialize identifier normalizer
-    id_norm = SimpleIdentifierNormalizer(biolink_version=biolink_version)
+    id_norm = SpokeIDNormalizer(biolink_version=biolink_version)
     
     # Keep track of normalized node IDs for edge mapping
     spoke_to_normalized_id = {}
@@ -63,7 +63,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
     logging.info("SPOKE metagraph generated")
 
 
-def harmonize_spoke_node(node_item: dict, id_norm: SimpleIdentifierNormalizer) -> dict:
+def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> dict:
     """Harmonize a single SPOKE node"""
     properties = node_item.get('properties', {})
     labels = node_item.get('labels', [])
