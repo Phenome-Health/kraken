@@ -94,6 +94,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
         for source_name, source_files in harmonized_sources.items():
             logging.info(f"Processing edges from {source_name}")
             edges_file = source_files['edges']
+            mergers_log = output_dir / f"{source_name}_edge_mergers.jsonl"
 
             # First figure out which edges we're going to need to merge (based on keys)
             edge_key_counts = defaultdict(int)
@@ -121,9 +122,11 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                 else:
                     writer.write(edge)  # No need to merge this edge with others; write it as is
 
-        # Now dump all the edges from this source that had to be merged
+        # Now save all the edges from this source that had to be merged
         logging.info(f"Saving {len(merged_edges)} merged {source_name} edges..")
         save_to_jsonl(merged_edges.values(), unified_edges_path, mode='a')
+        # And also dump them to a separate log for easy review
+        save_to_jsonl(merged_edges.values(), mergers_log, mode='w')
     
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
 

@@ -32,8 +32,8 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
     """Prepare unified KG for ArangoDB import using streaming"""
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    arango_nodes_path = output_dir / "arango_nodes.jsonl"
-    arango_edges_path = output_dir / "arango_edges.jsonl"
+    arango_nodes_path = output_dir / config['output_files']['nodes']
+    arango_edges_path = output_dir / config['output_files']['edges']
     
     logging.info("Preparing KG for ArangoDB...")
     
