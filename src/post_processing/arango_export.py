@@ -46,21 +46,18 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
     neighbor_counts, neighbor_counts_by_type = count_neighbors(nodes_path, edges_path)
     
     # Process nodes
-    node_count = 0
     with jsonlines.open(arango_nodes_path, 'w') as writer:
         for node in stream_nodes_from_jsonl(nodes_path):
             arango_node = create_arango_node(node, ancestor_map, bmt, neighbor_counts, neighbor_counts_by_type)
             writer.write(arango_node)
 
     # Process edges
-    edge_count = 0
     with jsonlines.open(arango_edges_path, 'w') as writer:
         for edge in stream_edges_from_jsonl(edges_path):
             arango_edge = create_arango_edge(edge, ancestor_map, bmt)
             writer.write(arango_edge)
 
-    logging.info(f"ArangoDB export complete: {node_count} nodes, {edge_count} edges")
-    logging.info(f"Files saved to: {arango_nodes_path}, {arango_edges_path}")
+    logging.info(f"ArangoDB export complete. Files saved to: {arango_nodes_path}, {arango_edges_path}")
     
     return arango_nodes_path, arango_edges_path
 

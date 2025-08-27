@@ -53,7 +53,7 @@ def export_for_biomapper(nodes_path: Path, output_dir: Path):
                 row = [node["id"], node.get("name"), category, node.get('description'), synonyms_joined, equiv_ids_joined]
                 write_to_csv([row], f"{output_dir}/{FILE_MAP[category]}.csv", 'a')
     
-    logging.info(f"Found nodes in {len(node_counts_by_type)} categories")
+    logging.info(f"Exported nodes in {len(node_counts_by_type)} categories")
     
     create_biomapper_summary(node_counts_by_type, output_dir)
 
