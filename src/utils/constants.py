@@ -1,0 +1,40 @@
+
+
+# Define core node property names
+ID = 'id'
+NAME = 'name'
+IRI = 'iri'
+CATEGORIES = 'categories'
+PROVIDED_BY = 'provided_by'
+SYNONYMS = 'synonyms'
+EQUIVALENT_IDS = 'equivalent_ids'
+
+CORE_NODE_PROPERTIES = {ID, NAME, IRI, CATEGORIES, PROVIDED_BY, SYNONYMS, EQUIVALENT_IDS}
+
+
+# Define core edge property names
+SUBJECT = 'subject'
+OBJECT = 'object'
+PREDICATE = 'predicate'
+PRIMARY_KS = 'primary_knowledge_source'
+AGGREGATOR_KS = 'aggregator_knowledge_source'
+SUPPORTING_SOURCES = 'supporting_data_sources'
+KNOWLEDGE_LEVEL = 'knowledge_level'
+AGENT_TYPE = 'agent_type'
+QUALIFIED_PREDICATE = 'qualified_predicate'
+QUALIFIED_DIRECTION = 'qualified_direction'
+QUALIFIED_ASPECT = 'qualified_aspect'
+
+CORE_EDGE_PROPERTIES = {SUBJECT, OBJECT, PREDICATE, PRIMARY_KS, AGGREGATOR_KS, SUPPORTING_SOURCES,
+                        KNOWLEDGE_LEVEL, AGENT_TYPE, QUALIFIED_PREDICATE, QUALIFIED_DIRECTION, QUALIFIED_ASPECT}
+
+
+ROOT_CATEGORY = 'biolink:NamedThing'
+ROOT_PREDICATE = 'biolink:related_to'
+
+
+SPOKE_INFORES = 'infores:spoke'
+KG2_INFORES = 'infores:kg2'
+UMLS_INFORES = 'infores:umls'
+
+BIOLINK_PREFIX = 'biolink'

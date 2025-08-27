@@ -2,7 +2,7 @@
 Metagraph generation utilities for Biolink knowledge graphs
 Analyzes node categories, edge predicates, and connectivity patterns
 """
-
+import itertools
 from pathlib import Path
 from collections import defaultdict, Counter
 import sys
@@ -11,6 +11,7 @@ import json
 import logging
 
 from .kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
+from .constants import *
 
 
 class MetagraphStats:
@@ -76,10 +77,10 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
     
     logging.info("Analyzing nodes...")
     for node in stream_nodes_from_jsonl(nodes_file):
-        node_id = node['id']
-        categories = node['categories']
+        node_id = node[ID]
+        categories = node[CATEGORIES]
+        categories_map[node_id] = categories
         for category in categories:
-            categories_map[node_id] = category
             stats.node_categories[category] += 1
         stats.total_nodes += 1
         
@@ -95,25 +96,26 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
     # Phase 2: Analyze edges
     logging.info("Analyzing edges...")
     for edge in stream_edges_from_jsonl(edges_file):
-        subject_id = edge['subject']
-        object_id = edge['object']
-        predicate = edge['predicate']
+        subject_id = edge[SUBJECT]
+        object_id = edge[OBJECT]
+        predicate = edge[PREDICATE]
         if subject_id in categories_map and object_id in categories_map:
             # Get categories (default to NamedThing if not found)
-            subject_category = categories_map[subject_id]
-            object_category = categories_map[object_id]
+            subject_categories = categories_map[subject_id]
+            object_categories = categories_map[object_id]
             
             # Update statistics
             stats.edge_predicates[predicate] += 1
-            stats.category_pairs[(subject_category, object_category)] += 1
-            stats.predicate_category_pairs[(predicate, subject_category, object_category)] += 1
+            for subj_category in subject_categories:
+                for obj_category in object_categories:
+                    stats.category_pairs[(subj_category, obj_category)] += 1
+                    stats.predicate_category_pairs[(predicate, subj_category, obj_category)] += 1
+                    # Update category connectivity
+                    stats.category_connectivity[subj_category][obj_category] += 1
             
             # Update node degrees
             stats.node_degrees[subject_id] += 1
             stats.node_degrees[object_id] += 1
-            
-            # Update category connectivity
-            stats.category_connectivity[subject_category][object_category] += 1
 
             stats.total_edges += 1
         else:

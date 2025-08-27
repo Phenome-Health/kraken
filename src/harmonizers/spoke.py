@@ -8,6 +8,7 @@ from typing import List, Optional, Tuple
 import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
+from ..utils.constants import *
 from .spoke_id_utils import SpokeIDNormalizer
 
 
@@ -36,25 +37,25 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
 
                 if harmonized_node:  # Occasionally we skip nodes (if invalid identifier, etc...)
                     # Store mapping for edge processing
-                    spoke_to_normalized_id[item['id']] = harmonized_node['id']
+                    spoke_to_normalized_id[item['id']] = harmonized_node[ID]
                     
                     nodes_writer.write(harmonized_node)
-                
-                node_count += 1    
-                if node_count % 1000000 == 0:
-                    logging.info(f"Processed {node_count} SPOKE nodes")
-            
+
+                    node_count += 1
+                    if node_count % 1000000 == 0:
+                        logging.info(f"Processed {node_count} SPOKE nodes")
+
             elif item_type == 'relationship':
                 harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id)
                 if harmonized_edge:
                     edges_writer.write(harmonized_edge)
-                
-                edge_count += 1
-                if edge_count % 1000000 == 0:
-                    logging.info(f"Processed {edge_count} SPOKE edges")
-    
+
+                    edge_count += 1
+                    if edge_count % 1000000 == 0:
+                        logging.info(f"Processed {edge_count} SPOKE edges")
+
     logging.info(f"SPOKE harmonization complete: {node_count} nodes, {edge_count} edges")
-    
+
     if build_metagraph:
         # Generate metagraph for harmonized output
         # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
@@ -93,15 +94,15 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> dict:
     all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
     
     harmonized_node = {
-        'id': normalized_id,
-        'categories': map_spoke_labels_to_biolink(labels, primary_source),
-        'provided_by': ['infores:spoke'],
-        'equivalent_ids': all_equivalent_ids,
-        'spoke_node': node_item
+        ID: normalized_id,
+        CATEGORIES: map_spoke_labels_to_biolink(labels, primary_source),
+        PROVIDED_BY: [SPOKE_INFORES],
+        EQUIVALENT_IDS: all_equivalent_ids,
+        'spoke_nodes': [node_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier)
     }
-    if properties.get('name'):
-        harmonized_node['name'] = properties['name']
-        harmonized_node['synonyms'] = [harmonized_node['name']]  # TODO: down the road see about extracting SPOKE synonyms
+    if properties.get(NAME):
+        harmonized_node[NAME] = properties[NAME]
+        harmonized_node[SYNONYMS] = [harmonized_node[NAME]]  # TODO: down the road see about extracting SPOKE synonyms
     
     return harmonized_node
 
@@ -138,23 +139,23 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optio
     edge_item['end'] = object_id
 
     harmonized_edge = {
-        'subject': normalized_subject_id,
-        'object': normalized_object_id,
-        'predicate': predicate,
-        'primary_knowledge_source': primary_source,  # TODO: Convert to infores curies where possible...
-        'aggregator_knowledge_source': 'infores:spoke',
-        'spoke_edge': edge_item
+        SUBJECT: normalized_subject_id,
+        OBJECT: normalized_object_id,
+        PREDICATE: predicate,
+        PRIMARY_KS: primary_source,  # TODO: Convert to infores curies where possible...
+        AGGREGATOR_KS: SPOKE_INFORES,
+        'spoke_edges': [edge_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier, creating duplicate edges)
     }
     # Tack on any additional sources
     if secondary_sources:
-        harmonized_edge['supporting_data_sources'] = secondary_sources  # TODO: Convert to infores curies where possible...
+        harmonized_edge[SUPPORTING_SOURCES] = secondary_sources  # TODO: Convert to infores curies where possible...
     # Tack on any qualifiers
     if qual_predicate:
-        harmonized_edge['qualified_predicate'] = qual_predicate
+        harmonized_edge[QUALIFIED_PREDICATE] = qual_predicate
     if qual_direction:
-        harmonized_edge['qualified_direction'] = qual_direction
+        harmonized_edge[QUALIFIED_DIRECTION] = qual_direction
     if qual_aspect:
-        harmonized_edge['qualified_aspect'] = qual_aspect
+        harmonized_edge[QUALIFIED_ASPECT] = qual_aspect
     
     return harmonized_edge
 
@@ -204,7 +205,7 @@ def map_spoke_labels_to_biolink(labels: List[str], source: str) -> List[str]:
             node_type = label_mapping[label]
         else:
             node_type = label_mapping[f"{label}--{source}"]
-        biolink_types.add(f"biolink:{node_type}")
+        biolink_types.add(f"{BIOLINK_PREFIX}:{node_type}")
     return list(biolink_types)
 
 
@@ -217,9 +218,6 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
     # Simple mapping - extend as needed
     predicate = 'type'
     flip = 'flip'
-    qual_predicate = 'qualified_predicate'
-    qual_direction = 'qualified_direction'
-    qual_aspect = 'qualified_aspect'
     type_map = {
         'PREVALENCEIN': {predicate: 'associated_with'},  # SPOKE only uses for SocioeconomicExposure-->GeographicLocation edges TODO: would occurs_in be better?
         'INTERACTS': {predicate: 'interacts_with'},
@@ -227,9 +225,9 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
         'MAPS': {predicate: 'is_sequence_variant_of'},  # SPOKE only uses for SequenceVariant-->Gene edges
         'TARGETS': {predicate: 'regulates'},  # SPOKE only uses for MiRNA-->Gene edges
         'EXPRESSES': {predicate: 'expressed_in', flip: True},  # SPOKE only uses for Anatomy-->Gene edges
-        'DOWNREGULATES': {predicate: 'regulates', qual_direction: 'downregulated'},  # Anatomy-->Gene, Compound-->Gene, Gene-->Gene, Variant-->Gene
+        'DOWNREGULATES': {predicate: 'regulates', QUALIFIED_DIRECTION: 'downregulated'},  # Anatomy-->Gene, Compound-->Gene, Gene-->Gene, Variant-->Gene
         'BINDS': {predicate: 'binds'},  # Compound-->Protein/ProteinDomain
-        'UPREGULATES': {predicate: 'regulates', qual_direction: 'upregulated'},  # Protein-->Gene
+        'UPREGULATES': {predicate: 'regulates', QUALIFIED_DIRECTION: 'upregulated'},  # Protein-->Gene
         'REGULATES': {predicate: 'regulates'},
         'EXPRESSEDIN': {predicate: 'expressed_in'},  # Gene/Protein-->CellType
         'EXPRESSEDIN_GeiD': {predicate: 'gene_associated_with_condition'},  # Gene-->Disease
@@ -269,9 +267,9 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
         'MEMBEROF': {predicate: 'has_member', flip: True},  # ProteinDomain-->ProteinFamily
         'INCLUDES': {predicate: 'has_member'},  # PharmacologicClass-->Compound
         'AFFECT': {predicate: 'affects_response_to'},  # Variant-->Compound
-        'TRANSPORTS': {predicate: 'affects', qual_aspect: 'transport'},  # Protein-->Compound
+        'TRANSPORTS': {predicate: 'affects', QUALIFIED_ASPECT: 'transport'},  # Protein-->Compound
         'DERIVES_FROM': {predicate: 'derives_from'},  # CellLine-->Disease
-        'CLEAVESTO': {predicate: 'affects', qual_aspect: 'cleavage'},  # Protein-->Protein
+        'CLEAVESTO': {predicate: 'affects', QUALIFIED_ASPECT: 'cleavage'},  # Protein-->Protein
         'RESPONSE_TO': {predicate: 'affects_response_to'},  # Gene-->Compound
         'SAME': {predicate: 'same_as'},  # CellLine-->CellLine TODO: maybe check this one.. (look at example edges)
         'RESISTANT_TO': {predicate: 'associated_with_resistance_to'},  # Gene-->Compound
@@ -283,8 +281,8 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
     subject_id = original_object_id if type_mapping.get(flip) else original_subject_id
     object_id = original_subject_id if type_mapping.get(flip) else original_object_id
     
-    return (f"biolink:{type_mapping[predicate]}", subject_id, object_id, 
-            type_mapping.get(qual_predicate), type_mapping.get(qual_direction), type_mapping.get(qual_aspect))
+    return (f"{BIOLINK_PREFIX}:{type_mapping[predicate]}", subject_id, object_id,
+            type_mapping.get(QUALIFIED_PREDICATE), type_mapping.get(QUALIFIED_DIRECTION), type_mapping.get(QUALIFIED_ASPECT))
 
 
 def get_all_sources(item: dict) -> Tuple[str, List[str]]:

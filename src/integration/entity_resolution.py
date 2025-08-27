@@ -5,7 +5,7 @@ Entity resolution and graph integration functions
 from collections import defaultdict
 from pathlib import Path
 import sys
-from typing import Dict, Optional, List, Iterator, Set, Tuple
+from typing import Dict, Optional, List, Iterator, Set, Tuple, Any
 import logging
 import jsonlines
 
@@ -16,8 +16,7 @@ from ..utils.kg_io import (
     save_to_jsonl,
     remove_file
 )
-
-LIST_PROPERTIES = ["synonyms", "provided_by", "categories"]
+from ..utils.constants import *
 
 
 def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):
@@ -38,7 +37,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     equivalency_index = load_equivalency_mappings(primary_nodes_path)
     assert equivalency_index
     logging.info(f"Loading {primary_source_name} nodes as starting point")
-    processed_canonical_nodes = {node['id']: node for node in stream_nodes_from_jsonl(primary_nodes_path)}  # canonical_id -> merged_node_data
+    processed_canonical_nodes = {node[ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)}  # canonical_id -> merged_node_data
     
     # Phase 2: Process all nodes, merging as we go
     for source_name, source_files in harmonized_sources.items():
@@ -53,8 +52,8 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
             nodes_file = source_files['nodes']
             
             for node in stream_nodes_from_jsonl(nodes_file):
-                node_id = node['id']
-                node_equiv_ids = node['equivalent_ids']
+                node_id = node[ID]
+                node_equiv_ids = node[EQUIVALENT_IDS]
                 
                 # Find canonical ID for this node
                 canonical_id, new_equiv_ids = find_canonical_id(node_id, node_equiv_ids, equivalency_index, one_to_many_log, node)
@@ -65,11 +64,11 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                     merge_into_existing_node(node, existing_canonical_node, new_equiv_ids, source_name)
                 else:
                     # First time seeing this canonical entity
-                    processed_canonical_nodes[node['id']] = node
+                    processed_canonical_nodes[node[ID]] = node
                     save_to_jsonl([node], one_to_zero_log, mode='a')
                 
                 # Update our equivalency index with any new canonical mappings
-                for equiv_id in processed_canonical_nodes[canonical_id]['equivalent_ids']:
+                for equiv_id in processed_canonical_nodes[canonical_id][EQUIVALENT_IDS]:
                     equivalency_index[equiv_id] = canonical_id
 
     
@@ -78,9 +77,9 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     logging.info(f"Verifying we have disjoint equivalent_id sets..")
     seen_ids = set()
     for unified_node in processed_canonical_nodes.values():
-        equiv_ids = set(unified_node['equivalent_ids'])
+        equiv_ids = set(unified_node[EQUIVALENT_IDS])
         if equiv_ids.intersection(seen_ids):
-            logging.error(f"Unified node {unified_node['id']} has equiv IDs present on another unified node(s). "
+            logging.error(f"Unified node {unified_node[ID]} has equiv IDs present on another unified node(s). "
                           f"Overlapping equiv IDs are: {equiv_ids.intersection(seen_ids)}")
             sys.exit(1)
         seen_ids |= equiv_ids
@@ -97,11 +96,11 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
             
             for edge in stream_edges_from_jsonl(edges_file):
                 # Resolve subject and object to canonical IDs
-                subj_id = edge['subject']
-                obj_id = edge['object']
+                subj_id = edge[SUBJECT]
+                obj_id = edge[OBJECT]
                 if subj_id in equivalency_index and obj_id in equivalency_index:
-                    edge['subject'] = equivalency_index[edge['subject']]
-                    edge['object'] = equivalency_index[edge['object']]
+                    edge[SUBJECT] = equivalency_index[edge[SUBJECT]]
+                    edge[OBJECT] = equivalency_index[edge[OBJECT]]
                 else:
                     logging.warning(f"Skipping oprhan edge: Edge between {subj_id} and {obj_id} is missing equivalency mappings")
                 writer.write(edge)
@@ -143,25 +142,42 @@ def find_canonical_id(node_id: str, equiv_ids: List[str], equivalency_index: Dic
 
 def merge_into_existing_node(new_node: dict, existing_node: dict, new_equiv_ids: Set[str], source_name: str):
     """Merge data from new node into existing node (edits in place)"""
-    # Add any new equivalent IDs for this node (not necessarily all equivalent_ids the source provides)
-    existing_node['equivalent_ids'] = list(set(existing_node['equivalent_ids']) | new_equiv_ids)
-    del new_node['equivalent_ids']  # We don't want any one-to-manys that lost the vote appearing here
+
+    # Add any 'new' equivalent IDs for this node (not necessarily ALL equivalent_ids the source provides, due to one-to-manys)
+    existing_node[EQUIVALENT_IDS] = list(set(existing_node[EQUIVALENT_IDS]) | new_equiv_ids)
+    del new_node[EQUIVALENT_IDS]  # We don't want any one-to-manys that lost the vote appearing here
 
     # Merge other list properties
-    for property_name in LIST_PROPERTIES:
-        if property_name in existing_node or property_name in new_node:
-            existing_node[property_name] = list(set(existing_node.get(property_name, [])) | set(new_node.get(property_name, [])))
+    existing_node[CATEGORIES] = merge_two_list_properties(existing_node, new_node, CATEGORIES)
+    existing_node[PROVIDED_BY] =  merge_two_list_properties(existing_node, new_node, PROVIDED_BY)
+    if SYNONYMS in existing_node or SYNONYMS in new_node:
+        existing_node[SYNONYMS] = merge_two_list_properties(existing_node, new_node, SYNONYMS)
+    if new_node.get(NAME):  # Add the new node's name as a synonym for the merged node
+        existing_node[SYNONYMS] = list(set(existing_node.get(SYNONYMS, [])) | {new_node[NAME]})
     
     # Remove NamedThing as a category if a more specific category is provided
-    if len(existing_node['categories']) > 1 and 'biolink:NamedThing' in existing_node['categories']:
-        existing_node['categories'].remove('biolink:NamedThing')
+    if len(existing_node[CATEGORIES]) > 1 and ROOT_CATEGORY in existing_node[CATEGORIES]:
+        existing_node[CATEGORIES].remove(ROOT_CATEGORY)
     
-    # Merge other properties (simple first-wins strategy for now)
-    for key, value in new_node.items():
-        if key == 'id':
-            # Keep existing canonical ID
-            continue
-        elif key not in existing_node or existing_node[key] is None:
-            # Add new property
-            existing_node[key] = value
-        # For conflicts, keep existing value (could be made more sophisticated)
+    # Merge any other properties appropriately
+    for property_name, value in new_node.items():
+        if property_name not in CORE_NODE_PROPERTIES:
+            if isinstance(value, list):
+                if any(isinstance(item, dict) for item in value):
+                    existing_node[property_name] = concatenate_two_list_properties(existing_node, new_node, property_name)
+                else:
+                    existing_node[property_name] = merge_two_list_properties(existing_node, new_node, property_name)
+            else:
+                # First come first serve
+                if existing_node.get(property_name) is None:
+                    existing_node[property_name] = value
+
+
+def merge_two_list_properties(node_a: dict, node_b: dict, property_name: str) -> List[Any]:
+    # Merges two list properties, retaining distinct values
+    return list(set(node_a.get(property_name, [])) | set(node_b.get(property_name, [])))
+
+
+def concatenate_two_list_properties(node_a: dict, node_b: dict, property_name: str) -> List[Any]:
+    # Concatenates two list properties (does not check for uniqueness of items)
+    return node_a.get(property_name, []) + node_b.get(property_name, [])
