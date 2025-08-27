@@ -7,7 +7,7 @@ from pathlib import Path
 import jsonlines
 
 
-def harmonize_umls(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
+def harmonize_umls(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str, build_metagraph: bool):
     logging.info(f"Harmonizing UMLS: {input_file} -> {nodes_output}, {edges_output}")
     umls_infores = 'infores:umls'
 

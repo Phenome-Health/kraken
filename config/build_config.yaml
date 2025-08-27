@@ -1,8 +1,8 @@
 biolink_version: 4.2.5
 steps:
-  harmonize: True
+  harmonize: False
   integrate: True
-  metagraph: True
+  metagraph: False
   postprocess: True
 
 sources:
@@ -13,12 +13,14 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
+    enabled: False
   
   umls:
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
     harmonized_output:
       nodes: "artifacts/harmonized/umls/nodes.jsonl"
       edges: "artifacts/harmonized/umls/edges.jsonl"
+    enabled: False
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
@@ -26,6 +28,7 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/spoke/nodes.jsonl"
       edges: "artifacts/harmonized/spoke/edges.jsonl"
+    enabled: True
 
 integration:
   output_directory: "artifacts/integrated/phenomekg/"

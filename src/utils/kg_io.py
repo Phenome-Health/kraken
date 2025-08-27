@@ -51,30 +51,9 @@ def stream_mixed_jsonl(input_file: Path) -> Iterator[Dict[str, Any]]:
                 logging.warning(f"Skipping invalid data at line {line_num}: {e}")
 
 
-def save_nodes_to_jsonl(nodes: Iterator[Dict], output_file: Path):
-    """Save nodes to JSONL format"""
-    logging.debug(f"Saving nodes to {output_file}")
-    
-    count = 0
-    with jsonlines.open(output_file, 'w') as writer:
-        for node in nodes:
-            writer.write(node)
-            count += 1
-    
-    logging.info(f"Saved {count} nodes to {output_file}")
-
-
-def save_edges_to_jsonl(edges: Iterator[Dict], output_file: Path):
-    """Save edges to JSONL format"""
-    logging.debug(f"Saving edges to {output_file}")
-    
-    count = 0
-    with jsonlines.open(output_file, 'w') as writer:
-        for edge in edges:
-            writer.write(edge)
-            count += 1
-    
-    logging.info(f"Saved {count} edges to {output_file}")
+def save_to_jsonl(items: Iterator[Dict], output_file_path: Path):
+    with jsonlines.open(output_file_path, 'w') as writer:
+        writer.write_all(items)
 
 
 def load_node_mappings(nodes_file: Path, key_field: str = 'id') -> Dict[str, Dict]:
@@ -179,8 +158,8 @@ def convert_json_to_jsonl(json_file: Path, nodes_output: Path, edges_output: Pat
     
     # Save nodes
     if 'nodes' in data:
-        save_nodes_to_jsonl(iter(data['nodes']), nodes_output)
+        save_to_jsonl(iter(data['nodes']), nodes_output)
     
     # Save edges  
     if 'edges' in data:
-        save_edges_to_jsonl(iter(data['edges']), edges_output)
+        save_to_jsonl(iter(data['edges']), edges_output)

@@ -11,7 +11,7 @@ from ..utils.metagraph import generate_metagraph_for_source
 from .spoke_id_utils import SpokeIDNormalizer
 
 
-def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
+def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str, build_metagraph: bool):
     """Harmonize SPOKE mixed JSONL to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing SPOKE: {input_file} -> {nodes_output}, {edges_output}")
 
@@ -55,12 +55,13 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
     
     logging.info(f"SPOKE harmonization complete: {node_count} nodes, {edge_count} edges")
     
-    # Generate metagraph for harmonized output
-    # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
-    artifacts_root = Path("artifacts")
-    metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / "spoke"
-    generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "spoke")
-    logging.info("SPOKE metagraph generated")
+    if build_metagraph:
+        # Generate metagraph for harmonized output
+        # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
+        artifacts_root = Path("artifacts")
+        metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / "spoke"
+        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "spoke")
+        logging.info("SPOKE metagraph generated")
 
 
 def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> dict:

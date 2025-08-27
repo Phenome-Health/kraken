@@ -28,7 +28,7 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
 
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
     if config['steps'].get('harmonize'):
-        harmonize_all_sources(config['sources'], biolink_version)
+        harmonize_all_sources(config['sources'], biolink_version, build_metagraph=config['steps']['metagraph'])
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config['steps'].get('integrate'):
@@ -46,14 +46,15 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     return unified_nodes_path, unified_edges_path
 
 
-def harmonize_all_sources(sources_config: dict, biolink_version: str):
+def harmonize_all_sources(sources_config: dict, biolink_version: str, build_metagraph: bool):
     """Harmonize each source that needs it"""
     for source_name, source_config in sources_config.items():
-        # NOTE: for now, always re-harmonize with every build
-        nodes_path, edges_path = harmonize_source(source_name, source_config, biolink_version)
+        if source_config.get('enabled'):
+            # NOTE: for now, always re-harmonize with every build
+            harmonize_source(source_name, source_config, biolink_version, build_metagraph)
 
 
-def harmonize_source(source_name: str, config: dict, biolink_version: str) -> tuple[Path, Path]:
+def harmonize_source(source_name: str, config: dict, biolink_version: str, build_metagraph: bool):
     """Harmonize a single source to Biolink schema"""
     logging.info(f"Harmonizing {source_name}...")
 
@@ -72,27 +73,29 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str) -> tu
             Path(config['edges_input']),
             nodes_output,
             edges_output,
-            biolink_version
+            biolink_version,
+            build_metagraph
         )
     elif source_name == 'spoke':
         harmonize_spoke(
             Path(config['input_file']),
             nodes_output,
             edges_output,
-            biolink_version
+            biolink_version,
+            build_metagraph
         )
     elif source_name == 'umls':
         harmonize_umls(
             Path(config['input_file']),
             nodes_output,
             edges_output,
-            biolink_version
+            biolink_version,
+            build_metagraph
         )
     else:
         raise ValueError(f"Unknown source type: {source_name}")
 
     logging.info(f"Harmonized {source_name} -> {nodes_output}, {edges_output}")
-    return nodes_output, edges_output
 
 
 def generate_unified_metagraph(unified_nodes_path: str, unified_edges_path: str, harmonized_source_paths: dict):

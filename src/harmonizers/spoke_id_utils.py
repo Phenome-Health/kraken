@@ -46,6 +46,7 @@ class SpokeIDNormalizer:
             prefix_map['CHR'] = ""  # Haven't found good iri for these yet..
             prefix_map['AHRQ'] = ""
             prefix_map['HPS'] = ""  # Household Pulse Survey
+            prefix_map['mirbase'] = "https://mirbase.org/hairpin/"  # Biolink has mirbase in here, but their iri doesn't work
 
             return prefix_map
         else:
@@ -105,7 +106,7 @@ class SpokeIDNormalizer:
         elif source_cleaned == 'environmentontology':
             return identifier.removeprefix('ENVO_')
         elif 'snomedct' in source_cleaned:
-            return identifier.removeprefix('SNOMED_')
+            return str(int(identifier.removeprefix('SNOMED_')))  # They sometimes look like this: "SNOMEDCT": "9209005.0" or "identifier": "SNOMED_1186610007"
         elif source_cleaned == 'countyhealthrankings':
             return identifier.removeprefix('CHR_')
         elif 'householdpulsesurvey' in source_cleaned:
@@ -119,7 +120,7 @@ class SpokeIDNormalizer:
         
         # Source/type-based assignments
         if source_cleaned:  # TODO: if these prefixes/their shortcuts are already in prefix map, can remove the if block? or want the flexible 'if in'?
-            if "entrez" in source_cleaned or "ncbi" in source_cleaned:
+            if "entrez" in source_cleaned or "ncbi" in source_cleaned or 'mirbase' in source_cleaned:
                 return self._construct_normalized_curie(source_cleaned, 'ncbigene', local_id)
             elif "uniprot" in source_cleaned:
                 return self._construct_normalized_curie(source_cleaned, 'uniprotkb', local_id)
@@ -174,6 +175,8 @@ class SpokeIDNormalizer:
                 return self._construct_normalized_curie(source_cleaned, 'bvbrc', local_id)
             elif source_cleaned == 'nhanes':
                 return self._construct_normalized_curie(source_cleaned, 'nhanes', local_id)
+            elif source_cleaned == 'accession' and (node_type == 'Gene' or node_type == 'MiRNA') and self.is_mirbase_id(local_id):
+                return self._construct_normalized_curie(source_cleaned, 'mirbase', local_id)
             elif source_cleaned == 'mirdb':
                 return self._construct_normalized_curie(source_cleaned, 'mirdb', local_id)
             elif source_cleaned == 'celllineontology':
@@ -279,3 +282,8 @@ class SpokeIDNormalizer:
     def is_cellosaurus_id(local_id: str) -> bool:
         # Allows: CVCL_[digits or letters]
         return bool(re.match(r'^CVCL_[A-Z0-9]+$', local_id))
+
+    @staticmethod
+    def is_mirbase_id(local_id: str) -> bool:
+        # Allows: MI[digits] or MIMAT[digits]
+        return bool(re.match(r'^MI[0-9]+$', local_id)) or bool(re.match(r'^MIMAT[0-9]+$', local_id))
