@@ -7,6 +7,7 @@ import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
 from ..utils.constants import *
+from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
 
 KG2_IGNORE_PROPS = {'domain_range_exclusion'}
 KG2_NODE_PROP_NAME_OVERRIDES = {
@@ -29,34 +30,20 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
     edge_count = 0
 
     # Stream and harmonize nodes
-    with jsonlines.open(nodes_input, 'r') as reader, jsonlines.open(nodes_output, 'w') as writer:
-        for line_num, node in enumerate(reader, 1):
-            try:
-                harmonized_node = harmonize_kg2_node(node)
-                writer.write(harmonized_node)
-                node_count += 1
-                
-                if node_count % 1000000 == 0:
-                    logging.info(f"Processed {node_count} KG2 nodes")
-                    
-            except (KeyError, TypeError) as e:
-                logging.warning(f"Skipping invalid node at line {line_num}: {e}")
+    with jsonlines.open(nodes_output, 'w') as writer:
+        for node in stream_nodes_from_jsonl(nodes_input):
+            harmonized_node = harmonize_kg2_node(node)
+            writer.write(harmonized_node)
+            node_count += 1
 
     # Stream and harmonize edges
-    with jsonlines.open(edges_input, 'r') as reader, jsonlines.open(edges_output, 'w') as writer:
-        for line_num, edge in enumerate(reader, 1):
-            try:
-                # Exclude semmeddb edges and edges with conflicting domain/range
-                if not edge.get('domain_range_exclusion') and edge['primary_knowledge_source'] != 'infores:semmeddb':
-                    harmonized_edge = harmonize_kg2_edge(edge)
-                    writer.write(harmonized_edge)
-                    edge_count += 1
-                    
-                    if edge_count % 1000000 == 0:
-                        logging.info(f"Processed {edge_count} KG2 edges")
-                    
-            except (KeyError, TypeError) as e:
-                logging.warning(f"Skipping invalid edge at line {line_num}: {e}")
+    with jsonlines.open(edges_output, 'w') as writer:
+        for edge in stream_edges_from_jsonl(edges_input):
+            # Exclude semmeddb edges and edges with conflicting domain/range
+            if not edge.get('domain_range_exclusion') and edge['primary_knowledge_source'] != 'infores:semmeddb':
+                harmonized_edge = harmonize_kg2_edge(edge)
+                writer.write(harmonized_edge)
+                edge_count += 1
 
     logging.info(f"RTX-KG2 harmonization complete: {node_count} nodes, {edge_count} edges")
     

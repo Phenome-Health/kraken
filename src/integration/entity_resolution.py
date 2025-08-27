@@ -17,6 +17,7 @@ from ..utils.kg_io import (
     remove_file
 )
 from ..utils.constants import *
+from ..utils.general import create_edge_key
 
 
 def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):
@@ -61,7 +62,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                 if canonical_id in processed_canonical_nodes:
                     # Merge with existing canonical node
                     existing_canonical_node = processed_canonical_nodes[canonical_id]
-                    merge_into_existing_node(node, existing_canonical_node, new_equiv_ids, source_name)
+                    merge_into_existing_node(node, existing_canonical_node, new_equiv_ids)
                 else:
                     # First time seeing this canonical entity
                     processed_canonical_nodes[node[ID]] = node
@@ -85,25 +86,44 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
         seen_ids |= equiv_ids
 
     # Save unified nodes
-    save_to_jsonl(processed_canonical_nodes.values(), unified_nodes_path)
+    save_to_jsonl(processed_canonical_nodes.values(), unified_nodes_path, mode='w')
     
-    # Phase 3: Process all edges with node ID resolution (no merging)
+    # Phase 3: Process all edges with node ID resolution (merge edges with the same key -- note aggregator is in key)
 
     with jsonlines.open(unified_edges_path, 'w') as writer:
         for source_name, source_files in harmonized_sources.items():
             logging.info(f"Processing edges from {source_name}")
             edges_file = source_files['edges']
-            
+
+            # First figure out which edges we're going to need to merge (based on keys)
+            edge_key_counts = defaultdict(int)
+            for edge in stream_edges_from_jsonl(edges_file):
+                # Resolve subject and object to canonical node IDs (needed for accurate keys)
+                resolve_to_canonical(edge, equivalency_index)
+                key = create_edge_key(edge)
+                edge_key_counts[key] += 1
+            assert edge_key_counts
+            merged_edges = {key: dict() for key, value in edge_key_counts.items() if value > 1}
+            logging.info(f"Identified {len(merged_edges)} {source_name} edges that will be mergers")
+
+            # Then go through and create unified edges
             for edge in stream_edges_from_jsonl(edges_file):
                 # Resolve subject and object to canonical IDs
-                subj_id = edge[SUBJECT]
-                obj_id = edge[OBJECT]
-                if subj_id in equivalency_index and obj_id in equivalency_index:
-                    edge[SUBJECT] = equivalency_index[edge[SUBJECT]]
-                    edge[OBJECT] = equivalency_index[edge[OBJECT]]
+                resolve_to_canonical(edge, equivalency_index)
+
+                # Handle edge merging as necessary
+                key = create_edge_key(edge)
+                if key in merged_edges:
+                    if merged_edges[key]:
+                        merge_into_existing_edge(edge, merged_edges[key])  # Add to the merged edge
+                    else:
+                        merged_edges[key] = edge  # Initiate the merged edge
                 else:
-                    logging.warning(f"Skipping oprhan edge: Edge between {subj_id} and {obj_id} is missing equivalency mappings")
-                writer.write(edge)
+                    writer.write(edge)  # No need to merge this edge with others; write it as is
+
+    # Now dump all the edges that had to be merged
+    logging.info(f"Saving {len(merged_edges)} merged edges..")
+    save_to_jsonl(merged_edges.values(), unified_edges_path, mode='a')
     
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
 
@@ -140,7 +160,7 @@ def find_canonical_id(node_id: str, equiv_ids: List[str], equivalency_index: Dic
     return canonical_id, new_equiv_ids
 
 
-def merge_into_existing_node(new_node: dict, existing_node: dict, new_equiv_ids: Set[str], source_name: str):
+def merge_into_existing_node(new_node: dict, existing_node: dict, new_equiv_ids: Set[str]):
     """Merge data from new node into existing node (edits in place)"""
 
     # Add any 'new' equivalent IDs for this node (not necessarily ALL equivalent_ids the source provides, due to one-to-manys)
@@ -173,6 +193,33 @@ def merge_into_existing_node(new_node: dict, existing_node: dict, new_equiv_ids:
                     existing_node[property_name] = value
 
 
+def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
+    # NOTE: If edges are being merged, they must match on all properties included in the edge key
+
+    # Merge knowledge_level
+    if new_edge.get(KNOWLEDGE_LEVEL):
+        if not existing_edge.get(KNOWLEDGE_LEVEL) or existing_edge[KNOWLEDGE_LEVEL] == UNKNOWN_KNOWLEDGE_LEVEL:
+            existing_edge[KNOWLEDGE_LEVEL] = new_edge[KNOWLEDGE_LEVEL]
+
+    # Merge agent_type
+    if new_edge.get(AGENT_TYPE):
+        if not existing_edge.get(AGENT_TYPE) or existing_edge[AGENT_TYPE] == UNKNOWN_AGENT_TYPE:
+            existing_edge[AGENT_TYPE] = new_edge[AGENT_TYPE]
+
+    # Merge any other properties (all core properties except above 2 are incorporated into key, so must be identical)
+    for property_name, value in new_edge.items():
+        if property_name not in CORE_EDGE_PROPERTIES:
+            if isinstance(value, list):
+                if any(isinstance(item, dict) for item in value):
+                    existing_edge[property_name] = concatenate_two_list_properties(existing_edge, new_edge, property_name)
+                else:
+                    existing_edge[property_name] = merge_two_list_properties(existing_edge, new_edge, property_name)
+            else:
+                # First come first serve
+                if existing_edge.get(property_name) is None:
+                    existing_edge[property_name] = value
+
+
 def merge_two_list_properties(node_a: dict, node_b: dict, property_name: str) -> List[Any]:
     # Merges two list properties, retaining distinct values
     return list(set(node_a.get(property_name, [])) | set(node_b.get(property_name, [])))
@@ -181,3 +228,13 @@ def merge_two_list_properties(node_a: dict, node_b: dict, property_name: str) ->
 def concatenate_two_list_properties(node_a: dict, node_b: dict, property_name: str) -> List[Any]:
     # Concatenates two list properties (does not check for uniqueness of items)
     return node_a.get(property_name, []) + node_b.get(property_name, [])
+
+
+def resolve_to_canonical(edge: dict, equivalency_index: Dict[str, str]):
+    subj_id = edge[SUBJECT]
+    obj_id = edge[OBJECT]
+    if subj_id in equivalency_index and obj_id in equivalency_index:
+        edge[SUBJECT] = equivalency_index[edge[SUBJECT]]
+        edge[OBJECT] = equivalency_index[edge[OBJECT]]
+    else:
+        logging.warning(f"Skipping orphan edge: Edge between {subj_id} and {obj_id} is missing equivalency mappings")

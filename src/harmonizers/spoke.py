@@ -142,7 +142,7 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optio
         SUBJECT: normalized_subject_id,
         OBJECT: normalized_object_id,
         PREDICATE: predicate,
-        PRIMARY_KS: primary_source,  # TODO: Convert to infores curies where possible...
+        PRIMARY_KS: map_to_infores(primary_source, edge_item),  # TODO: Convert to infores curies where possible...
         AGGREGATOR_KS: SPOKE_INFORES,
         'spoke_edges': [edge_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier, creating duplicate edges)
     }
@@ -283,6 +283,91 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
     
     return (f"{BIOLINK_PREFIX}:{type_mapping[predicate]}", subject_id, object_id,
             type_mapping.get(QUALIFIED_PREDICATE), type_mapping.get(QUALIFIED_DIRECTION), type_mapping.get(QUALIFIED_ASPECT))
+
+
+def map_to_infores(spoke_source: str, spoke_edge: dict) -> str:
+    mappings = {
+        "AHRQ SDOH Database": "ahrq-sdoh",
+        "BGee": f"{INFORES_PREFIX}:bgee",
+        "miRDB": "mirdb",
+        "OpenTargets": f"{INFORES_PREFIX}:open-targets",
+        "STRING": f"{INFORES_PREFIX}:string",
+        "STITCH": f"{INFORES_PREFIX}:stitch",
+        "Human Protein Atlas": f"{INFORES_PREFIX}:hpa",
+        "NCBI gene2go": f"",
+  "BindingDB": 819080,
+  "CMAP/LINCS compound (trt_cp)": 600282,
+  "BV-BRC": 592242,
+  "UniProt": 581725,
+  "IntAct": 565735,
+  "CMAP/LINCS knockdown (trt_xrt,trt_sh)": 508544,
+  "ClinVar": 485766,
+  "InterPro": 364525,
+  "ChEBI": 304789,
+  "HPO": 301052,
+  "PLACES": 301015,
+  "Cancer Cell Line Encyclopedia": 286976,
+  "NHANES": 273158,
+  "County Health Rankings": 215548,
+  "LOINC": 180492,
+  "NCBI PubMed": 159391,
+  "SIDER 4.1": 153626,
+  "UnitedStatesZipcode_database": 142105,
+  "ProtCID": 115246,
+  "metacyc": 93124,
+  "uniprot": 88084,
+  "CMAP/LINCS overexpression (trt_oe)": 86803,
+  "WikiPathways": 85024,
+  "CTKP": 69358,
+  "DISEASES": 65312,
+  "ChEMBL": 52177,
+  "kegg": 46439,
+  "DrugCentral": 42721,
+  "Cell Taxonomy": 33040,
+  "Bioplex (Pharos)": 32960,
+  "tflink": 32816,
+  "TRI": 32121,
+  "UCMR5": 31426,
+  "Superfund": 29833,
+  "Reactome": 29226,
+  "Uberon": 28798,
+  "GWAS Catalog": 26985,
+  "Ensembl HG38": 20479,
+  "CMAP/LINCS ligand (trt_lig)": 19794,
+  "UCMR4": 18196,
+  "Disease Ontology": 16433,
+  "CancerRX": 13791,
+  "ncbi-taxonomy": 12506,
+  "World Healh Organization": 10802,
+  "CellLineOntology": 10226,
+  "Pfam": 9829,
+  "GWAS": 9818,
+  "PharmVar": 8952,
+  "ExplorEnz": 8581,
+  "Complex Portal": 7827,
+  "2020 National Emissions Inventory (NEI) Data": 6384,
+  "Cell Ontology": 5058,
+  "WHO Ambient Air Quality Database": 4983,
+  "GeoNames": 3815,
+  "CDC/ATSDR Social Vulnerability Index": 2878,
+  "PharmGKB": 2343,
+  "Cellosaurus": 2225,
+  "TCDB": 1818,
+  "miRBase": 1742,
+  "eQTL Catalogue": 1304,
+  "CellPhoneDB": 939,
+  "CIVIC": 930,
+  "National Center for Health Statistics. U.S. Census Bureau, Household Pulse Survey, 2024. Lack of Social Connection 4.2": 308,
+  "PathoPhenoDB": 305,
+  "Air Quality Statistics Report": 292,
+  "https://github.com/Hadlock_lab/RECOVER/": 82,
+  "https://github.com/Hadlock_lab/INCOV/": 17
+    }
+    if spoke_source_lower in mappings:
+        return mappings[spoke_source_lower]
+    else:
+        logging.error(f"Encountered an unmapped edge source: {spoke_source}. Edge: {spoke_edge}")
+        sys.exit(1)
 
 
 def get_all_sources(item: dict) -> Tuple[str, List[str]]:

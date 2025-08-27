@@ -11,10 +11,13 @@ import logging
 from typing import Tuple
 import unicodedata
 import jsonlines
+
+from ..utils.constants import *
 from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
+from ..utils.general import create_edge_key, clean_key_for_arango
 from bmt import Toolkit
 
-ILLEGAL_KEY_PATTERN = r"[^a-zA-Z0-9_\-\.:%\+\*]"
+
 IGNORE_PROPS = {}
 NODE_PROP_NAME_OVERRIDES = {
     "categories": "entity_types",
@@ -48,10 +51,6 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
         for node in stream_nodes_from_jsonl(nodes_path):
             arango_node = create_arango_node(node, ancestor_map, bmt, neighbor_counts, neighbor_counts_by_type)
             writer.write(arango_node)
-            node_count += 1
-            
-            if node_count % 1000000 == 0:
-                logging.info(f"Processed {node_count} nodes")
 
     # Process edges
     edge_count = 0
@@ -59,20 +58,11 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
         for edge in stream_edges_from_jsonl(edges_path):
             arango_edge = create_arango_edge(edge, ancestor_map, bmt)
             writer.write(arango_edge)
-            edge_count += 1
-            
-            if edge_count % 1000000 == 0:
-                logging.info(f"Processed {edge_count} edges")
 
     logging.info(f"ArangoDB export complete: {node_count} nodes, {edge_count} edges")
     logging.info(f"Files saved to: {arango_nodes_path}, {arango_edges_path}")
     
     return arango_nodes_path, arango_edges_path
-
-
-def get_cleaned_node_key(node_id: str) -> str:
-    """Create a valid ArangoDB _key from an original identifier"""
-    return re.sub(ILLEGAL_KEY_PATTERN, "", node_id)
 
 
 def clean_text(text: any) -> str:
@@ -116,7 +106,7 @@ def create_arango_node(node: dict, ancestor_map: defaultdict[set], bmt: Toolkit,
     # Create arango version of node
     arango_node = {NODE_PROP_NAME_OVERRIDES.get(property_name, property_name): value
                     for property_name, value in node.items() if property_name not in IGNORE_PROPS}
-    arango_node['_key'] = get_cleaned_node_key(node['id'])
+    arango_node['_key'] = clean_key_for_arango(node['id'])
 
     # Clean name and make normalized versions of it
     if arango_node.get('name'):
@@ -164,8 +154,8 @@ def create_arango_edge(edge: dict, ancestor_map: dict, bmt: Toolkit) -> dict:
     arango_edge = {EDGE_PROP_NAME_OVERRIDES.get(prop_name, prop_name): value
                     for prop_name, value in edge.items()}
     arango_edge["_key"] = create_edge_key(edge)
-    arango_edge["_from"] = f"nodes/{get_cleaned_node_key(edge['subject'])}"
-    arango_edge["_to"] = f"nodes/{get_cleaned_node_key(edge['object'])}"
+    arango_edge["_from"] = f"nodes/{clean_key_for_arango(edge[SUBJECT])}"
+    arango_edge["_to"] = f"nodes/{clean_key_for_arango(edge[OBJECT])}"
 
     # Add expanded connection types (includes Biolink ancestors)
     connection_type = arango_edge["connection_type"]
@@ -184,14 +174,14 @@ def count_neighbors(nodes_file_path: str, edges_file_path: str) -> Tuple[default
 
     logging.info(f"Loading categories map")
     with jsonlines.open(nodes_file_path, "r") as reader:
-        categories_map = {node["id"]: node["categories"] for node in reader}
+        categories_map = {node[ID]: node[CATEGORIES] for node in reader}
 
     # Tally up neighbor counts
     logging.info(f"Beginning to count neighbors")
     with jsonlines.open(edges_file_path, "r") as reader:
         for edge in reader:
-            subject_id = edge["subject"]
-            object_id = edge["object"]
+            subject_id = edge[SUBJECT]
+            object_id = edge[OBJECT]
             neighbor_counts[subject_id] += 1
             neighbor_counts[object_id] += 1
             if subject_id in categories_map and object_id in categories_map:
@@ -203,18 +193,3 @@ def count_neighbors(nodes_file_path: str, edges_file_path: str) -> Tuple[default
                 logging.warning(f"Edge from {subject_id} to {object_id} is an orphan")
 
     return neighbor_counts, neighbor_counts_by_type
-
-
-def create_edge_key(edge: dict) -> str:
-    qualifiers = [
-        edge.get("qualified_predicate", ""),  # e.g., biolink:causes
-        edge.get("qualified_object_direction", ""),  # e.g., increased
-        edge.get("qualified_object_aspect")  # e.g., activity
-    ]
-    conglomerate_predicate = "__".join([qualifier for qualifier in qualifiers if qualifier])
-    conglom_predicate_str = f"{conglomerate_predicate}--" if conglomerate_predicate else ""
-    cleaned_subject = get_cleaned_node_key(edge["subject"])
-    cleaned_object = get_cleaned_node_key(edge["object"])
-    primary_ks = edge['primary_knowledge_source']
-    aggregator_ks = edge.get('aggregator_knowledge_source')
-    return f"{cleaned_subject}--{edge['predicate']}--{conglom_predicate_str}{cleaned_object}--{primary_ks}{'--' + aggregator_ks if aggregator_ks else ''}"

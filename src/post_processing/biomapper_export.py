@@ -52,9 +52,6 @@ def export_for_biomapper(nodes_path: Path, output_dir: Path):
                 equiv_ids_joined = ARRAY_DELIMITER.join(node.get('equivalent_ids', []))
                 row = [node["id"], node.get("name"), category, node.get('description'), synonyms_joined, equiv_ids_joined]
                 write_to_csv([row], f"{output_dir}/{FILE_MAP[category]}.csv", 'a')
-        counter += 1
-        if counter % 1000000 == 0:
-            logging.info(f"Have processed {counter} nodes for biomapper export...")
     
     logging.info(f"Found nodes in {len(node_counts_by_type)} categories")
     

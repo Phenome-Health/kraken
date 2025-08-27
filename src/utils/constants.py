@@ -32,9 +32,12 @@ CORE_EDGE_PROPERTIES = {SUBJECT, OBJECT, PREDICATE, PRIMARY_KS, AGGREGATOR_KS, S
 ROOT_CATEGORY = 'biolink:NamedThing'
 ROOT_PREDICATE = 'biolink:related_to'
 
+UNKNOWN_KNOWLEDGE_LEVEL = 'not_provided'
+UNKNOWN_AGENT_TYPE = 'not_provided'
 
 SPOKE_INFORES = 'infores:spoke'
 KG2_INFORES = 'infores:kg2'
 UMLS_INFORES = 'infores:umls'
 
 BIOLINK_PREFIX = 'biolink'
+INFORES_PREFIX = 'infores'

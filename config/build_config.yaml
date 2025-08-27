@@ -1,6 +1,6 @@
 biolink_version: 4.2.5
 steps:
-  harmonize: False
+  harmonize: True
   integrate: True
   metagraph: False
   postprocess: True
@@ -13,14 +13,14 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
-    enabled: False
+    enabled: True
   
   umls:
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
     harmonized_output:
       nodes: "artifacts/harmonized/umls/nodes.jsonl"
       edges: "artifacts/harmonized/umls/edges.jsonl"
-    enabled: False
+    enabled: True
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
@@ -31,18 +31,18 @@ sources:
     enabled: True
 
 integration:
-  output_directory: "artifacts/integrated/phenomekg/"
+  output_directory: "artifacts/integrated/"
   unified_output:
-    nodes: "unified_nodes.jsonl"
-    edges: "unified_edges.jsonl"
+    nodes: "kraken_nodes.jsonl"
+    edges: "kraken_edges.jsonl"
   primary_source: "kg2"  # Source to use for equivalency mappings (base)
 
 post_processing:
   arango_export:
     output_directory: "artifacts/export/arango/"
     output_files:
-      nodes: "arango_nodes.jsonl"
-      edges: "arango_edges.jsonl"
+      nodes: "kraken_nodes_arango.jsonl"
+      edges: "kraken_edges_arango.jsonl"
 
   biomapper_export:
     output_directory: "artifacts/export/biomapper/"
