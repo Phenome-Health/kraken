@@ -9,6 +9,7 @@ import jsonlines
 import logging
 from ..utils.metagraph import generate_metagraph_for_source
 from ..utils.constants import *
+from ..utils.kg_io import stream_mixed_jsonl
 from .spoke_id_utils import SpokeIDNormalizer
 
 
@@ -16,20 +17,18 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
     """Harmonize SPOKE mixed JSONL to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing SPOKE: {input_file} -> {nodes_output}, {edges_output}")
 
-    node_count = 0
-    edge_count = 0
-    
     # Initialize identifier normalizer
     id_norm = SpokeIDNormalizer(biolink_version=biolink_version)
     
     # Keep track of normalized node IDs for edge mapping
     spoke_to_normalized_id = {}
 
-    with jsonlines.open(input_file, 'r') as reader, \
-         jsonlines.open(nodes_output, 'w') as nodes_writer, \
+    node_count = 0
+    edge_count = 0
+    with jsonlines.open(nodes_output, 'w') as nodes_writer, \
          jsonlines.open(edges_output, 'w') as edges_writer:
         
-        for item in reader:
+        for item in stream_mixed_jsonl(input_file):
             item_type = item.get('type')
             
             if item_type == 'node':
@@ -40,19 +39,13 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
                     spoke_to_normalized_id[item['id']] = harmonized_node[ID]
                     
                     nodes_writer.write(harmonized_node)
-
                     node_count += 1
-                    if node_count % 1000000 == 0:
-                        logging.info(f"Processed {node_count} SPOKE nodes")
 
             elif item_type == 'relationship':
                 harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id)
                 if harmonized_edge:
                     edges_writer.write(harmonized_edge)
-
                     edge_count += 1
-                    if edge_count % 1000000 == 0:
-                        logging.info(f"Processed {edge_count} SPOKE edges")
 
     logging.info(f"SPOKE harmonization complete: {node_count} nodes, {edge_count} edges")
 
@@ -142,13 +135,13 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optio
         SUBJECT: normalized_subject_id,
         OBJECT: normalized_object_id,
         PREDICATE: predicate,
-        PRIMARY_KS: map_to_infores(primary_source, edge_item),  # TODO: Convert to infores curies where possible...
+        PRIMARY_KS: normalize_source(primary_source, edge_item),
         AGGREGATOR_KS: SPOKE_INFORES,
         'spoke_edges': [edge_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier, creating duplicate edges)
     }
     # Tack on any additional sources
     if secondary_sources:
-        harmonized_edge[SUPPORTING_SOURCES] = secondary_sources  # TODO: Convert to infores curies where possible...
+        harmonized_edge[SUPPORTING_SOURCES] = [normalize_source(s, edge_item) for s in secondary_sources]
     # Tack on any qualifiers
     if qual_predicate:
         harmonized_edge[QUALIFIED_PREDICATE] = qual_predicate
@@ -285,89 +278,91 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
             type_mapping.get(QUALIFIED_PREDICATE), type_mapping.get(QUALIFIED_DIRECTION), type_mapping.get(QUALIFIED_ASPECT))
 
 
-def map_to_infores(spoke_source: str, spoke_edge: dict) -> str:
-    mappings = {
-        "AHRQ SDOH Database": "ahrq-sdoh",
-        "BGee": f"{INFORES_PREFIX}:bgee",
-        "miRDB": "mirdb",
-        "OpenTargets": f"{INFORES_PREFIX}:open-targets",
-        "STRING": f"{INFORES_PREFIX}:string",
-        "STITCH": f"{INFORES_PREFIX}:stitch",
-        "Human Protein Atlas": f"{INFORES_PREFIX}:hpa",
-        "NCBI gene2go": f"",
-  "BindingDB": 819080,
-  "CMAP/LINCS compound (trt_cp)": 600282,
-  "BV-BRC": 592242,
-  "UniProt": 581725,
-  "IntAct": 565735,
-  "CMAP/LINCS knockdown (trt_xrt,trt_sh)": 508544,
-  "ClinVar": 485766,
-  "InterPro": 364525,
-  "ChEBI": 304789,
-  "HPO": 301052,
-  "PLACES": 301015,
-  "Cancer Cell Line Encyclopedia": 286976,
-  "NHANES": 273158,
-  "County Health Rankings": 215548,
-  "LOINC": 180492,
-  "NCBI PubMed": 159391,
-  "SIDER 4.1": 153626,
-  "UnitedStatesZipcode_database": 142105,
-  "ProtCID": 115246,
-  "metacyc": 93124,
-  "uniprot": 88084,
-  "CMAP/LINCS overexpression (trt_oe)": 86803,
-  "WikiPathways": 85024,
-  "CTKP": 69358,
-  "DISEASES": 65312,
-  "ChEMBL": 52177,
-  "kegg": 46439,
-  "DrugCentral": 42721,
-  "Cell Taxonomy": 33040,
-  "Bioplex (Pharos)": 32960,
-  "tflink": 32816,
-  "TRI": 32121,
-  "UCMR5": 31426,
-  "Superfund": 29833,
-  "Reactome": 29226,
-  "Uberon": 28798,
-  "GWAS Catalog": 26985,
-  "Ensembl HG38": 20479,
-  "CMAP/LINCS ligand (trt_lig)": 19794,
-  "UCMR4": 18196,
-  "Disease Ontology": 16433,
-  "CancerRX": 13791,
-  "ncbi-taxonomy": 12506,
-  "World Healh Organization": 10802,
-  "CellLineOntology": 10226,
-  "Pfam": 9829,
-  "GWAS": 9818,
-  "PharmVar": 8952,
-  "ExplorEnz": 8581,
-  "Complex Portal": 7827,
-  "2020 National Emissions Inventory (NEI) Data": 6384,
-  "Cell Ontology": 5058,
-  "WHO Ambient Air Quality Database": 4983,
-  "GeoNames": 3815,
-  "CDC/ATSDR Social Vulnerability Index": 2878,
-  "PharmGKB": 2343,
-  "Cellosaurus": 2225,
-  "TCDB": 1818,
-  "miRBase": 1742,
-  "eQTL Catalogue": 1304,
-  "CellPhoneDB": 939,
-  "CIVIC": 930,
-  "National Center for Health Statistics. U.S. Census Bureau, Household Pulse Survey, 2024. Lack of Social Connection 4.2": 308,
-  "PathoPhenoDB": 305,
-  "Air Quality Statistics Report": 292,
-  "https://github.com/Hadlock_lab/RECOVER/": 82,
-  "https://github.com/Hadlock_lab/INCOV/": 17
-    }
-    if spoke_source_lower in mappings:
-        return mappings[spoke_source_lower]
-    else:
-        logging.error(f"Encountered an unmapped edge source: {spoke_source}. Edge: {spoke_edge}")
-        sys.exit(1)
+def normalize_source(spoke_source: str, spoke_edge: dict) -> str:
+   spoke_source_cleaned = spoke_source.lower().replace(' ', '')
+   mappings = {
+       'ahrqsdohdatabase': 'ahrq-sdoh',
+       'bgee': f'{INFORES_PREFIX}:bgee',
+       'mirdb': 'mirdb',
+       'opentargets': f'{INFORES_PREFIX}:open-targets',
+       'string': f'{INFORES_PREFIX}:string',
+       'stitch': f'{INFORES_PREFIX}:stitch',
+       'humanproteinatlas': f'{INFORES_PREFIX}:hpa',
+       'ncbigene2go': 'ncbi-gene2go',
+       'bindingdb': f'{INFORES_PREFIX}:bindingdb',
+       'cmap/lincscompound(trt_cp)': f'{INFORES_PREFIX}:lincs',  # Check?
+       'bv-brc': 'bv-brc',
+       'uniprot': f'{INFORES_PREFIX}:uniprot',
+       'intact': f'{INFORES_PREFIX}:intact',
+       'cmap/lincsknockdown(trt_xrt,trt_sh)': f'{INFORES_PREFIX}:lincs',  # Check?
+       'clinvar': f'{INFORES_PREFIX}:clinvar',
+       'interpro': f'{INFORES_PREFIX}:interpro',
+       'chebi': f'{INFORES_PREFIX}:chebi',
+       'hpo': f'{INFORES_PREFIX}:hpo',
+       'places': 'cdc-places',
+       'cancercelllineencyclopedia': 'ccle',
+       'nhanes': 'nhanes',
+       'countyhealthrankings': 'chr-r',
+       'loinc': f'{INFORES_PREFIX}:loinc',
+       'ncbipubmed': f'{INFORES_PREFIX}:pubmed',
+       'sider4.1': f'{INFORES_PREFIX}:sider',
+       'unitedstateszipcode_database': 'us-zipcode',
+       'protcid': 'prot-cid',
+       'metacyc': f'{INFORES_PREFIX}:metacyc',
+       'cmap/lincsoverexpression(trt_oe)': f'{INFORES_PREFIX}:lincs',  # Check?
+       'wikipathways': f'{INFORES_PREFIX}:wikipathways',
+       'ctkp': f'{INFORES_PREFIX}:multiomics-clinicaltrials',
+       'diseases': f'{INFORES_PREFIX}:diseases',
+       'chembl': f'{INFORES_PREFIX}:chembl',
+       'kegg': f'{INFORES_PREFIX}:kegg',
+       'drugcentral': f'{INFORES_PREFIX}:drugcentral',
+       'celltaxonomy': 'cell-taxonomy',
+       'bioplex(pharos)': f'{INFORES_PREFIX}:pharos',
+       'tflink': 'tf-link',
+       'tri': 'tri',
+       'ucmr5': 'ucmr',
+       'superfund': 'epa-superfund',
+       'reactome': f'{INFORES_PREFIX}:reactome',
+       'uberon': f'{INFORES_PREFIX}:uberon',
+       'gwascatalog': f'{INFORES_PREFIX}:gwas-catalog',
+       'ensemblhg38': f'{INFORES_PREFIX}:ensembl-gene',
+       'cmap/lincsligand(trt_lig)': f'{INFORES_PREFIX}:lincs',
+       'ucmr4': 'ucmr',
+       'diseaseontology': f'{INFORES_PREFIX}:disease-ontology',
+       'cancerrx': f'{INFORES_PREFIX}:gdsc',
+       'ncbi-taxonomy': f'{INFORES_PREFIX}:ncbi-taxonomy',
+       'worldhealthorganization': 'who',
+       'worldhealhorganization': 'who',  # Some SPOKE edges have this typo
+       'celllineontology': 'clo',
+       'pfam': f'{INFORES_PREFIX}:pfam',
+       'gwas': f'{INFORES_PREFIX}:gwas-catalog',
+       'pharmvar': f'pharmvar',
+       'explorenz': 'explor-enz',
+       'complexportal': f'{INFORES_PREFIX}:complex-portal',
+       '2020nationalemissionsinventory(nei)data': 'epa-nei',
+       'cellontology': f'{INFORES_PREFIX}:cl',
+       'whoambientairqualitydatabase': 'who-air-quality',
+       'geonames': 'geonames',
+       'cdc/atsdrsocialvulnerabilityindex': 'svi',
+       'pharmgkb': f'{INFORES_PREFIX}:pharmgkb',
+       'cellosaurus': 'cellosaurus',
+       'tcdb': 'tcdb',
+       'mirbase': f'{INFORES_PREFIX}:mirbase',
+       'eqtlcatalogue': 'eqtl-catalogue',
+       'cellphonedb': 'cellphone-db',
+       'civic': f'{INFORES_PREFIX}:civic',
+       'nationalcenterforhealthstatistics.u.s.censusbureau,householdpulsesurvey,2024.lackofsocialconnection4.2': 'pulse-survey',
+       'pathophenodb': f'{INFORES_PREFIX}:path-pheno-db',
+       'airqualitystatisticsreport': 'epa-air-quality-stats',
+       'https://github.com/hadlock_lab/recover/': 'hadlock-recover',
+       'https://github.com/hadlock_lab/incov/': 'hadlock-incov',
+       'unknown': SPOKE_INFORES  # If SPOKE doesn't give a source for the edge, just list SPOKE as the source.. (better than nothing)
+   }
+   if spoke_source_cleaned in mappings:
+       return mappings[spoke_source_cleaned]
+   else:
+       logging.error(f'Encountered an unmapped edge source: {spoke_source} ({spoke_source_cleaned}). Edge: {spoke_edge}')
+       sys.exit(1)
 
 
 def get_all_sources(item: dict) -> Tuple[str, List[str]]:
