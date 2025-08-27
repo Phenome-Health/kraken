@@ -1,7 +1,7 @@
 """
 Knowledge graph I/O utilities
 """
-
+import os
 from pathlib import Path
 import json
 import jsonlines
@@ -51,9 +51,14 @@ def stream_mixed_jsonl(input_file: Path) -> Iterator[Dict[str, Any]]:
                 logging.warning(f"Skipping invalid data at line {line_num}: {e}")
 
 
-def save_to_jsonl(items: Iterator[Dict], output_file_path: Path):
-    with jsonlines.open(output_file_path, 'w') as writer:
+def save_to_jsonl(items: Iterator[Dict], output_file_path: Path, mode: str = 'w'):
+    with jsonlines.open(output_file_path, mode=mode) as writer:
         writer.write_all(items)
+
+
+def remove_file(file_path: Path):
+    if os.path.exists(file_path):
+        os.remove(file_path)
 
 
 def load_node_mappings(nodes_file: Path, key_field: str = 'id') -> Dict[str, Dict]:
