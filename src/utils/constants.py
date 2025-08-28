@@ -22,8 +22,8 @@ SUPPORTING_SOURCES = 'supporting_data_sources'
 KNOWLEDGE_LEVEL = 'knowledge_level'
 AGENT_TYPE = 'agent_type'
 QUALIFIED_PREDICATE = 'qualified_predicate'
-QUALIFIED_DIRECTION = 'qualified_direction'
-QUALIFIED_ASPECT = 'qualified_aspect'
+QUALIFIED_DIRECTION = 'qualified_object_direction'
+QUALIFIED_ASPECT = 'qualified_object_aspect'
 
 CORE_EDGE_PROPERTIES = {SUBJECT, OBJECT, PREDICATE, PRIMARY_KS, AGGREGATOR_KS, SUPPORTING_SOURCES,
                         KNOWLEDGE_LEVEL, AGENT_TYPE, QUALIFIED_PREDICATE, QUALIFIED_DIRECTION, QUALIFIED_ASPECT}

@@ -19,7 +19,7 @@ def setup_logging(level=logging.INFO):
     console_handler.setFormatter(formatter)
 
     # Setup file handler
-    file_handler = logging.FileHandler('phenomekg_build.log')
+    file_handler = logging.FileHandler('kraken_build.log')
     file_handler.setFormatter(formatter)
 
     # Configure root logger

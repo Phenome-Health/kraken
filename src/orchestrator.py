@@ -28,18 +28,22 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
 
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
     if config['steps'].get('harmonize'):
+        logging.info(f"-------------------------- HARMONIZING SOURCES -----------------------------------------------")
         harmonize_all_sources(config['sources'], biolink_version, build_metagraph=config['steps']['metagraph'])
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config['steps'].get('integrate'):
+        logging.info(f"-------------------------- INTEGRATING SOURCES -----------------------------------------------")
         integrate_sources(harmonized_source_paths, unified_dir_path, config['integration'].copy())
 
     # Phase 3: Generate metagraph for unified result
     if config['steps'].get('metagraph'):
+        logging.info(f"---------------------- GENERATING UNIFIED METAGRAPH ------------------------------------------")
         generate_unified_metagraph(unified_nodes_path, unified_edges_path, harmonized_source_paths)
 
     # Phase 4: Post-processing steps
     if config['steps'].get('postprocess'):
+        logging.info(f"------------------------------ POST-PROCESSING -----------------------------------------------")
         post_process_unified_kg(unified_nodes_path, unified_edges_path, config['post_processing'], biolink_version)
 
     logging.info(f"Build complete: {unified_nodes_path}, {unified_edges_path}")

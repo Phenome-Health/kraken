@@ -90,6 +90,8 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     
     # Phase 3: Process all edges with node ID resolution (merge edges with the same key -- note aggregator is in key)
 
+    all_merged_edges = []
+
     with jsonlines.open(unified_edges_path, 'w') as writer:
         for source_name, source_files in harmonized_sources.items():
             logging.info(f"Processing edges from {source_name}")
@@ -122,12 +124,16 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
                 else:
                     writer.write(edge)  # No need to merge this edge with others; write it as is
 
-        # Now save all the edges from this source that had to be merged
-        logging.info(f"Saving {len(merged_edges)} merged {source_name} edges..")
-        save_to_jsonl(merged_edges.values(), unified_edges_path, mode='a')
-        # And also dump them to a separate log for easy review
-        save_to_jsonl(merged_edges.values(), mergers_log, mode='w')
-    
+            # Dump all the merged edges for this source to a log for easy review
+            logging.info(f"Dumping {len(merged_edges)} merged {source_name} edges to a log..")
+            merged_edges_list = list(merged_edges.values())
+            save_to_jsonl(merged_edges_list, mergers_log, mode='w')
+            all_merged_edges += merged_edges_list
+
+    # Add ALL the edges that had to be merged to our unified edges file (after we closed write mode on the file)
+    logging.info(f"Saving {len(all_merged_edges)} total merged edges..")
+    save_to_jsonl(all_merged_edges, unified_edges_path, mode='a')
+
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
 
 

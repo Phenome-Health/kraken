@@ -2,7 +2,7 @@ biolink_version: 4.2.5
 steps:
   harmonize: True
   integrate: True
-  metagraph: False
+  metagraph: True
   postprocess: True
 
 sources:
@@ -46,7 +46,3 @@ post_processing:
 
   biomapper_export:
     output_directory: "artifacts/export/biomapper/"
-
-logging:
-  level: "INFO"
-  format: "%(asctime)s - %(levelname)s - %(message)s"
