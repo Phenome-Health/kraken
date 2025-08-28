@@ -18,7 +18,7 @@ class SpokeIDNormalizer:
     def __init__(self, biolink_version: str):
         self.biolink_version = biolink_version
         self.biolink_prefixes = self._load_biolink_prefixes()
-        self.prefix_lowercase_map = self._load_prefix_lowercase_map()
+        self.prefix_lowercase_map = {prefix.lower(): prefix for prefix in self.biolink_prefixes.keys()}
     
 
     def _load_biolink_prefixes(self) -> Dict[str, str]:
@@ -54,49 +54,61 @@ class SpokeIDNormalizer:
             sys.exit(1)
     
 
-    def _load_prefix_lowercase_map(self) -> Dict[str, str]:
-        prefix_lowercase_map = {prefix.lower(): prefix for prefix in self.biolink_prefixes.keys()}
-        direct_shortnames = {  # Need to preload those relevant to the equiv_id extraction (otherwise not guaranteed to be there)
-            'entrez': 'ncbigene',
-            'uniprot': 'uniprotkb',
-            'pubchem': 'pubchem.compound',
-            'chembl': 'chembl.compound',
-            'reactome': 'react'
-        }
-        for shortname, prefix_lower in direct_shortnames.items():
-            prefix_lowercase_map[shortname] = prefix_lowercase_map[prefix_lower]
-        return prefix_lowercase_map
-    
-
     def normalize_spoke_identifier(self, node_type: str, source: str, identifier: Any, properties: dict) -> str:
         """
         Simple identifier normalization - handles most cases with minimal complexity
         """
         identifier = str(identifier)
+        prefix, local_id = self.get_curie_parts(identifier)
+        # If the identifier was a curie, its prefix should override the source
+        source = prefix if prefix else source
 
-        # 1. Extract the properly-formatted local ID
-        if ':' in identifier and not identifier.startswith('http'):  # Sometimes SPOKE gives full URL as node 'identifier'
-            # If it's already a CURIE, use the prefix as our source (prefix overrides source info for determining what vocabulary this is from)
-            source, local_id = identifier.split(':', 1)
-            source_cleaned = source.lower().replace(' ', '')
+        source_cleaned = source.lower().replace(' ', '')
+        lookup_key = (node_type, source_cleaned)
+
+        if lookup_key == ('Anatomy', 'uberon'):
+            if self.is_uberon_id(local_id):
+                return self.construct_curie('uberon', local_id)
+        elif lookup_key == ('Anatomy', 'mesh_id'):
+            if self.is_mesh_id(local_id):
+                return self.construct_curie('mesh', local_id)
+        elif lookup_key == ('Variant', 'unknown'):
+            if self.is_dbsnp_id(local_id):
+                return self.construct_curie('dbsnp', local_id)
+        elif lookup_key == ('EC', 'explorenz'):
+            if self.is_ec_id(local_id):
+                return self.construct_curie('ec', local_id)
+        elif lookup_key == ('Pathway', 'reactome'):
+            if self.is_reactome_id(local_id):
+                return self.construct_curie('react', local_id)
+        elif lookup_key == ('Pathway', 'wikipathways'):
+            local_id_cleaned = local_id.split('_')[0]  # Get rid of version info, like in WP5395_r126912
+            if self.is_wikipathways_id(local_id_cleaned):
+                return self.construct_curie('wikipathways', local_id_cleaned)
+
+
+
+        # if lookup_key not in curie_map:
+        logging.error(f"Could not determine prefix for identifier: type: {node_type}, source: {source_cleaned} "
+                      f"({source}), identifier: {identifier}, local_id: {local_id}.\n   Properties: {properties}")
+        sys.exit(1)
+
+
+    def get_curie_parts(self, identifier: str) -> Tuple[str, str]:
+        num_colons = identifier.count(':')
+        if num_colons == 0:
+            return '', identifier
+        elif num_colons == 1:
+            parts = identifier.split(':')
+            return parts[0], parts[1]
         else:
-            # Extract the local ID for the curie, reformatting it as necessary
-            source_cleaned = source.lower().replace(' ', '')
-            local_id = self._get_local_id(identifier, source_cleaned, properties)
-        local_id = local_id.strip()
-        
-        # 3. Construct the normalized curie (using cached prefix mapping if available)
-        if source_cleaned in self.prefix_lowercase_map:
-            normalized_prefix = self.prefix_lowercase_map[source_cleaned]
-            curie = f"{normalized_prefix}:{local_id}"
-        elif (source_cleaned, node_type) in self.prefix_lowercase_map:
-            normalized_prefix = self.prefix_lowercase_map[(source_cleaned, node_type)]
-            curie = f"{normalized_prefix}:{local_id}"
-        else:
-            curie = self._derive_curie(node_type, source_cleaned, local_id)
-        
-        return curie
-    
+            logging.error(f"An identifier has more than one colon in it: {identifier}. Not sure what to do.")
+            sys.exit(1)
+
+
+    def construct_curie(self, prefix_lowercase: str, local_id: str) -> str:
+        return f"{self.prefix_lowercase_map[prefix_lowercase]}:{local_id}"
+
 
     def _get_local_id(self, identifier: str, source_cleaned: str, properties: dict) -> str:
         if source_cleaned == 'complexportal':
@@ -115,12 +127,12 @@ class SpokeIDNormalizer:
             return str(identifier)  # Sometimes SPOKE gives ints here
 
 
-    def _derive_curie(self, node_type: str, source_cleaned: str, local_id: str) -> str:
+    def _derive_curie_old(self, node_type: str, source_cleaned: str, local_id: str) -> str:
         """Assign prefix based on node source, type and simple heuristics"""
         
         # Source/type-based assignments
         if source_cleaned:  # TODO: if these prefixes/their shortcuts are already in prefix map, can remove the if block? or want the flexible 'if in'?
-            if "entrez" in source_cleaned or "ncbi" in source_cleaned or 'mirbase' in source_cleaned:
+            if node_type in {'Gene', 'Protein', 'MiRNA'} and ("entrez" in source_cleaned or "ncbi" in source_cleaned or 'mirbase' in source_cleaned):
                 return self._construct_normalized_curie(source_cleaned, 'ncbigene', local_id)
             elif "uniprot" in source_cleaned:
                 return self._construct_normalized_curie(source_cleaned, 'uniprotkb', local_id)
@@ -150,8 +162,8 @@ class SpokeIDNormalizer:
                 return self._construct_normalized_curie(source_cleaned, 'doid', local_id)
             elif "pfam" in source_cleaned:
                 return self._construct_normalized_curie(source_cleaned, 'pfam', local_id)
-            elif "taxonomy" in source_cleaned:
-                return self._construct_normalized_curie(source_cleaned, 'ncbitaxon', local_id)
+            elif node_type == 'Organism' and 'taxon' in source_cleaned:
+                return self._construct_normalized_curie((source_cleaned, node_type), 'ncbitaxon', local_id)
             elif 'kegg' in source_cleaned:
                 if "drug" in source_cleaned:
                     return self._construct_normalized_curie(source_cleaned, 'kegg.drug', local_id)
@@ -176,7 +188,7 @@ class SpokeIDNormalizer:
             elif source_cleaned == 'nhanes':
                 return self._construct_normalized_curie(source_cleaned, 'nhanes', local_id)
             elif source_cleaned == 'accession' and (node_type == 'Gene' or node_type == 'MiRNA') and self.is_mirbase_id(local_id):
-                return self._construct_normalized_curie(source_cleaned, 'mirbase', local_id)
+                return self._construct_normalized_curie((source_cleaned, node_type), 'mirbase', local_id)
             elif source_cleaned == 'mirdb':
                 return self._construct_normalized_curie(source_cleaned, 'mirdb', local_id)
             elif source_cleaned == 'celllineontology':
@@ -198,11 +210,11 @@ class SpokeIDNormalizer:
             elif 'householdpulsesurvey' in source_cleaned:
                 return self._construct_normalized_curie(source_cleaned, 'hps', local_id)
             elif node_type == 'Cytoband' and source_cleaned == 'unknown':
-                return self._construct_normalized_curie(source_cleaned, 'cytoband', local_id)  # TODO: Seems like we're getting a lot of CYTOBAND:rs1591517484 (fix)
+                return self._construct_normalized_curie((source_cleaned, node_type), 'cytoband', local_id)  # TODO: Seems like we're getting a lot of CYTOBAND:rs1591517484 (fix)
             elif "ontology" in source_cleaned and node_type == "CellType":
-                return self._construct_normalized_curie(source_cleaned, 'cl', local_id)
+                return self._construct_normalized_curie((source_cleaned, node_type), 'cl', local_id)
             elif "ontology" in source_cleaned and node_type in ["BiologicalProcess", "MolecularFunction", "CellularComponent"]:
-                return self._construct_normalized_curie(source_cleaned, 'go', local_id)
+                return self._construct_normalized_curie((source_cleaned, node_type), 'go', local_id)
         
         # Back up to identifier pattern-based heuristics (simple ones only)
         types_mesh_used_for = {'Symptom', 'SideEffect'}
@@ -269,12 +281,12 @@ class SpokeIDNormalizer:
     
 
     @staticmethod
-    def _is_mesh_id(local_id: str) -> bool:
+    def is_mesh_id(local_id: str) -> bool:
         return bool(re.match(r'^D\d+$', local_id)) or bool(re.match(r'^C\d+$', local_id))
 
 
     @staticmethod
-    def _is_metacyc_pathway_id(local_id: str) -> bool:
+    def is_metacyc_pathway_id(local_id: str) -> bool:
         return bool(re.match(r'^[A-Z0-9][A-Z0-9-]*$', local_id)) and 'PWY' in local_id
 
 
@@ -287,3 +299,91 @@ class SpokeIDNormalizer:
     def is_mirbase_id(local_id: str) -> bool:
         # Allows: MI[digits] or MIMAT[digits]
         return bool(re.match(r'^MI[0-9]+$', local_id)) or bool(re.match(r'^MIMAT[0-9]+$', local_id))
+
+    @staticmethod
+    def is_uberon_id(local_id: str) -> bool:
+        # Allows: digits only (e.g., 0003233 from UBERON:0003233)
+        return bool(re.match(r'^[0-9]+$', local_id))
+
+    @staticmethod
+    def is_dbsnp_id(local_id: str) -> bool:
+        # Allows: rs followed by digits (e.g., rs1060501038)
+        return bool(re.match(r'^rs[0-9]+$', local_id))
+
+    @staticmethod
+    def is_ec_id(local_id: str) -> bool:
+        # Allows: EC number format (e.g., 3.1.7.2, 1.14.13.M81)
+        parts = local_id.split('.')
+        if len(parts) < 2 or len(parts) > 4:
+            return False
+
+        # Check each part
+        for part in parts:
+            # Each part must be either:
+            # - A number (including 0)
+            # - A letter followed by numbers (like M81, B1)
+            # - Just a dash (for unspecified sub-subclasses)
+            if not re.match(r'^([0-9]+|[A-Z]+[0-9]*|-)$', part):
+                return False
+
+        return True
+
+    @staticmethod
+    def is_reactome_id(local_id: str) -> bool:
+        # Allows: R-HSA-digits (e.g., R-HSA-162582)
+        return bool(re.match(r'^R-[A-Z]{3}-[0-9]+$', local_id))
+
+    @staticmethod
+    def is_wikipathways_id(local_id: str) -> bool:
+        # Allows: WP followed by digits
+        return bool(re.match(r'^WP[0-9]+$', local_id))
+
+    @staticmethod
+    def is_doid_id(local_id: str) -> bool:
+        # Allows: digits only (e.g., 0070557 from DOID:0070557)
+        return bool(re.match(r'^[0-9]+$', local_id))
+
+    @staticmethod
+    def is_ncbigene_id(local_id: str) -> bool:
+        # Allows: pure digits (Entrez Gene IDs)
+        return bool(re.match(r'^[0-9]+$', local_id))
+
+    @staticmethod
+    def is_metacyc_reaction_id(local_id: str) -> bool:
+        # Allows: uppercase letters, digits, and hyphens (e.g., R13147, RXN-15029)
+        return bool(re.match(r'^R[A-Z0-9-]*$', local_id)) or bool(re.match(r'^RXN-[0-9]+$', local_id))
+
+    @staticmethod
+    def is_inchikey_id(local_id: str) -> bool:
+        # Allows: standard InChI key format (e.g., AMOFQIUOTAJRKS-UHFFFAOYSA-N)
+        return bool(re.match(r'^[A-Z]{14}-[A-Z]{10}-[A-Z]$', local_id))
+
+    @staticmethod
+    def is_go_id(local_id: str) -> bool:
+        # Allows: digits only (e.g., 0004339 from GO:0004339)
+        return bool(re.match(r'^[0-9]+$', local_id))
+
+    @staticmethod
+    def is_cl_id(local_id: str) -> bool:
+        # Allows: digits only (e.g., 0000540 from CL:0000540)
+        return bool(re.match(r'^[0-9]+$', local_id))
+
+    @staticmethod
+    def is_hpo_id(local_id: str) -> bool:
+        # Allows: digits only (e.g., 0001234 from HP:0001234)
+        return bool(re.match(r'^[0-9]+$', local_id))
+
+    @staticmethod
+    def is_uszipcode_id(local_id: str) -> bool:
+        # Allows: 5-digit US ZIP codes
+        return bool(re.match(r'^[0-9]{5}$', local_id))
+
+    @staticmethod
+    def is_ndfrt_id(local_id: str) -> bool:
+        # Allows: NDFRT identifiers (typically alphanumeric)
+        return bool(re.match(r'^[A-Z0-9_]+$', local_id))
+
+    @staticmethod
+    def is_sider_id(local_id: str) -> bool:
+        # Allows: SIDER identifiers (typically alphanumeric with possible special chars)
+        return bool(re.match(r'^[A-Z0-9._-]+$', local_id))

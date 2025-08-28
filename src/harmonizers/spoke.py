@@ -2,6 +2,7 @@
 SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 """
 
+import json
 from pathlib import Path
 import sys
 from typing import List, Optional, Tuple
@@ -81,10 +82,13 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> dict:
 
     # Normalize the identifier
     normalized_id = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier, properties)
+    print(f"norm id: {normalized_id}")
     
     # Extract additional equivalent identifiers from properties
     additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, properties)
     all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
+    if additional_equivalent_ids:
+        print(f"equiv ids: {additional_equivalent_ids}")
     
     harmonized_node = {
         ID: normalized_id,
@@ -141,7 +145,7 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optio
     }
     # Tack on any additional sources
     if secondary_sources:
-        harmonized_edge[SUPPORTING_SOURCES] = [normalize_source(s, edge_item) for s in secondary_sources]
+        harmonized_edge[SUPPORTING_SOURCES] = list({normalize_source(s, edge_item) for s in secondary_sources})
     # Tack on any qualifiers
     if qual_predicate:
         harmonized_edge[QUALIFIED_PREDICATE] = qual_predicate
