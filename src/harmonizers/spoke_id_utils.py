@@ -52,6 +52,8 @@ class SpokeIDNormalizer:
             prefix_to_iri_map['HPS'] = ""  # Household Pulse Survey
             prefix_to_iri_map['mirbase'] = "https://mirbase.org/hairpin/"  # Biolink has mirbase in here, but their iri doesn't work
             prefix_to_iri_map['metacyc.pathway'] = "https://metacyc.org/pathway?orgid=META&id="  # Biolink has metacyc.reaction, but not pathway
+            prefix_to_iri_map['FIPS.PLACE'] = ""
+            prefix_to_iri_map['FIPS.STATE'] = ""
 
             # Override prefixes as needed (if Biolink's iri is broken)
             prefix_to_iri_map['omim'] = "https://omim.org/entry/"
@@ -69,10 +71,15 @@ class SpokeIDNormalizer:
             'cl': self.is_cl_id,
             'dbsnp': self.is_dbsnp_id,
             'doid': self.is_doid_id,
+            'drugbank': self.is_drugbank_id,
             'ec': self.is_ec_id,
+            'fips.place': self.is_fips_compound_id,
+            'fips.state': self.is_fips_state_id,
             'icd9': self.is_icd9_id,
             'icd10': self.is_icd10_id,
             'inchikey': self.is_inchikey_id,
+            'kegg.compound': self.is_kegg_compound_id,
+            'kegg.drug': self.is_kegg_drug_id,
             'kegg.reaction': self.is_kegg_reaction_id,
             'loinc': self.is_loinc_id,
             'mesh': self.is_mesh_id,
@@ -87,6 +94,7 @@ class SpokeIDNormalizer:
             'snomedct': self.is_snomedct_id,
             'uberon': self.is_uberon_id,
             'umls': self.is_umls_id,
+            'uszipcode': self.is_uszipcode_id,
             'wikipathways': self.is_wikipathways_id,
         }
 
@@ -101,14 +109,21 @@ class SpokeIDNormalizer:
             ('Compound', 'chebi'): {prefix: 'chebi'},
             ('Compound', 'chembl_ids'): {prefix: 'chembl.compound'},
             ('Compound', 'chembl.compound'): {prefix: 'chembl.compound'},
+            ('Compound', 'drugbank_ids'): {prefix: 'drugbank'},
             ('Compound', 'inchikey'): {prefix: 'inchikey'},
+            ('Compound', 'kegg_compound_ids'): {prefix: 'kegg.compound'},
+            ('Compound', 'kegg_drug_ids'): {prefix: 'kegg.drug'},
             ('Compound', 'pubchem_compound_ids'): {prefix: 'pubchem.compound'},
             ('Compound', 'standardized_smiles'): {prefix: 'smiles'},
             ('Disease', 'doid'): {prefix: 'doid'},
+            ('Disease', 'icd9'): {prefix: 'icd9'},
+            ('Disease', 'icd10'): {prefix: 'icd10'},
             ('Disease', 'mesh_list'): {prefix: 'mesh'},
             ('Disease', 'omim_list'): {prefix: 'omim'},
+            ('Disease', 'snomedct'): {prefix: 'snomedct', cleaner: self.convert_float_to_int_str},
             ('EC', 'explorenz'): {prefix: 'ec'},
             ('Gene', 'entrezgene'): {prefix: 'ncbigene'},
+            ('Location', 'unitedstateszipcode_database'): {prefix: ['uszipcode', 'fips.place', 'fips.state']},
             ('Organism', 'ncbi-taxonomy'): {prefix: 'ncbitaxon'},
             ('Pathway', 'reactome'): {prefix: 'react'},
             ('Pathway', 'unknown'): {prefix: 'metacyc.pathway'},
@@ -314,6 +329,16 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^R\d{5}$', local_id))
 
     @staticmethod
+    def is_kegg_drug_id(local_id: str) -> bool:
+        # Allows: D followed by exactly 5 digits
+        return bool(re.match(r'^D\d{5}$', local_id))
+
+    @staticmethod
+    def is_kegg_compound_id(local_id: str) -> bool:
+        # Allows: C followed by exactly 5 digits
+        return bool(re.match(r'^C\d{5}$', local_id))
+
+    @staticmethod
     def is_pubchem_compound_id(local_id: str) -> bool:
         # Allows: positive integers (PubChem CIDs are numeric)
         return local_id.isdigit() and int(local_id) > 0
@@ -321,10 +346,9 @@ class SpokeIDNormalizer:
     @staticmethod
     def is_smiles_string(local_id: str) -> bool:
         # Basic SMILES validation: multiple element symbols and valid characters
-        uppercase_count = sum(1 for c in local_id if c.isupper())
-        valid_chars = set('BCNOPSFHIKLMWUVYXZbcnopslr[]()=#+\\/@.-0123456789')
+        valid_chars = set('BCNOPSFHIKLMWUVYXZbcnopslr[]()=#%+\\/@.-0123456789')
         has_valid_chars = all(c in valid_chars for c in local_id)
-        return uppercase_count >= 2 and has_valid_chars
+        return has_valid_chars
 
     @staticmethod
     def is_wikipathways_id(local_id: str) -> bool:
@@ -340,6 +364,11 @@ class SpokeIDNormalizer:
     def is_doid_id(local_id: str) -> bool:
         # Allows: digits only (e.g., 0070557 from DOID:0070557)
         return bool(re.match(r'^[0-9]+$', local_id))
+
+    @staticmethod
+    def is_drugbank_id(local_id: str) -> bool:
+        # Allows: DB followed by exactly 5 digits
+        return bool(re.match(r'^DB\d{5}$', local_id))
 
     @staticmethod
     def is_ncbigene_id(local_id: str) -> bool:
@@ -387,8 +416,8 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_icd10_id(local_id: str) -> bool:
-        # ICD-10 codes: letter followed by 2 digits, optional dot and alphanumeric
-        return bool(re.match(r'^[A-Z]\d{2}(\.[A-Z0-9]+)?$', local_id))
+        # ICD-10 codes: letter followed by 2 letters or digits, optional dot and alphanumeric
+        return bool(re.match(r'^[A-Z][A-Z0-9]{2}(\.[A-Z0-9]+)?$', local_id))
 
     @staticmethod
     def is_icd9_id(local_id: str) -> bool:
@@ -432,6 +461,16 @@ class SpokeIDNormalizer:
     def is_uszipcode_id(local_id: str) -> bool:
         # Allows: 5-digit US ZIP codes
         return bool(re.match(r'^[0-9]{5}$', local_id))
+
+    @staticmethod
+    def is_fips_compound_id(local_id: str) -> bool:
+        # Allows: 7-digit (state+city) OR 12-digit (state+placeholder+suffix)
+        return bool(re.match(r'^(\d{7}|\d{12})$', local_id))
+
+    @staticmethod
+    def is_fips_state_id(local_id: str) -> bool:
+        # Allows: exactly 2 digits
+        return bool(re.match(r'^\d{2}$', local_id))
 
     @staticmethod
     def is_ndfrt_id(local_id: str) -> bool:
