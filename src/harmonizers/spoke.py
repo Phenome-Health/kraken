@@ -59,7 +59,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
         logging.info("SPOKE metagraph generated")
 
 
-def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> dict:
+def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optional[dict]:
     """Harmonize a single SPOKE node"""
     properties = node_item.get('properties', {})
     labels = node_item.get('labels', [])
@@ -74,23 +74,20 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> dict:
     
     original_identifier = properties.get('identifier', node_item['id'])
 
-    # Skip invalid/unhelpful nodes
-    if primary_source == 'CellLineOntology' and original_identifier.startswith('http'):
-        return None  # Example of such a node's 'identifier': 'http://www.ebi.ac.uk/cellline#cancer_cell_line'
-    if primary_source == 'CDC/ATSDR Social Vulnerability Index':
-        return None  # There's only one node from this source in SPOKE v6, and it doesn't exactly map to the right mesh term
-
     # Normalize the identifier
     normalized_id, iri = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier, properties)
 
-    if normalized_id:
+    if normalized_id == KNOWN_INVALID:
+        logging.warning(f"Skipping node as curie extraction failed (known failure). {node_item}")
+        return None
+    elif normalized_id:
         # Extract additional equivalent identifiers from properties
         additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, properties)
         all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
 
         harmonized_node = {
             ID: normalized_id,
-            CATEGORIES: map_spoke_labels_to_biolink(labels, primary_source),
+            CATEGORIES: map_spoke_labels_to_biolink(labels, primary_source, normalized_id),
             PROVIDED_BY: [SPOKE_INFORES],
             EQUIVALENT_IDS: all_equivalent_ids,
             'spoke_nodes': [node_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier)
@@ -100,11 +97,11 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> dict:
             harmonized_node[SYNONYMS] = [harmonized_node[NAME]]  # TODO: down the road see about extracting SPOKE synonyms
         if iri:
             harmonized_node[IRI] = iri
+
+        return harmonized_node
     else:
         logging.error(f"Failed to convert SPOKE 'identifier' to a proper curie. {node_item}")
         sys.exit(1)
-    
-    return harmonized_node
 
 
 def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optional[dict]:
@@ -160,7 +157,7 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optio
     return harmonized_edge
 
 
-def map_spoke_labels_to_biolink(labels: List[str], source: str) -> List[str]:
+def map_spoke_labels_to_biolink(labels: List[str], source: str, standardized_id: str) -> List[str]:
     """Map SPOKE node labels to Biolink categories"""
 
     # Simple mapping - extend as needed
@@ -169,7 +166,7 @@ def map_spoke_labels_to_biolink(labels: List[str], source: str) -> List[str]:
         'Variant': 'SequenceVariant',
         'Organism--ncbi-taxonomy': 'OrganismTaxon',  # Need to consider source for these
         'Organism--BV-BRC': 'OrganismalEntity',  # Need to consider source for these
-        'Protein': 'Protein',
+        'Protein': 'Polypeptide' if 'PRO_' in standardized_id else 'Protein',  # Some are really protein features
         'Location': 'GeographicLocation',
         'ClinicalLab': 'ClinicalFinding',
         'Reaction': 'MolecularActivity',

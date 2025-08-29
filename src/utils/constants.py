@@ -41,3 +41,5 @@ UMLS_INFORES = 'infores:umls'
 
 BIOLINK_PREFIX = 'biolink'
 INFORES_PREFIX = 'infores'
+
+KNOWN_INVALID = 'KNOWN_INVALID'

@@ -10,6 +10,7 @@ import sys
 from typing import Any, List, Dict, Set, Tuple, Union, Callable, Optional
 
 import requests
+from ..utils.constants import *
 
 
 class SpokeIDNormalizer:
@@ -21,7 +22,6 @@ class SpokeIDNormalizer:
         self.prefix_lowercase_map = {prefix.lower(): prefix for prefix in self.normalized_prefixes_to_iris.keys()}
         self.validator_map = self._load_validator_map()
         self.curie_construction_map, self.prefix_prop, self.cleaner_prop = self._load_curie_construction_map()
-        self.known_invalid = "KNOWN_INVALID"
     
 
     def _load_prefix_to_iri_map(self) -> Dict[str, str]:
@@ -39,7 +39,7 @@ class SpokeIDNormalizer:
             # Add prefixes as needed (ones we're making up, that don't exist in biolink)
             prefix_to_iri_map['USZIPCODE'] = "https://www.unitedstateszipcodes.org/"
             prefix_to_iri_map['SMILES'] = "https://pubchem.ncbi.nlm.nih.gov/compound/"
-            prefix_to_iri_map['CELLOSAURUS'] = "https://web.expasy.org/cellosaurus/"
+            prefix_to_iri_map['CVCL'] = "https://web.expasy.org/cellosaurus/CVCL_"
             prefix_to_iri_map['VESICLEPEDIA'] = "http://microvesicles.org/exp_summary?exp_id="
             prefix_to_iri_map['NDFRT'] = "http://purl.bioontology.org/ontology/NDFRT/"
             prefix_to_iri_map['BVBRC'] = "https://www.bv-brc.org/view/Genome/"
@@ -56,7 +56,8 @@ class SpokeIDNormalizer:
             prefix_to_iri_map['FIPS.STATE'] = ""
 
             # Override prefixes as needed (if Biolink's iri is broken)
-            prefix_to_iri_map['omim'] = "https://omim.org/entry/"
+            prefix_to_iri_map['OMIM'] = "https://omim.org/entry/"
+            prefix_to_iri_map['REACT'] = "https://reactome.org/content/detail/" # Works for Complexes and Pathways (I think)
 
             return prefix_to_iri_map
         else:
@@ -67,14 +68,17 @@ class SpokeIDNormalizer:
     def _load_validator_map(self) -> Dict[str, Callable]:
         return {
             'chebi': self.is_chebi_id,
-            'chembl.compound': self.is_chembl_id,
+            'chembl.compound': self.is_chembl_compound_id,
+            'chembl.target': self.is_chembl_target_id,
             'cl': self.is_cl_id,
+            'cvcl': self.is_cellosaurus_id,
             'dbsnp': self.is_dbsnp_id,
             'doid': self.is_doid_id,
             'drugbank': self.is_drugbank_id,
             'ec': self.is_ec_id,
             'fips.place': self.is_fips_compound_id,
             'fips.state': self.is_fips_state_id,
+            'go': self.is_go_id,
             'icd9': self.is_icd9_id,
             'icd10': self.is_icd10_id,
             'inchikey': self.is_inchikey_id,
@@ -94,6 +98,7 @@ class SpokeIDNormalizer:
             'snomedct': self.is_snomedct_id,
             'uberon': self.is_uberon_id,
             'umls': self.is_umls_id,
+            'uniprotkb': self.is_uniprot_id,
             'uszipcode': self.is_uszipcode_id,
             'wikipathways': self.is_wikipathways_id,
         }
@@ -104,6 +109,8 @@ class SpokeIDNormalizer:
         curie_construction_map = {
             ('Anatomy', 'mesh_id'): {prefix: 'mesh'},
             ('Anatomy', 'uberon'): {prefix: 'uberon'},
+            ('BiologicalProcess', 'go'): {prefix: 'go'},
+            ('CellLine', 'unknown'): {prefix: 'cvcl', cleaner: lambda x: x.replace('CVCL_', '')},
             ('CellType', 'cl'): {prefix: 'cl'},
             ('ClinicalLab', 'unknown'): {prefix: ['loinc', 'umls']},
             ('Compound', 'chebi'): {prefix: 'chebi'},
@@ -122,13 +129,18 @@ class SpokeIDNormalizer:
             ('Disease', 'omim_list'): {prefix: 'omim'},
             ('Disease', 'snomedct'): {prefix: 'snomedct', cleaner: self.convert_float_to_int_str},
             ('EC', 'explorenz'): {prefix: 'ec'},
+            ('Gene', 'chembl_id'): {prefix: 'chembl.target'},
             ('Gene', 'entrezgene'): {prefix: 'ncbigene'},
             ('Location', 'unitedstateszipcode_database'): {prefix: ['uszipcode', 'fips.place', 'fips.state']},
+            ('MolecularFunction', 'go'): {prefix: 'go'},
             ('Organism', 'ncbi-taxonomy'): {prefix: 'ncbitaxon'},
             ('Pathway', 'reactome'): {prefix: 'react'},
             ('Pathway', 'unknown'): {prefix: 'metacyc.pathway'},
             ('Pathway', 'wikipathways'): {prefix: 'wikipathways', cleaner: self.clean_wikipathways_id},
+            ('Protein', 'chembl_id'): {prefix: 'chembl.target'},
+            ('Protein', 'uniprot'): {prefix: 'uniprotkb'},
             ('ProteinDomain', 'pfam'): {prefix: 'pfam'},
+            ('PwGroup', 'reactome'): {prefix: 'react'},
             ('Reaction', 'kegg'): {prefix: 'kegg.reaction'},
             ('SideEffect', 'sider4.1'): {prefix: 'umls'},  # They give CUIs for nodes with SIDER source
             ('Symptom', 'hpo'): {prefix: 'mesh'},  # They give MeSH IDs for nodes with HPO source
@@ -170,10 +182,10 @@ class SpokeIDNormalizer:
 
             if prefix_lowercase:
                 curie, iri = self.construct_curie(prefix_lowercase, local_id)
-                if curie == self.known_invalid:
-                    return "", ""
+                if curie == KNOWN_INVALID:
+                    return KNOWN_INVALID, ""
                 elif curie:
-                    print(f"curie: {curie}, name: {properties.get('name')}, iri: {iri}")
+                    # print(f"curie: {curie}, name: {properties.get('name')}, iri: {iri}")
                     return curie, iri
 
 
@@ -205,11 +217,11 @@ class SpokeIDNormalizer:
             return f"{prefix_normalized}:{local_id}", iri
         elif is_valid_id is None:
             # Indicates this is a known invalid ID format for this node_type, source pair; we will skip it
-            logging.warning(f"Local id {local_id} is invalid for {prefix_lowercase} (known invalid format)")
-            return self.known_invalid, ''
+            logging.warning(f"Local id '{local_id}' is invalid for {prefix_lowercase} (known invalid format)")
+            return KNOWN_INVALID, ''
         else:
             # This is an unknown invalid ID format; we want to return nothing, which will halt processing after logging
-            logging.error(f"Local id {local_id} is invalid for {prefix_lowercase} (UNKNOWN invalid format)")
+            logging.error(f"Local id '{local_id}' is invalid for {prefix_lowercase} (UNKNOWN invalid format)")
             return '', ''
     
 
@@ -227,11 +239,6 @@ class SpokeIDNormalizer:
             first_word = prop_name_lower.split('_')[0]
             if prop_name_lower in exact_fields or (first_word in equiv_id_sources and ('id' in prop_name_lower or '_list' in prop_name_lower)):
                 relevant_properties.add(property_name)
-
-        print(f"     keys are: {properties.keys()}")
-        print(f"    relevant properties for equiv ids are: {relevant_properties}\n")
-        # if properties.get('SNOMEDCT') == '1.62248710001191e+16':
-        #     raise ValueError('At the node I want')
 
         # Construct proper curie(s) for each of those properties
         for id_prop_name in relevant_properties:
@@ -269,8 +276,16 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_metacyc_pathway_id(local_id: str) -> bool:
-        # MetaCyc pathway IDs: either PWY-#### or DESCRIPTIVE-NAME-PWY (but not both)
-        return bool(re.match(r'^PWY-\d+$', local_id)) or bool(re.match(r'^[A-Z0-9\-]+-PWY$', local_id))
+        # MetaCyc pathway IDs: examples: PWY-#### or PWY0-#### or DESCRIPTIVE-NAME-PWY or PWY18C3-9
+        has_hyphen = '-' in local_id
+        has_valid_chars = bool(re.match(r'^[A-Z0-9-+]+$', local_id))
+        is_metacyc_id = has_hyphen and has_valid_chars and local_id.isupper() and (local_id.startswith('PWY') or local_id.endswith('PWY') or '+' in local_id)
+        if is_metacyc_id:
+            return True
+        elif any(c.isspace() for c in local_id) and sum(1 if c.islower() else 0 for c in local_id) > 4:
+            return None  # Meant to catch english names given as identifiers, like Glycan biosynthesis - 2
+        else:
+            return False
 
     @staticmethod
     def is_snomedct_id(local_id: str) -> Optional[bool]:
@@ -282,8 +297,8 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_cellosaurus_id(local_id: str) -> bool:
-        # Allows: CVCL_[digits or letters]
-        return bool(re.match(r'^CVCL_[A-Z0-9]+$', local_id))
+        # Allows: Exactly 4 digits
+        return local_id.isdigit() and len(local_id) == 4
 
     @staticmethod
     def is_mirbase_id(local_id: str) -> bool:
@@ -319,9 +334,12 @@ class SpokeIDNormalizer:
         return True
 
     @staticmethod
-    def is_reactome_id(local_id: str) -> bool:
+    def is_reactome_id(local_id: str) -> Optional[bool]:
         # Allows: R-HSA-digits (e.g., R-HSA-162582)
-        return bool(re.match(r'^R-[A-Z]{3}-[0-9]+$', local_id))
+        if local_id == 'root':
+            return None
+        else:
+            return bool(re.match(r'^R-[A-Z]{3}-[0-9]+$', local_id))
 
     @staticmethod
     def is_kegg_reaction_id(local_id: str) -> bool:
@@ -405,6 +423,24 @@ class SpokeIDNormalizer:
         return self.is_umls_cui(local_id) or self.is_umls_mthu_id(local_id)
 
     @staticmethod
+    def is_uniprot_protein_id(local_id: str) -> bool:
+        # Allows: 6 or 10 uppercase alphanumeric characters, requires >=1 letter and >=1 digit
+        is_proper_alphanumeric = bool(re.match(r'^([A-Z0-9]{6}|[A-Z0-9]{10})$', local_id))
+        has_letter = any(c.isalpha() for c in local_id)
+        has_digit = any(c.isdigit() for c in local_id)
+        return is_proper_alphanumeric and has_letter and has_digit
+
+    @staticmethod
+    def is_uniprot_feature_id(local_id: str) -> bool:
+        # Allows: UniProt ID, hyphen, then PRO_ and digits
+        pattern = r'^([A-Z0-9]{6}|[A-Z0-9]{10})-PRO_\d+$'
+        return bool(re.match(pattern, local_id))
+
+    def is_uniprot_id(self, local_id: str) -> bool:
+        # Allows: Regular uniprot protein IDs or the special 'feature' ids
+        return self.is_uniprot_protein_id(local_id) or self.is_uniprot_feature_id(local_id)
+
+    @staticmethod
     def is_metacyc_reaction_id(local_id: str) -> bool:
         # Allows: uppercase letters, digits, and hyphens (e.g., R13147, RXN-15029)
         return bool(re.match(r'^R[A-Z0-9-]*$', local_id)) or bool(re.match(r'^RXN-[0-9]+$', local_id))
@@ -418,6 +454,11 @@ class SpokeIDNormalizer:
     def is_icd10_id(local_id: str) -> bool:
         # ICD-10 codes: letter followed by 2 letters or digits, optional dot and alphanumeric
         return bool(re.match(r'^[A-Z][A-Z0-9]{2}(\.[A-Z0-9]+)?$', local_id))
+
+    @staticmethod
+    def is_go_id(local_id: str) -> bool:
+        # Allows: exactly 7 digits
+        return bool(re.match(r'^\d{7}$', local_id))
 
     @staticmethod
     def is_icd9_id(local_id: str) -> bool:
@@ -443,13 +484,21 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^[0-9]+$', local_id))
 
     @staticmethod
-    def is_chebi_id(local_id: str) -> bool:
+    def is_chebi_id(local_id: str) -> Optional[bool]:
         # ChEBI IDs are positive integers
-        return local_id.isdigit() and int(local_id) > 0
+        if local_id == 'root':
+            return None
+        else:
+            return local_id.isdigit() and int(local_id) > 0
 
     @staticmethod
-    def is_chembl_id(local_id: str) -> bool:
-        # ChEMBL IDs: CHEMBL followed by digits
+    def is_chembl_compound_id(local_id: str) -> bool:
+        # Allows: CHEMBL followed by digits
+        return bool(re.match(r'^CHEMBL\d+$', local_id))
+
+    @staticmethod
+    def is_chembl_target_id(local_id: str) -> bool:
+        # Allows: CHEMBL followed by one or more digits
         return bool(re.match(r'^CHEMBL\d+$', local_id))
 
     @staticmethod
