@@ -78,7 +78,7 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optiona
     normalized_id, iri = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier, properties)
 
     if normalized_id == KNOWN_INVALID:
-        logging.warning(f"Skipping node as curie extraction failed (known failure). {node_item}")
+        # logging.warning(f"Skipping node as curie extraction failed (known failure). {node_item}")
         return None
     elif normalized_id:
         # Extract additional equivalent identifiers from properties

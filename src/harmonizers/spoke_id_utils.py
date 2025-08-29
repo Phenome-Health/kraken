@@ -67,6 +67,7 @@ class SpokeIDNormalizer:
 
     def _load_validator_map(self) -> Dict[str, Callable]:
         return {
+            'bvbrc': self.is_bvbrc_id,
             'chebi': self.is_chebi_id,
             'chembl.compound': self.is_chembl_compound_id,
             'chembl.target': self.is_chembl_target_id,
@@ -78,6 +79,7 @@ class SpokeIDNormalizer:
             'ec': self.is_ec_id,
             'fips.place': self.is_fips_compound_id,
             'fips.state': self.is_fips_state_id,
+            'geonames': self.is_geonames_id,
             'go': self.is_go_id,
             'icd9': self.is_icd9_id,
             'icd10': self.is_icd10_id,
@@ -88,8 +90,11 @@ class SpokeIDNormalizer:
             'loinc': self.is_loinc_id,
             'mesh': self.is_mesh_id,
             'metacyc.pathway': self.is_metacyc_pathway_id,
+            'metacyc.reaction': self.is_metacyc_reaction_id,
             'ncbigene': self.is_ncbigene_id,
             'ncbitaxon': self.is_ncbitaxon_id,
+            'ndfrt': self.is_ndfrt_id,
+            'nhanes': self.is_nhanes_id,
             'omim': self.is_omim_id,
             'pfam': self.is_pfam_id,
             'pubchem.compound': self.is_pubchem_compound_id,
@@ -100,6 +105,7 @@ class SpokeIDNormalizer:
             'umls': self.is_umls_id,
             'uniprotkb': self.is_uniprot_id,
             'uszipcode': self.is_uszipcode_id,
+            'vesiclepedia': self.is_vesiclepedia_id,
             'wikipathways': self.is_wikipathways_id,
         }
 
@@ -112,6 +118,7 @@ class SpokeIDNormalizer:
             ('BiologicalProcess', 'go'): {prefix: 'go'},
             ('CellLine', 'unknown'): {prefix: 'cvcl', cleaner: lambda x: x.replace('CVCL_', '')},
             ('CellType', 'cl'): {prefix: 'cl'},
+            ('CellularComponent', 'go'): {prefix: 'go'},
             ('ClinicalLab', 'unknown'): {prefix: ['loinc', 'umls']},
             ('Compound', 'chebi'): {prefix: 'chebi'},
             ('Compound', 'chembl_ids'): {prefix: 'chembl.compound'},
@@ -122,32 +129,39 @@ class SpokeIDNormalizer:
             ('Compound', 'kegg_drug_ids'): {prefix: 'kegg.drug'},
             ('Compound', 'pubchem_compound_ids'): {prefix: 'pubchem.compound'},
             ('Compound', 'standardized_smiles'): {prefix: 'smiles'},
+            ('DietarySupplement', 'nhanes'): {prefix: 'nhanes'},
             ('Disease', 'doid'): {prefix: 'doid'},
             ('Disease', 'icd9'): {prefix: 'icd9'},
             ('Disease', 'icd10'): {prefix: 'icd10'},
             ('Disease', 'mesh_list'): {prefix: 'mesh'},
             ('Disease', 'omim_list'): {prefix: 'omim'},
-            ('Disease', 'snomedct'): {prefix: 'snomedct', cleaner: self.convert_float_to_int_str},
+            ('Disease', 'snomedct'): {prefix: 'snomedct', cleaner: self.clean_snomed_id},
             ('EC', 'explorenz'): {prefix: 'ec'},
+            ('ExtracellularParticle', 'vesiclepedia'): {prefix: 'vesiclepedia'},
             ('Gene', 'chembl_id'): {prefix: 'chembl.target'},
             ('Gene', 'entrezgene'): {prefix: 'ncbigene'},
+            ('Location', 'geonames'): {prefix: 'geonames'},
             ('Location', 'unitedstateszipcode_database'): {prefix: ['uszipcode', 'fips.place', 'fips.state']},
             ('MolecularFunction', 'go'): {prefix: 'go'},
+            ('Organism', 'bv-brc'): {prefix: 'bvbrc'},
             ('Organism', 'ncbi-taxonomy'): {prefix: 'ncbitaxon'},
             ('Pathway', 'reactome'): {prefix: 'react'},
             ('Pathway', 'unknown'): {prefix: 'metacyc.pathway'},
             ('Pathway', 'wikipathways'): {prefix: 'wikipathways', cleaner: self.clean_wikipathways_id},
+            ('PharmacologicClass', 'fdaviadrugcentral'): {prefix: 'ndfrt'},
             ('Protein', 'chembl_id'): {prefix: 'chembl.target'},
             ('Protein', 'uniprot'): {prefix: 'uniprotkb'},
             ('ProteinDomain', 'pfam'): {prefix: 'pfam'},
+            ('ProteinFamily', 'pfam'): {prefix: 'pfam'},
             ('PwGroup', 'reactome'): {prefix: 'react'},
             ('Reaction', 'kegg'): {prefix: 'kegg.reaction'},
+            ('Reaction', 'metacyc'): {prefix: 'metacyc.reaction'},
             ('SideEffect', 'sider4.1'): {prefix: 'umls'},  # They give CUIs for nodes with SIDER source
             ('Symptom', 'hpo'): {prefix: 'mesh'},  # They give MeSH IDs for nodes with HPO source
             ('Symptom', 'icd9'): {prefix: 'icd9'},
             ('Symptom', 'icd10'): {prefix: 'icd10'},
             ('Symptom', 'mesh'): {prefix: 'mesh'},
-            ('Symptom', 'snomedct'): {prefix: 'snomedct', cleaner: self.convert_float_to_int_str},
+            ('Symptom', 'snomedct'): {prefix: 'snomedct', cleaner: self.clean_snomed_id},
             ('Variant', 'unknown'): {prefix: 'dbsnp'},
         }
         return curie_construction_map, prefix, cleaner
@@ -182,10 +196,7 @@ class SpokeIDNormalizer:
 
             if prefix_lowercase:
                 curie, iri = self.construct_curie(prefix_lowercase, local_id)
-                if curie == KNOWN_INVALID:
-                    return KNOWN_INVALID, ""
-                elif curie:
-                    # print(f"curie: {curie}, name: {properties.get('name')}, iri: {iri}")
+                if curie:
                     return curie, iri
 
 
@@ -275,14 +286,19 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^D\d+$', local_id)) or bool(re.match(r'^C\d+$', local_id))
 
     @staticmethod
-    def is_metacyc_pathway_id(local_id: str) -> bool:
+    def is_metacyc_reaction_id(local_id: str) -> bool:
+        # Allows: RXN- followed by one or more digits
+        has_valid_chars = bool(re.match(r'^[A-Z0-9-.+]+$', local_id))
+        return has_valid_chars and local_id.upper() and 'RXN' in local_id
+
+    @staticmethod
+    def is_metacyc_pathway_id(local_id: str) -> Optional[bool]:
         # MetaCyc pathway IDs: examples: PWY-#### or PWY0-#### or DESCRIPTIVE-NAME-PWY or PWY18C3-9
-        has_hyphen = '-' in local_id
         has_valid_chars = bool(re.match(r'^[A-Z0-9-+]+$', local_id))
-        is_metacyc_id = has_hyphen and has_valid_chars and local_id.isupper() and (local_id.startswith('PWY') or local_id.endswith('PWY') or '+' in local_id)
+        is_metacyc_id = has_valid_chars and local_id.isupper()
         if is_metacyc_id:
             return True
-        elif any(c.isspace() for c in local_id) and sum(1 if c.islower() else 0 for c in local_id) > 4:
+        elif any(char.isalpha() for char in local_id):
             return None  # Meant to catch english names given as identifiers, like Glycan biosynthesis - 2
         else:
             return False
@@ -374,6 +390,11 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^WP[0-9]+$', local_id))
 
     @staticmethod
+    def is_vesiclepedia_id(local_id: str) -> bool:
+        # Allows: one or more digits
+        return bool(re.match(r'^\d+$', local_id))
+
+    @staticmethod
     def clean_wikipathways_id(local_id: str) -> str:
         # Get rid of version suffix info, like in WP5395_r126912
         return local_id.split('_')[0]
@@ -405,8 +426,8 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_pfam_id(local_id: str) -> bool:
-        # Pfam IDs: PF followed by digits
-        return bool(re.match(r'^PF\d+$', local_id))
+        # Allows: PF or CL followed by digits
+        return bool(re.match(r'^(PF|CL)\d+$', local_id))
 
     @staticmethod
     def is_umls_cui(local_id: str) -> bool:
@@ -439,11 +460,6 @@ class SpokeIDNormalizer:
     def is_uniprot_id(self, local_id: str) -> bool:
         # Allows: Regular uniprot protein IDs or the special 'feature' ids
         return self.is_uniprot_protein_id(local_id) or self.is_uniprot_feature_id(local_id)
-
-    @staticmethod
-    def is_metacyc_reaction_id(local_id: str) -> bool:
-        # Allows: uppercase letters, digits, and hyphens (e.g., R13147, RXN-15029)
-        return bool(re.match(r'^R[A-Z0-9-]*$', local_id)) or bool(re.match(r'^RXN-[0-9]+$', local_id))
 
     @staticmethod
     def is_inchikey_id(local_id: str) -> bool:
@@ -484,6 +500,11 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^[0-9]+$', local_id))
 
     @staticmethod
+    def is_bvbrc_id(local_id: str) -> bool:
+        # Allows: digits, a period, and more digits
+        return bool(re.match(r'^\d+\.\d+$', local_id))
+
+    @staticmethod
     def is_chebi_id(local_id: str) -> Optional[bool]:
         # ChEBI IDs are positive integers
         if local_id == 'root':
@@ -522,9 +543,19 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^\d{2}$', local_id))
 
     @staticmethod
+    def is_geonames_id(local_id: str) -> bool:
+        # Allows: 2 letters, a period, and alphanumeric characters
+        return bool(re.match(r'^[A-Z]{2}\.[A-Z0-9]+$', local_id))
+
+    @staticmethod
     def is_ndfrt_id(local_id: str) -> bool:
-        # Allows: NDFRT identifiers (typically alphanumeric)
-        return bool(re.match(r'^[A-Z0-9_]+$', local_id))
+        # Allows: N followed by exactly 10 digits
+        return bool(re.match(r'^N\d{10}$', local_id))
+
+    @staticmethod
+    def is_nhanes_id(local_id: str) -> bool:
+        # Allows: one or more digits
+        return bool(re.match(r'^\d+$', local_id))
 
     @staticmethod
     def is_sider_id(local_id: str) -> bool:
@@ -537,3 +568,7 @@ class SpokeIDNormalizer:
             return str(int(float(local_id)))
         else:
             return local_id
+
+    def clean_snomed_id(self, local_id: str) -> str:
+        cleaned_id = local_id.removeprefix('SNOMED_').removeprefix('SNOMEDCT_')
+        return self.convert_float_to_int_str(local_id)
