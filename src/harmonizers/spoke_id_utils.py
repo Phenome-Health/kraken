@@ -20,8 +20,10 @@ class SpokeIDNormalizer:
         self.biolink_version = biolink_version
         self.normalized_prefixes_to_iris = self._load_prefix_to_iri_map()
         self.prefix_lowercase_map = {prefix.lower(): prefix for prefix in self.normalized_prefixes_to_iris.keys()}
+        self.validator_prop = 'validator'
+        self.cleaner_prop = 'cleaner'
         self.validator_map = self._load_validator_map()
-        self.curie_construction_map, self.prefix_prop, self.cleaner_prop = self._load_curie_construction_map()
+        self.curie_construction_map = self._load_curie_construction_map()
     
 
     def _load_prefix_to_iri_map(self) -> Dict[str, str]:
@@ -45,7 +47,7 @@ class SpokeIDNormalizer:
             prefix_to_iri_map['BVBRC'] = "https://www.bv-brc.org/view/Genome/"
             prefix_to_iri_map['GeoNames'] = "http://www.geonames.org/search.html?q="  # Note: this doesn't go exactly to page for item, but closest I could find
             prefix_to_iri_map['NHANES'] = "https://dsld.od.nih.gov/label/"  # These IRIs work, but weirdly SPOKE's identifiers for these nodes don't match what they have..
-            prefix_to_iri_map['MIRDB'] = "https://mirdb.org/cgi-bin/mature_mir.cgi?name="
+            prefix_to_iri_map['MIRDB'] = "https://mirdb.org/cgi-bin/mature_mir.cgi?name="  # Not sure if it's right to use a 'mature' iri like this for all...
             prefix_to_iri_map['CYTOBAND'] = ""  # Haven't found good iri for these yet..
             prefix_to_iri_map['CHR'] = ""  # Haven't found good iri for these yet..
             prefix_to_iri_map['AHRQ'] = ""
@@ -65,106 +67,112 @@ class SpokeIDNormalizer:
             sys.exit(1)
 
 
-    def _load_validator_map(self) -> Dict[str, Callable]:
+    def _load_validator_map(self) -> Dict[str, Dict[str, Callable]]:
+        validator = self.validator_prop
+        cleaner = self.cleaner_prop
         return {
-            'bvbrc': self.is_bvbrc_id,
-            'chebi': self.is_chebi_id,
-            'chembl.compound': self.is_chembl_compound_id,
-            'chembl.target': self.is_chembl_target_id,
-            'cl': self.is_cl_id,
-            'cvcl': self.is_cellosaurus_id,
-            'dbsnp': self.is_dbsnp_id,
-            'doid': self.is_doid_id,
-            'drugbank': self.is_drugbank_id,
-            'ec': self.is_ec_id,
-            'fips.place': self.is_fips_compound_id,
-            'fips.state': self.is_fips_state_id,
-            'geonames': self.is_geonames_id,
-            'go': self.is_go_id,
-            'icd9': self.is_icd9_id,
-            'icd10': self.is_icd10_id,
-            'inchikey': self.is_inchikey_id,
-            'kegg.compound': self.is_kegg_compound_id,
-            'kegg.drug': self.is_kegg_drug_id,
-            'kegg.reaction': self.is_kegg_reaction_id,
-            'loinc': self.is_loinc_id,
-            'mesh': self.is_mesh_id,
-            'metacyc.pathway': self.is_metacyc_pathway_id,
-            'metacyc.reaction': self.is_metacyc_reaction_id,
-            'ncbigene': self.is_ncbigene_id,
-            'ncbitaxon': self.is_ncbitaxon_id,
-            'ndfrt': self.is_ndfrt_id,
-            'nhanes': self.is_nhanes_id,
-            'omim': self.is_omim_id,
-            'pfam': self.is_pfam_id,
-            'pubchem.compound': self.is_pubchem_compound_id,
-            'react': self.is_reactome_id,
-            'smiles': self.is_smiles_string,
-            'snomedct': self.is_snomedct_id,
-            'uberon': self.is_uberon_id,
-            'umls': self.is_umls_id,
-            'uniprotkb': self.is_uniprot_id,
-            'uszipcode': self.is_uszipcode_id,
-            'vesiclepedia': self.is_vesiclepedia_id,
-            'wikipathways': self.is_wikipathways_id,
+            'bvbrc': {validator: self.is_bvbrc_id},
+            'chebi': {validator: self.is_chebi_id},
+            'chembl.compound': {validator: self.is_chembl_compound_id},
+            'chembl.target': {validator: self.is_chembl_target_id},
+            'cl': {validator: self.is_cl_id},
+            'cvcl': {validator: self.is_cellosaurus_id, cleaner: lambda x: x.replace('CVCL_', '')},
+            'dbsnp': {validator: self.is_dbsnp_id},
+            'doid': {validator: self.is_doid_id},
+            'drugbank': {validator: self.is_drugbank_id},
+            'ec': {validator: self.is_ec_id},
+            'fips.place': {validator: self.is_fips_compound_id},
+            'fips.state': {validator: self.is_fips_state_id},
+            'geonames': {validator: self.is_geonames_id},
+            'go': {validator: self.is_go_id},
+            'icd9': {validator: self.is_icd9_id},
+            'icd10': {validator: self.is_icd10_id},
+            'inchikey': {validator: self.is_inchikey_id},
+            'kegg.compound': {validator: self.is_kegg_compound_id},
+            'kegg.drug': {validator: self.is_kegg_drug_id},
+            'kegg.reaction': {validator: self.is_kegg_reaction_id},
+            'loinc': {validator: self.is_loinc_id},
+            'mesh': {validator: self.is_mesh_id},
+            'metacyc.pathway': {validator: self.is_metacyc_pathway_id},
+            'metacyc.reaction': {validator: self.is_metacyc_reaction_id},
+            'mirbase': {validator: self.is_mirbase_id},
+            'mirdb': {validator: self.is_mirdb_id},
+            'ncbigene': {validator: self.is_ncbigene_id},
+            'ncbitaxon': {validator: self.is_ncbitaxon_id},
+            'ndfrt': {validator: self.is_ndfrt_id},
+            'nhanes': {validator: self.is_nhanes_id},
+            'omim': {validator: self.is_omim_id},
+            'pfam': {validator: self.is_pfam_id},
+            'pubchem.compound': {validator: self.is_pubchem_compound_id},
+            'react': {validator: self.is_reactome_id},
+            'smiles': {validator: self.is_smiles_string},
+            'snomedct': {validator: self.is_snomedct_id, cleaner: self.clean_snomed_id},
+            'uberon': {validator: self.is_uberon_id},
+            'umls': {validator: self.is_umls_id},
+            'uniprotkb': {validator: self.is_uniprot_id},
+            'uszipcode': {validator: self.is_uszipcode_id, cleaner: self.clean_zipcode},
+            'vesiclepedia': {validator: self.is_vesiclepedia_id},
+            'wikipathways': {validator: self.is_wikipathways_id, cleaner: self.clean_wikipathways_id},
         }
 
-    def _load_curie_construction_map(self) -> Tuple[Dict[Tuple[str, str], Dict[str, Union[str, List[str], Callable]]], str, str]:
-        prefix = 'prefix'
-        cleaner = 'local_id_cleaner'
+    @staticmethod
+    def _load_curie_construction_map() -> Dict[Tuple[str, str], Union[str, List[str]]]:
         curie_construction_map = {
-            ('Anatomy', 'mesh_id'): {prefix: 'mesh'},
-            ('Anatomy', 'uberon'): {prefix: 'uberon'},
-            ('BiologicalProcess', 'go'): {prefix: 'go'},
-            ('CellLine', 'unknown'): {prefix: 'cvcl', cleaner: lambda x: x.replace('CVCL_', '')},
-            ('CellType', 'cl'): {prefix: 'cl'},
-            ('CellularComponent', 'go'): {prefix: 'go'},
-            ('ClinicalLab', 'unknown'): {prefix: ['loinc', 'umls']},
-            ('Compound', 'chebi'): {prefix: 'chebi'},
-            ('Compound', 'chembl_ids'): {prefix: 'chembl.compound'},
-            ('Compound', 'chembl.compound'): {prefix: 'chembl.compound'},
-            ('Compound', 'drugbank_ids'): {prefix: 'drugbank'},
-            ('Compound', 'inchikey'): {prefix: 'inchikey'},
-            ('Compound', 'kegg_compound_ids'): {prefix: 'kegg.compound'},
-            ('Compound', 'kegg_drug_ids'): {prefix: 'kegg.drug'},
-            ('Compound', 'pubchem_compound_ids'): {prefix: 'pubchem.compound'},
-            ('Compound', 'standardized_smiles'): {prefix: 'smiles'},
-            ('DietarySupplement', 'nhanes'): {prefix: 'nhanes'},
-            ('Disease', 'doid'): {prefix: 'doid'},
-            ('Disease', 'icd9'): {prefix: 'icd9'},
-            ('Disease', 'icd10'): {prefix: 'icd10'},
-            ('Disease', 'mesh_list'): {prefix: 'mesh'},
-            ('Disease', 'omim_list'): {prefix: 'omim'},
-            ('Disease', 'snomedct'): {prefix: 'snomedct', cleaner: self.clean_snomed_id},
-            ('EC', 'explorenz'): {prefix: 'ec'},
-            ('ExtracellularParticle', 'vesiclepedia'): {prefix: 'vesiclepedia'},
-            ('Gene', 'chembl_id'): {prefix: 'chembl.target'},
-            ('Gene', 'entrezgene'): {prefix: 'ncbigene'},
-            ('Location', 'geonames'): {prefix: 'geonames'},
-            ('Location', 'unitedstateszipcode_database'): {prefix: ['uszipcode', 'fips.place', 'fips.state']},
-            ('MolecularFunction', 'go'): {prefix: 'go'},
-            ('Organism', 'bv-brc'): {prefix: 'bvbrc'},
-            ('Organism', 'ncbi-taxonomy'): {prefix: 'ncbitaxon'},
-            ('Pathway', 'reactome'): {prefix: 'react'},
-            ('Pathway', 'unknown'): {prefix: 'metacyc.pathway'},
-            ('Pathway', 'wikipathways'): {prefix: 'wikipathways', cleaner: self.clean_wikipathways_id},
-            ('PharmacologicClass', 'fdaviadrugcentral'): {prefix: 'ndfrt'},
-            ('Protein', 'chembl_id'): {prefix: 'chembl.target'},
-            ('Protein', 'uniprot'): {prefix: 'uniprotkb'},
-            ('ProteinDomain', 'pfam'): {prefix: 'pfam'},
-            ('ProteinFamily', 'pfam'): {prefix: 'pfam'},
-            ('PwGroup', 'reactome'): {prefix: 'react'},
-            ('Reaction', 'kegg'): {prefix: 'kegg.reaction'},
-            ('Reaction', 'metacyc'): {prefix: 'metacyc.reaction'},
-            ('SideEffect', 'sider4.1'): {prefix: 'umls'},  # They give CUIs for nodes with SIDER source
-            ('Symptom', 'hpo'): {prefix: 'mesh'},  # They give MeSH IDs for nodes with HPO source
-            ('Symptom', 'icd9'): {prefix: 'icd9'},
-            ('Symptom', 'icd10'): {prefix: 'icd10'},
-            ('Symptom', 'mesh'): {prefix: 'mesh'},
-            ('Symptom', 'snomedct'): {prefix: 'snomedct', cleaner: self.clean_snomed_id},
-            ('Variant', 'unknown'): {prefix: 'dbsnp'},
+            ('Anatomy', 'mesh_id'): 'mesh',
+            ('Anatomy', 'uberon'): 'uberon',
+            ('BiologicalProcess', 'go'): 'go',
+            ('CellLine', 'unknown'): 'cvcl',
+            ('CellType', 'cl'): 'cl',
+            ('CellularComponent', 'go'): 'go',
+            ('ClinicalLab', 'unknown'): ['loinc', 'umls'],
+            ('Compound', 'chebi'): 'chebi',
+            ('Compound', 'chembl_ids'): 'chembl.compound',
+            ('Compound', 'chembl.compound'): 'chembl.compound',
+            ('Compound', 'drugbank_ids'): 'drugbank',
+            ('Compound', 'inchikey'): 'inchikey',
+            ('Compound', 'kegg_compound_ids'): 'kegg.compound',
+            ('Compound', 'kegg_drug_ids'): 'kegg.drug',
+            ('Compound', 'pubchem_compound_ids'): 'pubchem.compound',
+            ('Compound', 'standardized_smiles'): 'smiles',
+            ('DietarySupplement', 'nhanes'): 'nhanes',
+            ('Disease', 'doid'): 'doid',
+            ('Disease', 'icd9'): 'icd9',
+            ('Disease', 'icd10'): 'icd10',
+            ('Disease', 'mesh_list'): 'mesh',
+            ('Disease', 'omim_list'): 'omim',
+            ('Disease', 'snomedct'): 'snomedct',
+            ('EC', 'explorenz'): 'ec',
+            ('ExtracellularParticle', 'vesiclepedia'): 'vesiclepedia',
+            ('Gene', 'chembl_id'): 'chembl.target',
+            ('Gene', 'entrezgene'): 'ncbigene',
+            ('Location', 'geonames'): 'geonames',
+            ('Location', 'unitedstateszipcode_database'): ['uszipcode', 'fips.place', 'fips.state'],
+            ('MiRNA', 'accession'): 'mirbase',
+            ('MiRNA', 'mirdb'): 'mirdb',
+            ('MolecularFunction', 'go'): 'go',
+            ('Organism', 'bv-brc'): 'bvbrc',
+            ('Organism', 'ncbi-taxonomy'): 'ncbitaxon',
+            ('Pathway', 'reactome'): 'react',
+            ('Pathway', 'unknown'): 'metacyc.pathway',
+            ('Pathway', 'wikipathways'): 'wikipathways',
+            ('PharmacologicClass', 'fdaviadrugcentral'): 'ndfrt',
+            ('Protein', 'chembl_id'): 'chembl.target',
+            ('Protein', 'uniprot'): 'uniprotkb',
+            ('ProteinDomain', 'pfam'): 'pfam',
+            ('ProteinFamily', 'pfam'): 'pfam',
+            ('PwGroup', 'reactome'): 'react',
+            ('Reaction', 'kegg'): 'kegg.reaction',
+            ('Reaction', 'metacyc'): 'metacyc.reaction',
+            ('Reaction', 'reactome'): 'react',
+            ('SideEffect', 'sider4.1'): 'umls',  # They give CUIs for nodes with SIDER source
+            ('Symptom', 'hpo'): 'mesh',  # They give MeSH IDs for nodes with HPO source
+            ('Symptom', 'icd9'): 'icd9',
+            ('Symptom', 'icd10'): 'icd10',
+            ('Symptom', 'mesh'): 'mesh',
+            ('Symptom', 'snomedct'): 'snomedct',
+            ('Variant', 'unknown'): 'dbsnp',
         }
-        return curie_construction_map, prefix, cleaner
+        return curie_construction_map
 
 
     def normalize_spoke_identifier(self, node_type: str, source: str, identifier: Any, properties: dict) -> Tuple[str, str]:
@@ -181,21 +189,34 @@ class SpokeIDNormalizer:
 
         if local_id and lookup_key in self.curie_construction_map:
             # Grab the curie construction info
-            curie_info = self.curie_construction_map[lookup_key]
-            if isinstance(curie_info[self.prefix_prop], list):
+            prefix_entry = self.curie_construction_map[lookup_key]
+            chosen_prefix = None
+
+            # Handle when multiple prefixes are listed for this node type/source pair
+            if isinstance(prefix_entry, list):
                 # We need to figure out which prefix applies based on the local ID's format/structure
-                prefixes_lowercase = [prefix for prefix in curie_info[self.prefix_prop]
-                                      if self.validator_map[prefix](local_id)]
-                prefix_lowercase = prefixes_lowercase[0] if prefixes_lowercase else None
+                for prefix in prefix_entry:
+                    # Grab the proper validation and cleaning functions
+                    validate = self.validator_map[prefix][self.validator_prop]
+                    clean = self.validator_map[prefix].get(self.cleaner_prop)
+
+                    # Clean up the id as necessary
+                    if clean:
+                        local_id = clean(local_id)
+
+                    # Stop if we've found a prefix that applies
+                    if validate(local_id):
+                        chosen_prefix = prefix
+                        break
             else:
-                prefix_lowercase = curie_info[self.prefix_prop]
+                chosen_prefix = prefix_entry
+                # Clean up the local ID, if needed
+                clean = self.validator_map[chosen_prefix].get(self.cleaner_prop)
+                if clean:
+                    local_id = clean(local_id)
 
-            # Clean up the local ID, if needed
-            if curie_info.get(self.cleaner_prop):
-                local_id = curie_info[self.cleaner_prop](local_id)
-
-            if prefix_lowercase:
-                curie, iri = self.construct_curie(prefix_lowercase, local_id)
+            if chosen_prefix:
+                curie, iri = self.construct_curie(chosen_prefix, local_id)
                 if curie:
                     return curie, iri
 
@@ -219,8 +240,8 @@ class SpokeIDNormalizer:
 
 
     def construct_curie(self, prefix_lowercase: str, local_id: str) -> Tuple[str, str]:
-        is_valid_id_validator = self.validator_map[prefix_lowercase]
-        is_valid_id = is_valid_id_validator(local_id)
+        validate = self.validator_map[prefix_lowercase][self.validator_prop]
+        is_valid_id = validate(local_id)
         if is_valid_id:
             prefix_normalized = self.prefix_lowercase_map[prefix_lowercase]
             iri_root = self.normalized_prefixes_to_iris[prefix_normalized]
@@ -241,7 +262,7 @@ class SpokeIDNormalizer:
         equivalent_ids = set()
         none_strings = {'null', 'none', 'nan'}
         equiv_id_sources = {'chembl', 'drugbank', 'chebi', 'pubchem', 'kegg', 'mesh', 'ensembl', 'omim'}
-        exact_fields = {'standardized_smiles', 'snomedct', 'icd10', 'icd9'}
+        exact_fields = {'standardized_smiles', 'snomedct', 'icd10', 'icd9', 'accession'}
         
         # Figure out which properties probably contain an identifier
         relevant_properties = set()
@@ -321,6 +342,10 @@ class SpokeIDNormalizer:
         # Allows: MI[digits] or MIMAT[digits]
         return bool(re.match(r'^MI[0-9]+$', local_id)) or bool(re.match(r'^MIMAT[0-9]+$', local_id))
 
+    @staticmethod
+    def is_mirdb_id(local_id: str) -> bool:
+        # Allows: 3 lowercase letters, an optional miR-, followed by a mix of lowercase letters, digits, and hyphens
+        return bool(re.match(r'^[a-z]{3}-(miR-)?[-a-z0-9]+$', local_id))
     @staticmethod
     def is_uberon_id(local_id: str) -> bool:
         # Allows: digits only (e.g., 0003233 from UBERON:0003233)
@@ -490,11 +515,6 @@ class SpokeIDNormalizer:
             return bool(re.match(r'^\d{3}(\.\d{1,2})?$', local_id))
 
     @staticmethod
-    def is_go_id(local_id: str) -> bool:
-        # Allows: digits only (e.g., 0004339 from GO:0004339)
-        return bool(re.match(r'^[0-9]+$', local_id))
-
-    @staticmethod
     def is_cl_id(local_id: str) -> bool:
         # Allows: digits only (e.g., 0000540 from CL:0000540)
         return bool(re.match(r'^[0-9]+$', local_id))
@@ -530,7 +550,7 @@ class SpokeIDNormalizer:
     @staticmethod
     def is_uszipcode_id(local_id: str) -> bool:
         # Allows: 5-digit US ZIP codes
-        return bool(re.match(r'^[0-9]{5}$', local_id))
+        return bool(re.match(r'^[0-9]{5}$', local_id)) or local_id == 'US'
 
     @staticmethod
     def is_fips_compound_id(local_id: str) -> bool:
@@ -544,8 +564,8 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_geonames_id(local_id: str) -> bool:
-        # Allows: 2 letters, a period, and alphanumeric characters
-        return bool(re.match(r'^[A-Z]{2}\.[A-Z0-9]+$', local_id))
+        # Allows: 2-letter country code or 2 letters, a period, and alphanumeric characters
+        return bool(re.match(r'^[A-Z]{2}$', local_id)) or bool(re.match(r'^[A-Z]{2}\.[A-Z0-9]+$', local_id))
 
     @staticmethod
     def is_ndfrt_id(local_id: str) -> bool:
@@ -572,3 +592,8 @@ class SpokeIDNormalizer:
     def clean_snomed_id(self, local_id: str) -> str:
         cleaned_id = local_id.removeprefix('SNOMED_').removeprefix('SNOMEDCT_')
         return self.convert_float_to_int_str(local_id)
+
+    @staticmethod
+    def clean_zipcode(local_id: str) -> str:
+        # Strip prefix off of zipcodes like AZ-85039
+        return local_id.split('-')[-1]

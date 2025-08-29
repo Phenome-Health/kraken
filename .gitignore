@@ -1,9 +1,12 @@
 .idea
 __pycache__/
 .claude/
+.DS_Store
 
 input_data/
 artifacts/
+scripts/*.json
+scripts/*.jsonl
 
 *.log
 package-lock.json
