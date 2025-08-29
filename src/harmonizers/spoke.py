@@ -81,25 +81,28 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> dict:
         return None  # There's only one node from this source in SPOKE v6, and it doesn't exactly map to the right mesh term
 
     # Normalize the identifier
-    normalized_id = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier, properties)
-    print(f"norm id: {normalized_id}")
-    
-    # Extract additional equivalent identifiers from properties
-    additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, properties)
-    all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
-    if additional_equivalent_ids:
-        print(f"equiv ids: {additional_equivalent_ids}")
-    
-    harmonized_node = {
-        ID: normalized_id,
-        CATEGORIES: map_spoke_labels_to_biolink(labels, primary_source),
-        PROVIDED_BY: [SPOKE_INFORES],
-        EQUIVALENT_IDS: all_equivalent_ids,
-        'spoke_nodes': [node_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier)
-    }
-    if properties.get(NAME):
-        harmonized_node[NAME] = properties[NAME]
-        harmonized_node[SYNONYMS] = [harmonized_node[NAME]]  # TODO: down the road see about extracting SPOKE synonyms
+    normalized_id, iri = id_norm.normalize_spoke_identifier(node_type, primary_source, original_identifier, properties)
+
+    if normalized_id:
+        # Extract additional equivalent identifiers from properties
+        additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, properties)
+        all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
+
+        harmonized_node = {
+            ID: normalized_id,
+            CATEGORIES: map_spoke_labels_to_biolink(labels, primary_source),
+            PROVIDED_BY: [SPOKE_INFORES],
+            EQUIVALENT_IDS: all_equivalent_ids,
+            'spoke_nodes': [node_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier)
+        }
+        if properties.get(NAME):
+            harmonized_node[NAME] = properties[NAME]
+            harmonized_node[SYNONYMS] = [harmonized_node[NAME]]  # TODO: down the road see about extracting SPOKE synonyms
+        if iri:
+            harmonized_node[IRI] = iri
+    else:
+        logging.error(f"Failed to convert SPOKE 'identifier' to a proper curie. {node_item}")
+        sys.exit(1)
     
     return harmonized_node
 
