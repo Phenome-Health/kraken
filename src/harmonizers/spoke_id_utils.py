@@ -76,6 +76,7 @@ class SpokeIDNormalizer:
             'chembl.compound': {validator: self.is_chembl_compound_id},
             'chembl.target': {validator: self.is_chembl_target_id},
             'cl': {validator: self.is_cl_id},
+            'complexportal': {validator: self.is_complexportal_id},
             'cvcl': {validator: self.is_cellosaurus_id, cleaner: lambda x: x.replace('CVCL_', '')},
             'dbsnp': {validator: self.is_dbsnp_id},
             'doid': {validator: self.is_doid_id},
@@ -121,10 +122,12 @@ class SpokeIDNormalizer:
             ('Anatomy', 'mesh_id'): 'mesh',
             ('Anatomy', 'uberon'): 'uberon',
             ('BiologicalProcess', 'go'): 'go',
+            ('Blend', 'nhanes'): 'nhanes',
             ('CellLine', 'unknown'): 'cvcl',
             ('CellType', 'cl'): 'cl',
             ('CellularComponent', 'go'): 'go',
             ('ClinicalLab', 'unknown'): ['loinc', 'umls'],
+            ('Complex', 'complexportal'): 'complexportal',
             ('Compound', 'chebi'): 'chebi',
             ('Compound', 'chembl_ids'): 'chembl.compound',
             ('Compound', 'chembl.compound'): 'chembl.compound',
@@ -518,6 +521,11 @@ class SpokeIDNormalizer:
     def is_cl_id(local_id: str) -> bool:
         # Allows: digits only (e.g., 0000540 from CL:0000540)
         return bool(re.match(r'^[0-9]+$', local_id))
+
+    @staticmethod
+    def is_complexportal_id(local_id: str) -> bool:
+        # Allows: CPX- followed by one or more digits
+        return bool(re.match(r'^CPX-\d+$', local_id))
 
     @staticmethod
     def is_bvbrc_id(local_id: str) -> bool:
