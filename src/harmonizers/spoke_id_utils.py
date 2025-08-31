@@ -58,6 +58,7 @@ class SpokeIDNormalizer:
             prefix_to_iri_map['metacyc.ec'] = "https://biocyc.org/META/NEW-IMAGE?type=EC-NUMBER&object=EC-"  # Biolink has metacyc.reaction, but not ec (these are like provisional ec codes, not yet in explorenz)
             prefix_to_iri_map['FIPS.PLACE'] = ""
             prefix_to_iri_map['FIPS.STATE'] = ""
+            prefix_to_iri_map['PHARMVAR'] = ""  # This wants a number rather than the symbol..
 
             # Override prefixes as needed (if Biolink's iri is broken)
             prefix_to_iri_map['OMIM'] = "https://omim.org/entry/"
@@ -111,6 +112,7 @@ class SpokeIDNormalizer:
             'nhanes': {validator: self.is_nhanes_id},
             'omim': {validator: self.is_omim_id},
             'pfam': {validator: self.is_pfam_id},
+            'pharmvar': {validator: self.is_pharmvar_id},
             'pubchem.compound': {validator: self.is_pubchem_compound_id},
             'react': {validator: self.is_reactome_id},
             'smiles': {validator: self.is_smiles_string},
@@ -163,6 +165,7 @@ class SpokeIDNormalizer:
             ('Gene', 'chembl_id'): 'chembl.target',
             ('Gene', 'entrezgene'): 'ncbigene',
             ('Gene', 'mirbase'): 'ncbigene',  # Main 'identifier' given for these is ncbigene ID
+            ('Haplotype', 'unknown'): ['pharmvar', 'dbsnp'],
             ('Location', 'geonames'): 'geonames',
             ('Location', 'unitedstateszipcode_database'): ['uszipcode', 'fips.place', 'fips.state'],
             ('MiRNA', 'accession'): 'mirbase',
@@ -224,7 +227,7 @@ class SpokeIDNormalizer:
                         local_id = clean(local_id)
 
                     # Stop if we've found a prefix that applies
-                    if validate(local_id):
+                    if validate(local_id) in {True, None}:  # It's ok if it's a 'known invalid' format
                         chosen_prefix = prefix
                         break
             else:
@@ -392,9 +395,14 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^[0-9]+$', local_id))
 
     @staticmethod
-    def is_dbsnp_id(local_id: str) -> bool:
-        # Allows: rs followed by digits (e.g., rs1060501038)
-        return bool(re.match(r'^rs[0-9]+$', local_id))
+    def is_dbsnp_id(local_id: str) -> Optional[bool]:
+        # Allows: rs followed by digits, with an optional version suffix (e.g., .1)
+        if ',' in local_id:
+            # Detect when multiple dbsnp IDs are concatenated into one ID (skip these for now)
+            parts = local_id.split(',')
+            if bool(re.match(r'^rs[0-9]+(\.\d+)?$', parts[0].strip())):
+                return None
+        return bool(re.match(r'^rs[0-9]+(\.\d+)?$', local_id))
 
     @staticmethod
     def is_ec_id(local_id: str) -> bool:
@@ -498,6 +506,11 @@ class SpokeIDNormalizer:
     def is_pfam_id(local_id: str) -> bool:
         # Allows: PF or CL followed by digits
         return bool(re.match(r'^(PF|CL)\d+$', local_id))
+
+    @staticmethod
+    def is_pharmvar_id(local_id: str) -> bool:
+        # Allows: Gene symbol, asterisk, allele number, and optional sub-allele - e.g., CYP26A1*1.001
+        return bool(re.match(r'^[A-Z0-9]+\*\d+(\.\d+)?$', local_id))
 
     @staticmethod
     def is_umls_cui(local_id: str) -> bool:
@@ -617,8 +630,8 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_fips_compound_id(local_id: str) -> bool:
-        # Allows: 7-digit (state+city) OR 12-digit (state+placeholder+suffix)
-        return bool(re.match(r'^(\d{7}|\d{12})$', local_id))
+        # Allows: 6, 7, 11, or 12 digit FIPS-like codes
+        return bool(re.match(r'^(\d{6}|\d{7}|\d{11}|\d{12})$', local_id))
 
     @staticmethod
     def is_fips_state_id(local_id: str) -> bool:
@@ -627,8 +640,8 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_geonames_id(local_id: str) -> bool:
-        # Allows: 2-letter country code or 2 letters, a period, and alphanumeric characters
-        return bool(re.match(r'^[A-Z]{2}$', local_id)) or bool(re.match(r'^[A-Z]{2}\.[A-Z0-9]+$', local_id))
+        # Allows: 2-letter country code OR 2 letters followed by one or more dot-separated alphanumeric segments
+        return bool(re.match(r'^[A-Z]{2}$', local_id)) or bool(re.match(r'^[A-Z]{2}(\.[A-Z0-9]+)+$', local_id))
 
     @staticmethod
     def is_ndfrt_id(local_id: str) -> bool:
