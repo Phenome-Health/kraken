@@ -54,6 +54,7 @@ class SpokeIDNormalizer:
             prefix_to_iri_map['HPS'] = ""  # Household Pulse Survey
             prefix_to_iri_map['mirbase'] = "https://mirbase.org/hairpin/"  # Biolink has mirbase in here, but their iri doesn't work
             prefix_to_iri_map['metacyc.pathway'] = "https://metacyc.org/pathway?orgid=META&id="  # Biolink has metacyc.reaction, but not pathway
+            prefix_to_iri_map['metacyc.ec'] = "https://biocyc.org/META/NEW-IMAGE?type=EC-NUMBER&object=EC-"  # Biolink has metacyc.reaction, but not ec (these are like provisional ec codes, not yet in explorenz)
             prefix_to_iri_map['FIPS.PLACE'] = ""
             prefix_to_iri_map['FIPS.STATE'] = ""
 
@@ -94,6 +95,7 @@ class SpokeIDNormalizer:
             'kegg.reaction': {validator: self.is_kegg_reaction_id},
             'loinc': {validator: self.is_loinc_id},
             'mesh': {validator: self.is_mesh_id},
+            'metacyc.ec': {validator: self.is_metacyc_ec_id},
             'metacyc.pathway': {validator: self.is_metacyc_pathway_id},
             'metacyc.reaction': {validator: self.is_metacyc_reaction_id},
             'mirbase': {validator: self.is_mirbase_id},
@@ -145,6 +147,7 @@ class SpokeIDNormalizer:
             ('Disease', 'omim_list'): 'omim',
             ('Disease', 'snomedct'): 'snomedct',
             ('EC', 'explorenz'): 'ec',
+            ('EC', 'metacyc'): 'metacyc.ec',
             ('ExtracellularParticle', 'vesiclepedia'): 'vesiclepedia',
             ('Gene', 'chembl_id'): 'chembl.target',
             ('Gene', 'entrezgene'): 'ncbigene',
@@ -158,7 +161,7 @@ class SpokeIDNormalizer:
             ('Pathway', 'reactome'): 'react',
             ('Pathway', 'unknown'): 'metacyc.pathway',
             ('Pathway', 'wikipathways'): 'wikipathways',
-            ('PharmacologicClass', 'fdaviadrugcentral'): 'ndfrt',
+            ('PharmacologicClass', 'fdaviadrugcentral'): ['ndfrt', 'mesh'],
             ('Protein', 'chembl_id'): 'chembl.target',
             ('Protein', 'uniprot'): 'uniprotkb',
             ('ProteinDomain', 'pfam'): 'pfam',
@@ -184,6 +187,7 @@ class SpokeIDNormalizer:
         """
         identifier = str(identifier)
         spoke_prefix, local_id = self.get_curie_parts(identifier)
+
         # If the identifier was a curie, its prefix should override the source
         source = spoke_prefix if spoke_prefix else source
 
@@ -233,10 +237,10 @@ class SpokeIDNormalizer:
     def get_curie_parts(self, identifier: str) -> Tuple[str, str]:
         num_colons = identifier.count(':')
         if num_colons == 0:
-            return '', identifier
+            return '', identifier.strip()  # Some metacyc.ec IDs have trailing space
         elif num_colons == 1:
             parts = identifier.split(':')
-            return parts[0], parts[1]
+            return parts[0].strip(), parts[1].strip()
         else:
             logging.error(f"An identifier has more than one colon in it: {identifier}. Not sure what to do.")
             sys.exit(1)
@@ -307,13 +311,22 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_mesh_id(local_id: str) -> bool:
-        return bool(re.match(r'^D\d+$', local_id)) or bool(re.match(r'^C\d+$', local_id))
+        # Allows: D, C, or M followed by one or more digits
+        return bool(re.match(r'^[DCM]\d+$', local_id))
+
+    @staticmethod
+    def is_metacyc_ec_id(local_id: str) -> bool:
+        # Allows three digits groups, then a final group of alphanumeric characters
+        return bool(re.match(r'^\d+\.\d+\.\d+\.[a-zA-Z0-9]+$', local_id))
 
     @staticmethod
     def is_metacyc_reaction_id(local_id: str) -> bool:
-        # Allows: RXN- followed by one or more digits
-        has_valid_chars = bool(re.match(r'^[A-Z0-9-.+]+$', local_id))
-        return has_valid_chars and local_id.upper() and 'RXN' in local_id
+        # Allows: Hyphen-separated uppercase/numeric or capitalized alpha parts; must contain 'RXN' somewhere
+        # e.g., 3.2.1.68-RXN, TRANS-RXN0-593, CYPRIDINA-LUCIFERIN-2-MONOOXYGENASE-RXN, RXN0-5258-Yeast
+        has_valid_chars = bool(re.match(r'^[A-Za-z0-9-.+]+$', local_id))
+        parts = local_id.split('-')
+        has_proper_capitalization = all(part.isupper() or (not any(char.isalpha() for char in part)) or (part.isalpha()) for part in parts)
+        return has_valid_chars and has_proper_capitalization and 'RXN' in local_id
 
     @staticmethod
     def is_metacyc_pathway_id(local_id: str) -> Optional[bool]:
@@ -337,8 +350,10 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_cellosaurus_id(local_id: str) -> bool:
-        # Allows: Exactly 4 digits
-        return local_id.isdigit() and len(local_id) == 4
+        # Allows: Exactly 4 digits or K followed by 3 digits (e.g., K049)
+        is_4_digit_id = local_id.isdigit() and len(local_id) == 4
+        is_k_or_s_id = bool(re.match(r'^[KS][0-9]{3}$', local_id))
+        return is_4_digit_id or is_k_or_s_id
 
     @staticmethod
     def is_mirbase_id(local_id: str) -> bool:
