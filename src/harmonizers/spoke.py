@@ -73,6 +73,8 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optiona
     primary_source, secondary_sources = get_all_sources(node_item)
     
     original_identifier = properties.get('identifier', node_item['id'])
+
+    # Handle special case in SPOKE nodes
     if primary_source == 'Complex Portal' and node_type == 'Complex':
         original_identifier = properties['complex_portal']  # The 'identifier' for these is meaningless; true standard id is tucked away here
 

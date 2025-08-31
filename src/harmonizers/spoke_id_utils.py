@@ -24,6 +24,7 @@ class SpokeIDNormalizer:
         self.cleaner_prop = 'cleaner'
         self.validator_map = self._load_validator_map()
         self.curie_construction_map = self._load_curie_construction_map()
+        self.spoke_underscore_prefixes = {'SNOMED_', 'CLO_', 'ENVO_', 'CHR_', 'HPS_', 'CVCL_'}
     
 
     def _load_prefix_to_iri_map(self) -> Dict[str, str]:
@@ -77,8 +78,9 @@ class SpokeIDNormalizer:
             'chembl.compound': {validator: self.is_chembl_compound_id},
             'chembl.target': {validator: self.is_chembl_target_id},
             'cl': {validator: self.is_cl_id},
+            'clo': {validator: self.is_clo_id},
             'complexportal': {validator: self.is_complexportal_id},
-            'cvcl': {validator: self.is_cellosaurus_id, cleaner: lambda x: x.replace('CVCL_', '')},
+            'cvcl': {validator: self.is_cellosaurus_id},
             'dbsnp': {validator: self.is_dbsnp_id},
             'doid': {validator: self.is_doid_id},
             'drugbank': {validator: self.is_drugbank_id},
@@ -125,7 +127,9 @@ class SpokeIDNormalizer:
             ('Anatomy', 'uberon'): 'uberon',
             ('BiologicalProcess', 'go'): 'go',
             ('Blend', 'nhanes'): 'nhanes',
-            ('CellLine', 'unknown'): 'cvcl',
+            ('CellLine', 'celllineontology'): 'clo',
+            ('CellLine', 'clo'): 'clo',
+            ('CellLine', 'cvcl'): 'cvcl',
             ('CellType', 'cl'): 'cl',
             ('CellularComponent', 'go'): 'go',
             ('ClinicalLab', 'unknown'): ['loinc', 'umls'],
@@ -237,10 +241,17 @@ class SpokeIDNormalizer:
     def get_curie_parts(self, identifier: str) -> Tuple[str, str]:
         num_colons = identifier.count(':')
         if num_colons == 0:
-            return '', identifier.strip()  # Some metacyc.ec IDs have trailing space
+            if any(identifier.startswith(underscore_prefix) for underscore_prefix in self.spoke_underscore_prefixes):
+                parts = identifier.split('_', 1)
+                return parts[0].strip(), parts[1].strip()
+            else:
+                return '', identifier.strip()  # Some metacyc.ec IDs have trailing space
         elif num_colons == 1:
             parts = identifier.split(':')
-            return parts[0].strip(), parts[1].strip()
+            if parts[0].startswith('http'):  # This isn't a curie colon..
+                return '', identifier.strip()
+            else:
+                return parts[0].strip(), parts[1].strip()
         else:
             logging.error(f"An identifier has more than one colon in it: {identifier}. Not sure what to do.")
             sys.exit(1)
@@ -350,10 +361,8 @@ class SpokeIDNormalizer:
 
     @staticmethod
     def is_cellosaurus_id(local_id: str) -> bool:
-        # Allows: Exactly 4 digits or K followed by 3 digits (e.g., K049)
-        is_4_digit_id = local_id.isdigit() and len(local_id) == 4
-        is_k_or_s_id = bool(re.match(r'^[KS][0-9]{3}$', local_id))
-        return is_4_digit_id or is_k_or_s_id
+        # Allows: Exactly 4 digits or uppercase letters
+        return bool(re.match(r'^[A-Z0-9]{4}$', local_id))
 
     @staticmethod
     def is_mirbase_id(local_id: str) -> bool:
@@ -538,6 +547,14 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^[0-9]+$', local_id))
 
     @staticmethod
+    def is_clo_id(local_id: str) -> Optional[bool]:
+        # Allows: Exactly 7 digits
+        if local_id.startswith('http://'):
+            return None  # A couple nodes have old URLs as IDs
+        else:
+            return bool(re.match(r'^\d{7}$', local_id))
+
+    @staticmethod
     def is_complexportal_id(local_id: str) -> bool:
         # Allows: CPX- followed by one or more digits
         return bool(re.match(r'^CPX-\d+$', local_id))
@@ -613,7 +630,6 @@ class SpokeIDNormalizer:
             return local_id
 
     def clean_snomed_id(self, local_id: str) -> str:
-        cleaned_id = local_id.removeprefix('SNOMED_').removeprefix('SNOMEDCT_')
         return self.convert_float_to_int_str(local_id)
 
     @staticmethod
