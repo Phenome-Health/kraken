@@ -24,7 +24,7 @@ class SpokeIDNormalizer:
         self.cleaner_prop = 'cleaner'
         self.validator_map = self._load_validator_map()
         self.curie_construction_map = self._load_curie_construction_map()
-        self.spoke_underscore_prefixes = {'SNOMED_', 'CLO_', 'ENVO_', 'CHR_', 'HPS_', 'CVCL_'}
+        self.spoke_underscore_prefixes = {'SNOMED_', 'CLO_', 'ENVO_', 'CHR_', 'HPS_', 'CVCL_', 'BFO_'}
     
 
     def _load_prefix_to_iri_map(self) -> Dict[str, str]:
@@ -73,6 +73,7 @@ class SpokeIDNormalizer:
         validator = self.validator_prop
         cleaner = self.cleaner_prop
         return {
+            'bfo': {validator: self.is_bfo_id},
             'bvbrc': {validator: self.is_bvbrc_id},
             'chebi': {validator: self.is_chebi_id},
             'chembl.compound': {validator: self.is_chembl_compound_id},
@@ -81,10 +82,12 @@ class SpokeIDNormalizer:
             'clo': {validator: self.is_clo_id},
             'complexportal': {validator: self.is_complexportal_id},
             'cvcl': {validator: self.is_cellosaurus_id},
+            'cytoband': {validator: self.is_cytoband_id},
             'dbsnp': {validator: self.is_dbsnp_id},
             'doid': {validator: self.is_doid_id},
             'drugbank': {validator: self.is_drugbank_id},
             'ec': {validator: self.is_ec_id},
+            'envo': {validator: self.is_envo_id},
             'fips.place': {validator: self.is_fips_compound_id},
             'fips.state': {validator: self.is_fips_state_id},
             'geonames': {validator: self.is_geonames_id},
@@ -143,6 +146,7 @@ class SpokeIDNormalizer:
             ('Compound', 'kegg_drug_ids'): 'kegg.drug',
             ('Compound', 'pubchem_compound_ids'): 'pubchem.compound',
             ('Compound', 'standardized_smiles'): 'smiles',
+            ('Cytoband', 'unknown'): 'cytoband',
             ('DietarySupplement', 'nhanes'): 'nhanes',
             ('Disease', 'doid'): 'doid',
             ('Disease', 'icd9'): 'icd9',
@@ -152,9 +156,13 @@ class SpokeIDNormalizer:
             ('Disease', 'snomedct'): 'snomedct',
             ('EC', 'explorenz'): 'ec',
             ('EC', 'metacyc'): 'metacyc.ec',
+            ('Environment', 'bfo'): 'bfo',
+            ('Environment', 'envo'): 'envo',
             ('ExtracellularParticle', 'vesiclepedia'): 'vesiclepedia',
+            ('Gene', 'accession'): 'mirbase',
             ('Gene', 'chembl_id'): 'chembl.target',
             ('Gene', 'entrezgene'): 'ncbigene',
+            ('Gene', 'mirbase'): 'ncbigene',  # Main 'identifier' given for these is ncbigene ID
             ('Location', 'geonames'): 'geonames',
             ('Location', 'unitedstateszipcode_database'): ['uszipcode', 'fips.place', 'fips.state'],
             ('MiRNA', 'accession'): 'mirbase',
@@ -365,9 +373,14 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^[A-Z0-9]{4}$', local_id))
 
     @staticmethod
+    def is_cytoband_id(local_id: str) -> bool:
+        # Allows: chromosome (number or X/Y), arm (p/q), band, and optional sub-band e.g., 1p36.33
+        return bool(re.match(r'^(\d{1,2}|[XYxy])[pq]\d+(\.\d+)?$', local_id))
+
+    @staticmethod
     def is_mirbase_id(local_id: str) -> bool:
-        # Allows: MI[digits] or MIMAT[digits]
-        return bool(re.match(r'^MI[0-9]+$', local_id)) or bool(re.match(r'^MIMAT[0-9]+$', local_id))
+        # Allows: MI or MIMAT followed by exactly 7 digits
+        return bool(re.match(r'^(MI|MIMAT)\d{7}$', local_id))
 
     @staticmethod
     def is_mirdb_id(local_id: str) -> bool:
@@ -400,6 +413,11 @@ class SpokeIDNormalizer:
                 return False
 
         return True
+
+    @staticmethod
+    def is_envo_id(local_id: str) -> bool:
+        # Allows: one or more digits
+        return bool(re.match(r'^\d+$', local_id))
 
     @staticmethod
     def is_reactome_id(local_id: str) -> Optional[bool]:
@@ -558,6 +576,11 @@ class SpokeIDNormalizer:
     def is_complexportal_id(local_id: str) -> bool:
         # Allows: CPX- followed by one or more digits
         return bool(re.match(r'^CPX-\d+$', local_id))
+
+    @staticmethod
+    def is_bfo_id(local_id: str) -> bool:
+        # Allows: one or more digits
+        return bool(re.match(r'^\d+$', local_id))
 
     @staticmethod
     def is_bvbrc_id(local_id: str) -> bool:
