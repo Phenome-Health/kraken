@@ -50,8 +50,8 @@ class SpokeIDNormalizer:
             prefix_to_iri_map['NHANES'] = "https://dsld.od.nih.gov/label/"  # These IRIs work, but weirdly SPOKE's identifiers for these nodes don't match what they have..
             prefix_to_iri_map['MIRDB'] = "https://mirdb.org/cgi-bin/mature_mir.cgi?name="  # Not sure if it's right to use a 'mature' iri like this for all...
             prefix_to_iri_map['CYTOBAND'] = ""  # Haven't found good iri for these yet..
-            prefix_to_iri_map['CHR'] = ""  # Haven't found good iri for these yet..
-            prefix_to_iri_map['AHRQ'] = ""
+            prefix_to_iri_map['CHR'] = ""  # Country Health Rankings.. Haven't found good iri for these yet
+            prefix_to_iri_map['AHRQ'] = ""  # AHRQ SDOH Database
             prefix_to_iri_map['HPS'] = ""  # Household Pulse Survey
             prefix_to_iri_map['mirbase'] = "https://mirbase.org/hairpin/"  # Biolink has mirbase in here, but their iri doesn't work
             prefix_to_iri_map['metacyc.pathway'] = "https://metacyc.org/pathway?orgid=META&id="  # Biolink has metacyc.reaction, but not pathway
@@ -59,6 +59,7 @@ class SpokeIDNormalizer:
             prefix_to_iri_map['FIPS.PLACE'] = ""
             prefix_to_iri_map['FIPS.STATE'] = ""
             prefix_to_iri_map['PHARMVAR'] = ""  # This wants a number rather than the symbol..
+            prefix_to_iri_map['CDCSVI'] = ""  # CDC Social Vulnerability Index
 
             # Override prefixes as needed (if Biolink's iri is broken)
             prefix_to_iri_map['OMIM'] = "https://omim.org/entry/"
@@ -74,11 +75,14 @@ class SpokeIDNormalizer:
         validator = self.validator_prop
         cleaner = self.cleaner_prop
         return {
+            'ahrq': {validator: self.is_ahrq_id},
             'bfo': {validator: self.is_bfo_id},
             'bvbrc': {validator: self.is_bvbrc_id},
+            'cdcsvi': {validator: self.is_cdcsvi_id},
             'chebi': {validator: self.is_chebi_id},
             'chembl.compound': {validator: self.is_chembl_compound_id},
             'chembl.target': {validator: self.is_chembl_target_id},
+            'chr': {validator: self.is_chr_id},
             'cl': {validator: self.is_cl_id},
             'clo': {validator: self.is_clo_id},
             'complexportal': {validator: self.is_complexportal_id},
@@ -93,6 +97,7 @@ class SpokeIDNormalizer:
             'fips.state': {validator: self.is_fips_state_id},
             'geonames': {validator: self.is_geonames_id},
             'go': {validator: self.is_go_id},
+            'hps': {validator: self.is_hps_id},
             'icd9': {validator: self.is_icd9_id},
             'icd10': {validator: self.is_icd10_id},
             'inchikey': {validator: self.is_inchikey_id},
@@ -185,12 +190,19 @@ class SpokeIDNormalizer:
             ('Reaction', 'kegg'): 'kegg.reaction',
             ('Reaction', 'metacyc'): 'metacyc.reaction',
             ('Reaction', 'reactome'): 'react',
+            ('SDoH', 'ahrqsdohdatabase'): 'ahrq',
+            ('SDoH', 'cdc/atsdrsocialvulnerabilityindex'): 'cdcsvi',
+            ('SDoH', 'chr'): 'chr',
+            ('SDoH', 'hps'): 'hps',
+            ('SDoH', 'mesh_ids'): 'mesh',
+            ('SDoH', 'snomed'): 'snomedct',
             ('SideEffect', 'sider4.1'): 'umls',  # They give CUIs for nodes with SIDER source
             ('Symptom', 'hpo'): 'mesh',  # They give MeSH IDs for nodes with HPO source
             ('Symptom', 'icd9'): 'icd9',
             ('Symptom', 'icd10'): 'icd10',
             ('Symptom', 'mesh'): 'mesh',
             ('Symptom', 'snomedct'): 'snomedct',
+            ('Variant', 'dbsnp'): 'dbsnp',
             ('Variant', 'unknown'): 'dbsnp',
         }
         return curie_construction_map
@@ -397,7 +409,9 @@ class SpokeIDNormalizer:
     @staticmethod
     def is_dbsnp_id(local_id: str) -> Optional[bool]:
         # Allows: rs followed by digits, with an optional version suffix (e.g., .1)
-        if ',' in local_id:
+        if local_id == '-':  # Some identifiers are just a hyphen; think it's like a null value
+            return None
+        elif ',' in local_id:
             # Detect when multiple dbsnp IDs are concatenated into one ID (skip these for now)
             parts = local_id.split(',')
             if bool(re.match(r'^rs[0-9]+(\.\d+)?$', parts[0].strip())):
@@ -560,6 +574,11 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^\d{7}$', local_id))
 
     @staticmethod
+    def is_hps_id(local_id: str) -> bool:
+        # Allows: one or more alphabetic characters
+        return bool(re.match(r'^[a-zA-Z_]+$', local_id))
+
+    @staticmethod
     def is_icd9_id(local_id: str) -> bool:
         # ICD-9 codes: single code or range (e.g., 344.81 or 317-319.99)
         if '-' in local_id:
@@ -571,6 +590,12 @@ class SpokeIDNormalizer:
         else:
             # Single code format: XXX.XX
             return bool(re.match(r'^\d{3}(\.\d{1,2})?$', local_id))
+
+    @staticmethod
+    def is_chr_id(local_id: str) -> bool:
+        # Allows: lowercase letters, digits, and underscores; requires at least one letter
+        has_valid_chars = bool(re.match(r'^[a-z0-9_/-]+$', local_id))
+        return has_valid_chars and any(char.isalpha() for char in local_id)
 
     @staticmethod
     def is_cl_id(local_id: str) -> bool:
@@ -591,6 +616,11 @@ class SpokeIDNormalizer:
         return bool(re.match(r'^CPX-\d+$', local_id))
 
     @staticmethod
+    def is_ahrq_id(local_id: str) -> bool:
+        # Allows: uppercase letters, digits, and underscores
+        return bool(re.match(r'^[A-Z0-9_]+$', local_id))
+
+    @staticmethod
     def is_bfo_id(local_id: str) -> bool:
         # Allows: one or more digits
         return bool(re.match(r'^\d+$', local_id))
@@ -599,6 +629,11 @@ class SpokeIDNormalizer:
     def is_bvbrc_id(local_id: str) -> bool:
         # Allows: digits, a period, and more digits
         return bool(re.match(r'^\d+\.\d+$', local_id))
+
+    @staticmethod
+    def is_cdcsvi_id(local_id: str) -> bool:
+        # Allows: one or more uppercase alphabetic characters
+        return bool(re.match(r'^[A-Z]+$', local_id))
 
     @staticmethod
     def is_chebi_id(local_id: str) -> Optional[bool]:
