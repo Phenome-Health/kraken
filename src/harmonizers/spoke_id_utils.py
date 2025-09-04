@@ -11,6 +11,7 @@ from typing import Any, List, Dict, Set, Tuple, Union, Callable, Optional
 
 import requests
 from ..utils.constants import *
+from ..utils.general import load_biolink_file
 
 
 class SpokeIDNormalizer:
@@ -31,44 +32,39 @@ class SpokeIDNormalizer:
         """Load Biolink model prefix map"""
         logging.info(f"Grabbing biolink prefix map for version: {self.biolink_version}")
         url = f"https://raw.githubusercontent.com/biolink/biolink-model/refs/tags/v{self.biolink_version}/project/prefixmap/biolink-model-prefix-map.json"
-        response = requests.get(url)
-        if response.ok:
-            prefix_to_iri_map = response.json()
+        prefix_to_iri_map = load_biolink_file(url, self.biolink_version)
 
-            # Remove prefixes as needed
-            if 'KEGG' in prefix_to_iri_map:
-                del prefix_to_iri_map['KEGG']  # We want to use only KEGG.COMPOUND, KEGG.REACTION, etc.
+        # Remove prefixes as needed
+        if 'KEGG' in prefix_to_iri_map:
+            del prefix_to_iri_map['KEGG']  # We want to use only KEGG.COMPOUND, KEGG.REACTION, etc.
 
-            # Add prefixes as needed (ones we're making up, that don't exist in biolink)
-            prefix_to_iri_map['USZIPCODE'] = "https://www.unitedstateszipcodes.org/"
-            prefix_to_iri_map['SMILES'] = "https://pubchem.ncbi.nlm.nih.gov/compound/"
-            prefix_to_iri_map['CVCL'] = "https://web.expasy.org/cellosaurus/CVCL_"
-            prefix_to_iri_map['VESICLEPEDIA'] = "http://microvesicles.org/exp_summary?exp_id="
-            prefix_to_iri_map['NDFRT'] = "http://purl.bioontology.org/ontology/NDFRT/"
-            prefix_to_iri_map['BVBRC'] = "https://www.bv-brc.org/view/Genome/"
-            prefix_to_iri_map['GeoNames'] = "http://www.geonames.org/search.html?q="  # Note: this doesn't go exactly to page for item, but closest I could find
-            prefix_to_iri_map['NHANES'] = "https://dsld.od.nih.gov/label/"  # These IRIs work, but weirdly SPOKE's identifiers for these nodes don't match what they have..
-            prefix_to_iri_map['MIRDB'] = "https://mirdb.org/cgi-bin/mature_mir.cgi?name="  # Not sure if it's right to use a 'mature' iri like this for all...
-            prefix_to_iri_map['CYTOBAND'] = ""  # Haven't found good iri for these yet..
-            prefix_to_iri_map['CHR'] = ""  # Country Health Rankings.. Haven't found good iri for these yet
-            prefix_to_iri_map['AHRQ'] = ""  # AHRQ SDOH Database
-            prefix_to_iri_map['HPS'] = ""  # Household Pulse Survey
-            prefix_to_iri_map['mirbase'] = "https://mirbase.org/hairpin/"  # Biolink has mirbase in here, but their iri doesn't work
-            prefix_to_iri_map['metacyc.pathway'] = "https://metacyc.org/pathway?orgid=META&id="  # Biolink has metacyc.reaction, but not pathway
-            prefix_to_iri_map['metacyc.ec'] = "https://biocyc.org/META/NEW-IMAGE?type=EC-NUMBER&object=EC-"  # Biolink has metacyc.reaction, but not ec (these are like provisional ec codes, not yet in explorenz)
-            prefix_to_iri_map['FIPS.PLACE'] = ""
-            prefix_to_iri_map['FIPS.STATE'] = ""
-            prefix_to_iri_map['PHARMVAR'] = ""  # This wants a number rather than the symbol..
-            prefix_to_iri_map['CDCSVI'] = ""  # CDC Social Vulnerability Index
+        # Add prefixes as needed (ones we're making up, that don't exist in biolink)
+        prefix_to_iri_map['USZIPCODE'] = "https://www.unitedstateszipcodes.org/"
+        prefix_to_iri_map['SMILES'] = "https://pubchem.ncbi.nlm.nih.gov/compound/"
+        prefix_to_iri_map['CVCL'] = "https://web.expasy.org/cellosaurus/CVCL_"
+        prefix_to_iri_map['VESICLEPEDIA'] = "http://microvesicles.org/exp_summary?exp_id="
+        prefix_to_iri_map['NDFRT'] = "http://purl.bioontology.org/ontology/NDFRT/"
+        prefix_to_iri_map['BVBRC'] = "https://www.bv-brc.org/view/Genome/"
+        prefix_to_iri_map['GeoNames'] = "http://www.geonames.org/search.html?q="  # Note: this doesn't go exactly to page for item, but closest I could find
+        prefix_to_iri_map['NHANES'] = "https://dsld.od.nih.gov/label/"  # These IRIs work, but weirdly SPOKE's identifiers for these nodes don't match what they have..
+        prefix_to_iri_map['MIRDB'] = "https://mirdb.org/cgi-bin/mature_mir.cgi?name="  # Not sure if it's right to use a 'mature' iri like this for all...
+        prefix_to_iri_map['CYTOBAND'] = ""  # Haven't found good iri for these yet..
+        prefix_to_iri_map['CHR'] = ""  # Country Health Rankings.. Haven't found good iri for these yet
+        prefix_to_iri_map['AHRQ'] = ""  # AHRQ SDOH Database
+        prefix_to_iri_map['HPS'] = ""  # Household Pulse Survey
+        prefix_to_iri_map['mirbase'] = "https://mirbase.org/hairpin/"  # Biolink has mirbase in here, but their iri doesn't work
+        prefix_to_iri_map['metacyc.pathway'] = "https://metacyc.org/pathway?orgid=META&id="  # Biolink has metacyc.reaction, but not pathway
+        prefix_to_iri_map['metacyc.ec'] = "https://biocyc.org/META/NEW-IMAGE?type=EC-NUMBER&object=EC-"  # Biolink has metacyc.reaction, but not ec (these are like provisional ec codes, not yet in explorenz)
+        prefix_to_iri_map['FIPS.PLACE'] = ""
+        prefix_to_iri_map['FIPS.STATE'] = ""
+        prefix_to_iri_map['PHARMVAR'] = ""  # This wants a number rather than the symbol..
+        prefix_to_iri_map['CDCSVI'] = ""  # CDC Social Vulnerability Index
 
-            # Override prefixes as needed (if Biolink's iri is broken)
-            prefix_to_iri_map['OMIM'] = "https://omim.org/entry/"
-            prefix_to_iri_map['REACT'] = "https://reactome.org/content/detail/" # Works for Complexes and Pathways (I think)
+        # Override prefixes as needed (if Biolink's iri is broken)
+        prefix_to_iri_map['OMIM'] = "https://omim.org/entry/"
+        prefix_to_iri_map['REACT'] = "https://reactome.org/content/detail/" # Works for Complexes and Pathways (I think)
 
-            return prefix_to_iri_map
-        else:
-            logging.error(f"Failed to download Biolink prefix map ({response.status_code} error). {response.text}")
-            sys.exit(1)
+        return prefix_to_iri_map
 
 
     def _load_validator_map(self) -> Dict[str, Dict[str, Callable]]:

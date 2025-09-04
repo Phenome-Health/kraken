@@ -8,6 +8,8 @@ import sys
 from typing import List, Optional, Tuple
 import jsonlines
 import logging
+
+from ..utils.general import load_biolink_file
 from ..utils.metagraph import generate_metagraph_for_source
 from ..utils.constants import *
 from ..utils.kg_io import stream_mixed_jsonl
@@ -18,8 +20,13 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
     """Harmonize SPOKE mixed JSONL to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing SPOKE: {input_file} -> {nodes_output}, {edges_output}")
 
-    # Initialize identifier normalizer
+    # Initialize identifier normalizer and other biolink info needed for conversion
     id_norm = SpokeIDNormalizer(biolink_version=biolink_version)
+    infores_url = "https://raw.githubusercontent.com/biolink/information-resource-registry/refs/heads/main/infores_catalog.yaml"
+    infores_info = load_biolink_file(infores_url, biolink_version)
+    klat_map = {item['id']: {'knowledge_level': item.get('knowledge_level', 'not_provided'),
+                             'agent_type': item.get('agent_type', 'not_provided')}
+                for item in infores_info['information_resources']}
     
     # Keep track of normalized node IDs for edge mapping
     spoke_to_normalized_id = {}
@@ -43,7 +50,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
                     node_count += 1
 
             elif item_type == 'relationship':
-                harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id)
+                harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id, klat_map)
                 if harmonized_edge:
                     edges_writer.write(harmonized_edge)
                     edge_count += 1
@@ -108,7 +115,7 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optiona
         sys.exit(1)
 
 
-def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optional[dict]:
+def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict, klat_map: dict) -> Optional[dict]:
     """Harmonize a single SPOKE edge"""
     edge_type = edge_item.get('label')
     if not edge_type:
@@ -139,12 +146,16 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict) -> Optio
     edge_item['start'] = subject_id
     edge_item['end'] = object_id
 
+    normalized_primary_ks = normalize_source(primary_source, edge_item)
+
     harmonized_edge = {
         SUBJECT: normalized_subject_id,
         OBJECT: normalized_object_id,
         PREDICATE: predicate,
-        PRIMARY_KS: normalize_source(primary_source, edge_item),
+        PRIMARY_KS: normalized_primary_ks,
         AGGREGATOR_KS: SPOKE_INFORES,
+        KNOWLEDGE_LEVEL: klat_map.get(normalized_primary_ks, dict()).get('knowledge_level', 'not_provided'),
+        AGENT_TYPE: klat_map.get(normalized_primary_ks, dict()).get('agent_type', 'not_provided'),
         'spoke_edges': [edge_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier, creating duplicate edges)
     }
     # Tack on any additional sources
