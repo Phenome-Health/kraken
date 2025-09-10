@@ -82,4 +82,6 @@ def harmonize_kg2_edge(edge: dict) -> dict:
     harmonized_edge = {KG2_EDGE_PROP_NAME_OVERRIDES.get(property_name, property_name): value
                        for property_name, value in edge.items() if property_name not in KG2_IGNORE_PROPS}
     harmonized_edge[AGGREGATOR_KS] = KG2_INFORES
+    # Make the KG2c edge ID property into a list, because we want it merged during entity resolution (if necessary)
+    harmonized_edge['kg2c_ids'] = [harmonized_edge['kg2c_id']]
     return harmonized_edge
