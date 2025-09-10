@@ -11,7 +11,7 @@ from .harmonizers.kg2 import harmonize_kg2
 from .harmonizers.spoke import harmonize_spoke
 from .harmonizers.umls import harmonize_umls
 from .integration.entity_resolution import integrate_sources
-from .post_processing.arango_export import prepare_for_arango
+from .post_processing.arango_export import export_for_arango
 from .post_processing.biomapper_export import export_for_biomapper
 from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
 
@@ -19,12 +19,14 @@ from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
 def run_kg_build(config: dict) -> tuple[Path, Path]:
     """Main orchestration function for building PhenomeKG"""
     biolink_version = config['biolink_version']
+    kraken_version = config['kraken_version']
     unified_dir_path = Path(config['integration']['output_directory'])
-    unified_nodes_path = unified_dir_path / config['integration']['unified_output']['nodes']
-    unified_edges_path = unified_dir_path / config['integration']['unified_output']['edges']
-    harmonized_source_paths = {source_name: {'nodes': source_config['harmonized_output']['nodes'],
-                                             'edges': source_config['harmonized_output']['edges']} 
+    unified_nodes_path = unified_dir_path / f"kraken_nodes_{kraken_version}.jsonl"
+    unified_edges_path = unified_dir_path / f"kraken_edges_{kraken_version}.jsonl"
+    harmonized_source_paths = {source_name: {'nodes': Path(source_config['harmonized_output']['nodes']),
+                                             'edges': Path(source_config['harmonized_output']['edges'])}
                                 for source_name, source_config in config['sources'].items()}
+
 
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
     if config['steps'].get('harmonize'):
@@ -34,7 +36,7 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     # Phase 2: Integrate into unified KG with entity resolution
     if config['steps'].get('integrate'):
         logging.info(f"-------------------------- INTEGRATING SOURCES -----------------------------------------------")
-        integrate_sources(harmonized_source_paths, unified_dir_path, config['integration'].copy())
+        integrate_sources(harmonized_source_paths, unified_dir_path, unified_nodes_path, unified_edges_path, config['integration'].copy())
 
     # Phase 3: Generate metagraph for unified result
     if config['steps'].get('metagraph'):
@@ -44,7 +46,7 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     # Phase 4: Post-processing steps
     if config['steps'].get('postprocess'):
         logging.info(f"------------------------------ POST-PROCESSING -----------------------------------------------")
-        post_process_unified_kg(unified_nodes_path, unified_edges_path, config['post_processing'], biolink_version)
+        post_process_unified_kg(unified_nodes_path, unified_edges_path, config['post_processing'], biolink_version, kraken_version)
 
     logging.info(f"Build complete: {unified_nodes_path}, {unified_edges_path}")
     return unified_nodes_path, unified_edges_path
@@ -102,7 +104,7 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
     logging.info(f"Harmonized {source_name} -> {nodes_output}, {edges_output}")
 
 
-def generate_unified_metagraph(unified_nodes_path: str, unified_edges_path: str, harmonized_source_paths: dict):
+def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Path, harmonized_source_paths: dict):
     # Store unified metagraphs in artifacts/metagraphs/unified/
     artifacts_root = Path("artifacts")
     metagraph_dir = artifacts_root / "metagraphs" / "unified"
@@ -127,17 +129,18 @@ def generate_unified_metagraph(unified_nodes_path: str, unified_edges_path: str,
             logging.info("Metagraph comparison generated")
 
 
-def post_process_unified_kg(unified_nodes_path: Path, unified_edges_path: Path, config: dict, biolink_version: str):
+def post_process_unified_kg(unified_nodes_path: Path, unified_edges_path: Path, config: dict, biolink_version: str, kraken_version: str):
     """Run all post-processing steps on the unified KG"""
     logging.info("Starting post-processing...")
+    arango_output_dir = Path(config['arango_export']['output_directory'])
+    arango_nodes_path = arango_output_dir / f"kraken_{kraken_version}_nodes_arango.jsonl"
+    arango_edges_path = arango_output_dir / f"kraken_{kraken_version}_edges_arango.jsonl"
 
     # Step 1: Prepare ArangoDB version
-    if 'arango_export' in config and config['arango_export'].get('enabled', True):
-        arango_config = config['arango_export']
-        output_dir = Path(arango_config['output_directory'])
-        
+    if config['arango_export'].get('enabled', True):
         logging.info("Preparing ArangoDB export...")
-        arango_unified_nodes_path, arango_unified_edges_path = prepare_for_arango(unified_nodes_path, unified_edges_path, output_dir, arango_config, biolink_version)
+        export_for_arango(unified_nodes_path, unified_edges_path, arango_output_dir,
+                          arango_nodes_path, arango_edges_path, biolink_version, kraken_version)
 
     # Step 2: Export for biomapper (off of Arango export files)
     if 'biomapper_export' in config and config['biomapper_export'].get('enabled', True):
@@ -145,6 +148,6 @@ def post_process_unified_kg(unified_nodes_path: Path, unified_edges_path: Path, 
         output_dir = Path(biomapper_config['output_directory'])
         
         logging.info("Exporting for biomapper...")
-        export_for_biomapper(arango_unified_nodes_path, output_dir)
+        export_for_biomapper(arango_nodes_path, output_dir, kraken_version)
 
     logging.info("Post-processing complete")

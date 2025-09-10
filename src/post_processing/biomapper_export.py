@@ -11,20 +11,19 @@ from typing import Any, List
 from collections import defaultdict
 from ..utils.kg_io import stream_nodes_from_jsonl
 
-kg_name = 'kraken'
 FILE_MAP = {
-    "biolink:BiologicalProcess": f"{kg_name}_biological_processes",
-    "biolink:CellularComponent": f"{kg_name}_cellular_components",
-    "biolink:ChemicalEntity": f"{kg_name}_chemicals",
-    "biolink:Disease": f"{kg_name}_diseases",
-    "biolink:Drug": f"{kg_name}_drugs",
-    "biolink:Gene": f"{kg_name}_genes",
-    "biolink:SmallMolecule": f"{kg_name}_metabolites",  # TODO: Will this capture all? Some LOINC:LP nodes have type protein... 
-    "biolink:MolecularActivity": f"{kg_name}_molecular_activities",
-    "biolink:Pathway": f"{kg_name}_pathways",
-    "biolink:PhenotypicFeature": f"{kg_name}_phenotypes",
-    "biolink:Protein": f"{kg_name}_proteins",
-    "biolink:ClinicalFinding": f"{kg_name}_clinical_findings"
+    "biolink:BiologicalProcess": f"biological_processes",
+    "biolink:CellularComponent": f"cellular_components",
+    "biolink:ChemicalEntity": f"chemicals",
+    "biolink:Disease": f"diseases",
+    "biolink:Drug": f"drugs",
+    "biolink:Gene": f"genes",
+    "biolink:SmallMolecule": f"metabolites",  # TODO: Will this capture all? Some LOINC:LP nodes have type protein...
+    "biolink:MolecularActivity": f"molecular_activities",
+    "biolink:Pathway": f"pathways",
+    "biolink:PhenotypicFeature": f"phenotypes",
+    "biolink:Protein": f"proteins",
+    "biolink:ClinicalFinding": f"clinical_findings"
 }
 ARRAY_DELIMITER = '||'
 
@@ -35,10 +34,12 @@ def write_to_csv(items: List[List[Any]], file_path: str, mode: str):
         writer.writerows(items)
 
 
-def export_for_biomapper(nodes_path: Path, output_dir: Path):
+def export_for_biomapper(nodes_path: Path, output_dir: Path, kraken_version: str):
+    file_paths = {category: f"{output_dir}/kraken_{kraken_version}_{file_core_name}.csv"
+                  for category, file_core_name in FILE_MAP.items()}
     headers = ["id", "name", "category", "description", "synonyms", "xrefs"]
-    for file_name in FILE_MAP.values():
-        write_to_csv([headers], f"{output_dir}/{file_name}.csv", 'w+')
+    for file_path in file_paths.values():
+        write_to_csv([headers], file_path, 'w+')
 
     counter = 0
     node_counts_by_type = defaultdict(int)
@@ -51,7 +52,7 @@ def export_for_biomapper(nodes_path: Path, output_dir: Path):
                 synonyms_joined = ARRAY_DELIMITER.join(node.get('synonyms', []))
                 equiv_ids_joined = ARRAY_DELIMITER.join(node.get('equivalent_ids', []))
                 row = [node["id"], node.get("name"), category, node.get('description'), synonyms_joined, equiv_ids_joined]
-                write_to_csv([row], f"{output_dir}/{FILE_MAP[category]}.csv", 'a')
+                write_to_csv([row], file_paths[category], 'a')
     
     logging.info(f"Exported nodes in {len(node_counts_by_type)} categories")
     

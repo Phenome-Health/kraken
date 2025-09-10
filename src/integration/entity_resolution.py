@@ -20,19 +20,15 @@ from ..utils.constants import *
 from ..utils.general import create_edge_key
 
 
-def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir: Path, config: dict):
+def integrate_sources(harmonized_source_paths: Dict[str, Dict[str, Path]], output_dir: Path, unified_nodes_path: Path, unified_edges_path: Path, config: dict):
     """Merge harmonized sources using streaming approach"""
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Output files
-    unified_nodes_path = output_dir / config['unified_output']['nodes']
-    unified_edges_path = output_dir / config['unified_output']['edges']
     
     logging.info("Starting streaming source integration...")
     
     # Phase 1: Build equivalency mappings from primary source
     primary_source_name = config.get('primary_source', 'kg2')
-    primary_nodes_path = harmonized_sources[primary_source_name]['nodes']
+    primary_nodes_path = harmonized_source_paths[primary_source_name]['nodes']
     
     logging.info(f"Loading equivalency mappings from {primary_source_name}")
     equivalency_index = load_equivalency_mappings(primary_nodes_path)
@@ -41,7 +37,7 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     processed_canonical_nodes = {node[ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)}  # canonical_id -> merged_node_data
     
     # Phase 2: Process all nodes, merging as we go
-    for source_name, source_files in harmonized_sources.items():
+    for source_name, source_files in harmonized_source_paths.items():
         if source_name != primary_source_name:  # Already loaded these as the starting point
             # Set up logs for non-one-to-one mappings
             one_to_many_log = output_dir / f"{source_name}_one_to_many.jsonl"
@@ -89,11 +85,9 @@ def integrate_sources(harmonized_sources: Dict[str, Dict[str, Path]], output_dir
     save_to_jsonl(processed_canonical_nodes.values(), unified_nodes_path, mode='w')
     
     # Phase 3: Process all edges with node ID resolution (merge edges with the same key -- note aggregator is in key)
-
     all_merged_edges = []
-
     with jsonlines.open(unified_edges_path, 'w') as writer:
-        for source_name, source_files in harmonized_sources.items():
+        for source_name, source_files in harmonized_source_paths.items():
             logging.info(f"Processing edges from {source_name}")
             edges_file = source_files['edges']
             mergers_log = output_dir / f"{source_name}_edge_mergers.jsonl"
