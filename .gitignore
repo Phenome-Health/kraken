@@ -5,6 +5,7 @@ __pycache__/
 
 input_data/
 artifacts/
+cache/
 scripts/*.json
 scripts/*.jsonl
 

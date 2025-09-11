@@ -2,13 +2,13 @@
 ArangoDB export utilities
 Prepares the unified KG for import into ArangoDB
 """
-
+import os
 from collections import defaultdict
 import html
 from pathlib import Path
 import re
 import logging
-from typing import Tuple
+from typing import Tuple, Set
 import unicodedata
 import jsonlines
 
@@ -28,12 +28,10 @@ EDGE_PROP_NAME_OVERRIDES = {
 }
 
 
-def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, config: dict, biolink_version: str) -> Tuple[Path, Path]:
+def export_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, arango_nodes_path: Path,
+                      arango_edges_path: Path, biolink_version: str, kraken_version: str):
     """Prepare unified KG for ArangoDB import using streaming"""
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    arango_nodes_path = output_dir / config['output_files']['nodes']
-    arango_edges_path = output_dir / config['output_files']['edges']
     
     logging.info("Preparing KG for ArangoDB...")
     
@@ -57,9 +55,11 @@ def prepare_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, con
             arango_edge = create_arango_edge(edge, ancestor_map, bmt)
             writer.write(arango_edge)
 
-    logging.info(f"ArangoDB export complete. Files saved to: {arango_nodes_path}, {arango_edges_path}")
-    
-    return arango_nodes_path, arango_edges_path
+    logging.info(f"Forming tarball of arango export files..")
+    tarball_path = f"{output_dir}/kraken-{kraken_version}-arango.tar.gz"
+    os.system(f"tar -cvzf {tarball_path} {arango_nodes_path} {arango_edges_path}")
+
+    logging.info(f"ArangoDB export complete. Tarball saved to: {tarball_path}")
 
 
 def clean_text(text: any) -> str:
@@ -99,7 +99,7 @@ def custom_sort_key(item) -> Tuple[int, str]:
         return 1, s_item
 
 
-def create_arango_node(node: dict, ancestor_map: defaultdict[set], bmt: Toolkit, neighbor_counts: dict, neighbor_counts_by_type: dict) -> dict:
+def create_arango_node(node: dict, ancestor_map: defaultdict[str, Set[str]], bmt: Toolkit, neighbor_counts: dict, neighbor_counts_by_type: dict) -> dict:
     # Create arango version of node
     arango_node = {NODE_PROP_NAME_OVERRIDES.get(property_name, property_name): value
                     for property_name, value in node.items() if property_name not in IGNORE_PROPS}
@@ -165,7 +165,7 @@ def create_arango_edge(edge: dict, ancestor_map: dict, bmt: Toolkit) -> dict:
     return arango_edge
 
 
-def count_neighbors(nodes_file_path: str, edges_file_path: str) -> Tuple[defaultdict, defaultdict]:
+def count_neighbors(nodes_file_path: Path, edges_file_path: Path) -> Tuple[defaultdict, defaultdict]:
     neighbor_counts = defaultdict(int)
     neighbor_counts_by_type = defaultdict(lambda: defaultdict(int))
 
