@@ -1,6 +1,7 @@
 import logging
 import re
-from typing import Dict, Callable, Optional, Tuple
+import sys
+from typing import Dict, Callable, Optional, Tuple, Union, List
 
 from .general import load_biolink_file
 from .constants import *
@@ -46,6 +47,10 @@ class IdentifierNorm:
         prefix_to_iri_map['PHARMVAR'] = ""  # This wants a number rather than the symbol..
         prefix_to_iri_map['CDCSVI'] = ""  # CDC Social Vulnerability Index
         prefix_to_iri_map['LM'] = "https://www.lipidmaps.org/databases/lmsd/LM"
+        prefix_to_iri_map['SLM'] = "https://www.swisslipids.org/#/entity/SLM:"
+        prefix_to_iri_map['LIPIDBANK'] = ""  # Could look harder for this iri..
+        prefix_to_iri_map['PLANTFA'] = ""  # Could look harder for this iri..
+
 
         # Override prefixes as needed (if Biolink's iri is broken)
         prefix_to_iri_map['OMIM'] = "https://omim.org/entry/"
@@ -83,6 +88,7 @@ class IdentifierNorm:
             'fips.state': {validator: self.is_fips_state_id},
             'geonames': {validator: self.is_geonames_id},
             'go': {validator: self.is_go_id},
+            'hmdb': {validator: self.is_hmdb_id},
             'hps': {validator: self.is_hps_id},
             'icd9': {validator: self.is_icd9_id},
             'icd10': {validator: self.is_icd10_id},
@@ -90,6 +96,7 @@ class IdentifierNorm:
             'kegg.compound': {validator: self.is_kegg_compound_id},
             'kegg.drug': {validator: self.is_kegg_drug_id},
             'kegg.reaction': {validator: self.is_kegg_reaction_id},
+            'lipidbank': {validator: self.is_lipidbank_id},
             'loinc': {validator: self.is_loinc_id},
             'lm': {validator: self.is_lipidmaps_id, cleaner: lambda x: x.removeprefix('LM')},
             'mesh': {validator: self.is_mesh_id},
@@ -106,7 +113,9 @@ class IdentifierNorm:
             'pfam': {validator: self.is_pfam_id},
             'pharmvar': {validator: self.is_pharmvar_id},
             'pubchem.compound': {validator: self.is_pubchem_compound_id},
+            'plantfa': {validator: self.is_plantfa_id},
             'react': {validator: self.is_reactome_id},
+            'slm': {validator: self.is_slm_id, cleaner: lambda x: x.removeprefix('SLM:')},
             'smiles': {validator: self.is_smiles_string},
             'snomedct': {validator: self.is_snomedct_id, cleaner: self.clean_snomed_id},
             'uberon': {validator: self.is_uberon_id},
@@ -136,23 +145,35 @@ class IdentifierNorm:
         return validator(local_id), local_id
 
 
-    def construct_curie(self, local_id: str, vocab_prefix_lowercase: str) -> Tuple[str, str]:
-        # Constructs a standardized curie for the given local ID and vocabulary
-        is_valid_id, cleaned_local_id = self.is_valid_id(local_id, vocab_prefix_lowercase)
-        if is_valid_id:
-            # Return the standardized curie and its corresponding IRI
-            prefix_normalized = self.prefix_lowercase_map[vocab_prefix_lowercase]
-            iri_root = self.normalized_prefixes_to_iris[prefix_normalized]
-            iri = f"{iri_root}{cleaned_local_id}" if iri_root else ""
-            return f"{prefix_normalized}:{cleaned_local_id}", iri
-        elif is_valid_id is None:
-            # Indicates this is a known invalid ID format for this node_type, source pair; give warning
-            logging.warning(f"Local id '{cleaned_local_id}' is invalid for {vocab_prefix_lowercase} (known invalid format)")
-            return KNOWN_INVALID, ''
-        else:
-            # This is an unknown invalid ID format; we want to return nothing, which should halt processing
-            logging.error(f"Local id '{cleaned_local_id}' is invalid for {vocab_prefix_lowercase} (UNKNOWN invalid format)")
-            return '', ''
+    def construct_curie(self, local_id: str, vocab_prefix_lowercase: Union[str, List[str]], stop_on_failure: bool = False) -> Tuple[str, str]:
+        # Constructs a standardized curie for the given local ID and vocabulary (or list of vocabularies; first valid kept)
+        prefixes_lowercase = [vocab_prefix_lowercase] if isinstance(vocab_prefix_lowercase, str) else vocab_prefix_lowercase
+        curie = ''
+        iri = ''
+        for prefix_lowercase in prefixes_lowercase:
+            is_valid_id, cleaned_local_id = self.is_valid_id(local_id, prefix_lowercase)
+            if is_valid_id:
+                # Return the standardized curie and its corresponding IRI
+                prefix_normalized = self.prefix_lowercase_map[prefix_lowercase]
+                iri_root = self.normalized_prefixes_to_iris[prefix_normalized]
+                iri = f"{iri_root}{cleaned_local_id}" if iri_root else ""
+                curie = f"{prefix_normalized}:{cleaned_local_id}"
+                iri = iri
+            elif is_valid_id is None:
+                # Indicates this is a known invalid ID format for this node_type, source pair; give warning
+                logging.warning(f"Local id '{local_id}' is invalid for {prefix_lowercase} (known invalid format)")
+                curie = KNOWN_INVALID
+            if curie:
+                break  # Stop at the first prefix we find that doesn't fail curie construction
+
+        if not curie:
+            # This is an unknown invalid ID format; handle it as requested
+            logging.error(f"Local id '{local_id}' is invalid for {vocab_prefix_lowercase} (UNKNOWN invalid format)")
+            if stop_on_failure:
+                sys.exit(1)
+
+        return curie, iri
+
 
 
     # -------------------------------------------------- CLEANERS ----------------------------------------------------- #
@@ -187,10 +208,16 @@ class IdentifierNorm:
         return bool(re.match(r'^(LP)?\d+-\d$', local_id))
 
     @staticmethod
+    def is_lipidbank_id(local_id: str) -> bool:
+        # Allows: 3 uppercase letters followed by exactly 4 digits
+        # Examples: XPR4101, DFA8145
+        return bool(re.match(r'^[A-Z]{3}\d{4}$', local_id))
+
+    @staticmethod
     def is_lipidmaps_id(local_id: str) -> bool:
-        # Allows: 2 uppercase letters followed by one or more digits
-        # Examples: ST02030282, PR0103110003, SL05000017
-        return bool(re.match(r'^[A-Z]{2}\d+$', local_id))
+        # Allows: 2 uppercase letters followed by a mix of uppercase letters and digits
+        # Examples: ST02030282, PR0103110003, SP0501AA01
+        return bool(re.match(r'^[A-Z]{2}[A-Z0-9]+$', local_id))
 
     @staticmethod
     def is_mesh_id(local_id: str) -> bool:
@@ -293,12 +320,24 @@ class IdentifierNorm:
         return bool(re.match(r'^\d+$', local_id))
 
     @staticmethod
+    def is_plantfa_id(local_id: str) -> bool:
+        # Allows: exactly 5 digits
+        # Examples: 10162, 10457
+        return bool(re.match(r'^\d{5}$', local_id))
+
+    @staticmethod
     def is_reactome_id(local_id: str) -> Optional[bool]:
         # Allows: R-HSA-digits (e.g., R-HSA-162582)
         if local_id == 'root':
             return None
         else:
             return bool(re.match(r'^R-[A-Z]{3}-[0-9]+$', local_id))
+
+    @staticmethod
+    def is_slm_id(local_id: str) -> bool:
+        # Allows: a string of one or more digits
+        # Examples: 000399049, 00048749
+        return bool(re.match(r'^\d+$', local_id))
 
     @staticmethod
     def is_kegg_reaction_id(local_id: str) -> bool:
@@ -322,10 +361,15 @@ class IdentifierNorm:
 
     @staticmethod
     def is_smiles_string(local_id: str) -> bool:
-        # Basic SMILES validation: multiple element symbols and valid characters
-        valid_chars = set('BCNOPSFHIKLMWUVYXZbcnopslr[]()=#%+\\/@.-0123456789')
-        has_valid_chars = all(c in valid_chars for c in local_id)
-        return has_valid_chars
+        """
+        A simple, permissive SMILES validator. It uses a regex to check for
+        a valid set of characters and ensures at least one letter is present.
+        """
+        allowed_chars_pattern = r'^[a-zA-Z0-9\[\]\(\){}=\#\%+\\\/\@\.\-\*:]+$'
+        if not re.match(allowed_chars_pattern, local_id):
+            return False
+        # Ensure there is at least one letter (a SMILES string must represent atoms).
+        return any(c.isalpha() for c in local_id)
 
     @staticmethod
     def is_wikipathways_id(local_id: str) -> bool:
@@ -418,6 +462,14 @@ class IdentifierNorm:
     def is_go_id(local_id: str) -> bool:
         # Allows: exactly 7 digits
         return bool(re.match(r'^\d{7}$', local_id))
+
+    @staticmethod
+    def is_hmdb_id(local_id: str) -> Optional[bool]:
+        # Allows: HMDB followed by 5 or 7 digits
+        # Examples: HMDB10418, HMDB0046334
+        if local_id.startswith('HMS'):
+            return None
+        return bool(re.match(r'^HMDB(\d{5}|\d{7})$', local_id))
 
     @staticmethod
     def is_hps_id(local_id: str) -> bool:

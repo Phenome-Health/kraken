@@ -1,5 +1,6 @@
 import logging
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 from rdkit import Chem
@@ -17,24 +18,62 @@ def harmonize_lipid_maps(input_file: Path, nodes_output: Path, edges_output: Pat
     # Create a supplier object to read the file
     supplier = Chem.SDMolSupplier(input_file, removeHs=False)
     for molecule in supplier:
+
         # Some molecules might fail to load, so it's good practice to check
         if molecule is None:
             logging.warning(f"Lipid Maps molecule failed to load")
             continue
 
-        # Get all properties for the current molecule as a dictionary
         properties = molecule.GetPropsAsDict()
 
+        # Grab all IDs/xrefs and transform into standardized curies
+        lm_curie, lm_iri = id_norm.construct_curie(properties['LM_ID'], 'lm', stop_on_failure=True)
+        equivalent_ids = {lm_curie}
+        prefix_map = {
+            'INCHI_KEY': 'inchikey',
+            'PUBCHEM_CID': 'pubchem.compound',
+            'CHEBI_ID': 'chebi',
+            'KEGG_ID': ['kegg.compound', 'kegg.drug'],  # They give both of these in this field
+            'HMDB_ID': 'hmdb',
+            'SWISSLIPIDS_ID': 'slm',
+            "LIPIDBANK_ID": 'lipidbank',
+            "PLANTFA_ID": 'plantfa',
+            'SMILES': 'smiles',
+        }
+        for prop_name, prefix_entry in prefix_map.items():
+            if prop_name in properties:
+                equiv_id = str(properties[prop_name])
+                if isinstance(prefix_entry, str):
+                    equiv_curie, _ = id_norm.construct_curie(equiv_id, prefix_entry, stop_on_failure=True)
+                    if equiv_curie and equiv_curie != KNOWN_INVALID:
+                        equivalent_ids.add(equiv_curie)
 
+        # Grab all names/synonyms
+        name = properties.get('NAME')
+        lm_synonyms = properties.get('SYNONYMS', '').split(';')
+        other_synonyms = [name, properties.get('SYSTEMATIC_NAME'), properties.get('ABBREVIATION')]
+        synonyms = {synonym.strip() for synonym in (lm_synonyms + other_synonyms) if synonym}
 
-        lm_curie, lm_iri = id_norm.construct_curie(properties['LM_ID'], 'lm')
-        print(properties['LM_ID'], lm_curie, lm_iri)
-        if lm_curie:
-            pass
-        else:
-            sys.exit(1)
+        # Put together our node
+        node = {
+            ID: lm_curie,
+            CATEGORIES: 'biolink:SmallMolecule',  # TODO: Is this right?
+            EQUIVALENT_IDS: equivalent_ids
+        }
+        if name:
+            node[NAME] = name
+        if lm_iri:
+            node[IRI] = lm_iri
+        if synonyms:
+            node[SYNONYMS] = synonyms
 
-
+        # Tack on other attributes
+        node['chemical_formula'] = properties['FORMULA']
+        node['exact_mass'] = properties['EXACT_MASS']
+        other_prop_names = ['CATEGORY', 'MAIN_CLASS', 'SUB_CLASS', 'CLASS_LEVEL4']
+        other_props = {other_prop_name: properties[other_prop_name]
+                       for other_prop_name in other_prop_names if other_prop_name in properties}
+        node['lipidmaps_info'] = other_props
 
     sys.exit(1)
 
