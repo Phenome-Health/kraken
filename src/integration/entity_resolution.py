@@ -170,28 +170,25 @@ def merge_into_existing_node(new_node: dict, existing_node: dict, new_equiv_ids:
     existing_node[EQUIVALENT_IDS] = list(set(existing_node[EQUIVALENT_IDS]) | new_equiv_ids)
     del new_node[EQUIVALENT_IDS]  # We don't want any one-to-manys that lost the vote appearing here
 
-    # Merge other list properties
-    existing_node[CATEGORIES] = merge_two_list_properties(existing_node, new_node, CATEGORIES)
-    existing_node[PROVIDED_BY] =  merge_two_list_properties(existing_node, new_node, PROVIDED_BY)
-    if SYNONYMS in existing_node or SYNONYMS in new_node:
-        existing_node[SYNONYMS] = merge_two_list_properties(existing_node, new_node, SYNONYMS)
-    if new_node.get(NAME):  # Add the new node's name as a synonym for the merged node
+    # Add the new node's name as a synonym for the merged node
+    if new_node.get(NAME):
         existing_node[SYNONYMS] = list(set(existing_node.get(SYNONYMS, [])) | {new_node[NAME]})
     
     # Remove NamedThing as a category if a more specific category is provided
     if len(existing_node[CATEGORIES]) > 1 and ROOT_CATEGORY in existing_node[CATEGORIES]:
         existing_node[CATEGORIES].remove(ROOT_CATEGORY)
     
-    # Merge any other properties appropriately
+    # Merge all properties appropriately
     for property_name, value in new_node.items():
-        if property_name not in CORE_NODE_PROPERTIES:
+        if property_name != EQUIVALENT_IDS:  # Equiv ids are handled specially, above
             if isinstance(value, list):
+                # Merge list properties as appropriate, depending on the types of their contents
                 if any(isinstance(item, dict) for item in value):
                     existing_node[property_name] = concatenate_two_list_properties(existing_node, new_node, property_name)
                 else:
                     existing_node[property_name] = merge_two_list_properties(existing_node, new_node, property_name)
             else:
-                # First come first serve
+                # First come first serve for non-list properties
                 if existing_node.get(property_name) is None:
                     existing_node[property_name] = value
 
