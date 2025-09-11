@@ -8,6 +8,7 @@ from typing import Dict, List
 import logging
 
 from .harmonizers.kg2 import harmonize_kg2
+from .harmonizers.lipid_maps import harmonize_lipid_maps
 from .harmonizers.spoke import harmonize_spoke
 from .harmonizers.umls import harmonize_umls
 from .integration.entity_resolution import integrate_sources
@@ -17,7 +18,7 @@ from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
 
 
 def run_kg_build(config: dict) -> tuple[Path, Path]:
-    """Main orchestration function for building PhenomeKG"""
+    """Main orchestration function for building the KRAKEN"""
     biolink_version = config['biolink_version']
     kraken_version = config['kraken_version']
     unified_dir_path = Path(config['integration']['output_directory'])
@@ -73,35 +74,27 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
     edges_output.parent.mkdir(parents=True, exist_ok=True)
 
     # Run source-specific harmonizer
-    if source_name == 'kg2':
-        harmonize_kg2(
-            Path(config['nodes_input']),
-            Path(config['edges_input']),
-            nodes_output,
-            edges_output,
-            biolink_version,
-            build_metagraph
-        )
-    elif source_name == 'spoke':
-        harmonize_spoke(
-            Path(config['input_file']),
-            nodes_output,
-            edges_output,
-            biolink_version,
-            build_metagraph
-        )
-    elif source_name == 'umls':
-        harmonize_umls(
-            Path(config['input_file']),
-            nodes_output,
-            edges_output,
-            biolink_version,
-            build_metagraph
-        )
+    harmonizers = {
+        'kg2': harmonize_kg2,
+        'spoke': harmonize_spoke,
+        'umls': harmonize_umls,
+        'lipid_maps': harmonize_lipid_maps
+    }
+    harmonizer = harmonizers[source_name]
+    if config.get('input_file'):
+        harmonizer(Path(config['input_file']), nodes_output, edges_output, biolink_version)
+    elif config.get('nodes_input') and config.get('edges_input'):
+        harmonizer(Path(config['nodes_input']), Path(config['edges_input']), nodes_output, edges_output, biolink_version)
     else:
         raise ValueError(f"Unknown source type: {source_name}")
 
     logging.info(f"Harmonized {source_name} -> {nodes_output}, {edges_output}")
+
+    if build_metagraph:
+        # Generate metagraph for harmonized output, stored in artifacts/metagraphs/harmonized/<source_name>/
+        artifacts_root = Path("artifacts")
+        metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / source_name
+        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, source_name)
 
 
 def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Path, harmonized_source_paths: dict):

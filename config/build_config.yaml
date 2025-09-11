@@ -14,14 +14,21 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
+    enabled: False
+
+  lipid_maps:
+    input_file: "input_data/lipid_maps/structures.sdf"
+    harmonized_output:
+      nodes: "artifacts/harmonized/lipid_maps/nodes.jsonl"
+      edges: "artifacts/harmonized/lipid_maps/edges.jsonl"
     enabled: True
-  
+
   umls:
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
     harmonized_output:
       nodes: "artifacts/harmonized/umls/nodes.jsonl"
       edges: "artifacts/harmonized/umls/edges.jsonl"
-    enabled: True
+    enabled: False
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
@@ -29,7 +36,7 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/spoke/nodes.jsonl"
       edges: "artifacts/harmonized/spoke/edges.jsonl"
-    enabled: True
+    enabled: False
 
 integration:
   output_directory: "artifacts/integrated/"

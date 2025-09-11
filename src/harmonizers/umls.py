@@ -9,7 +9,7 @@ from ..utils.constants import *
 from ..utils.kg_io import save_to_jsonl
 
 
-def harmonize_umls(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str, build_metagraph: bool):
+def harmonize_umls(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     logging.info(f"Harmonizing UMLS: {input_file} -> {nodes_output}, {edges_output}")
 
     nodes = dict()
