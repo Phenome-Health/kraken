@@ -118,25 +118,11 @@ class SpokeIDNormalizer:
         if local_id and lookup_key in self.curie_construction_map:
             # Grab the curie construction info
             prefix_entry = self.curie_construction_map[lookup_key]
-            chosen_prefix = None
-
-            # Handle when multiple prefixes are listed for this node type/source pair
-            if isinstance(prefix_entry, list):
-                # We need to figure out which prefix applies based on the local ID's format/structure
-                for prefix in prefix_entry:
-                    is_valid, _ = self.id_norm.is_valid_id(local_id, prefix)
-                    if is_valid in {True, None}:  # It's ok if it's a 'known invalid' format
-                        chosen_prefix = prefix
-                        break
-            else:
-                chosen_prefix = prefix_entry
+            curie, iri = self.id_norm.construct_curie(local_id, prefix_entry, stop_on_failure=False)
 
             # Actually construct the curie
-            if chosen_prefix:
-                curie, iri = self.id_norm.construct_curie(chosen_prefix, local_id)
-                if curie:
-                    return curie, iri
-
+            if curie:
+                return curie, iri
 
         logging.error(f"Could not determine proper curie for lookup key: {lookup_key}:\n   type: {node_type}, "
                       f"source: {source_cleaned} ({source}), identifier: {identifier}, local_id: {local_id}"

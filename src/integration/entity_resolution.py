@@ -99,7 +99,6 @@ def integrate_sources(harmonized_source_paths: Dict[str, Dict[str, Path]], outpu
                 resolve_to_canonical(edge, equivalency_index)
                 key = create_edge_key(edge)
                 edge_key_counts[key] += 1
-            assert edge_key_counts
             merged_edges = {key: dict() for key, value in edge_key_counts.items() if value > 1}
             logging.info(f"Identified {len(merged_edges)} {source_name} edges that will be mergers")
 

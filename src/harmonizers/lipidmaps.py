@@ -8,12 +8,14 @@ from rdkit.Chem import Descriptors
 
 from ..utils.constants import *
 from ..utils.identifiers import IdentifierNorm
+from ..utils.kg_io import save_to_jsonl
 
 
-def harmonize_lipid_maps(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
+def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     logging.info(f"Harmonizing LIPID MAPS: {input_file} -> {nodes_output}, {edges_output}")
-
     id_norm = IdentifierNorm(biolink_version)
+
+    nodes = dict()
 
     # Create a supplier object to read the file
     supplier = Chem.SDMolSupplier(input_file, removeHs=False)
@@ -57,15 +59,16 @@ def harmonize_lipid_maps(input_file: Path, nodes_output: Path, edges_output: Pat
         # Put together our node
         node = {
             ID: lm_curie,
-            CATEGORIES: 'biolink:SmallMolecule',  # TODO: Is this right?
-            EQUIVALENT_IDS: equivalent_ids
+            CATEGORIES: ['biolink:SmallMolecule'],  # TODO: Is this right?
+            EQUIVALENT_IDS: list(equivalent_ids),
+            PROVIDED_BY: ['lipidmaps']
         }
         if name:
             node[NAME] = name
         if lm_iri:
             node[IRI] = lm_iri
         if synonyms:
-            node[SYNONYMS] = synonyms
+            node[SYNONYMS] = list(synonyms)
 
         # Tack on other attributes
         node['chemical_formula'] = properties['FORMULA']
@@ -75,6 +78,9 @@ def harmonize_lipid_maps(input_file: Path, nodes_output: Path, edges_output: Pat
                        for other_prop_name in other_prop_names if other_prop_name in properties}
         node['lipidmaps_info'] = other_props
 
-    sys.exit(1)
+        nodes[node[ID]] = node
 
+    logging.info(f"Saving {len(nodes)} lipid maps nodes")
+    save_to_jsonl(nodes.values(), nodes_output, mode='w')
+    save_to_jsonl([], edges_output, mode='w')  # Just create an empty edges file..
 
