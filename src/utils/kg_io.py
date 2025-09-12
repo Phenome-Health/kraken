@@ -1,6 +1,7 @@
 """
 Knowledge graph I/O utilities
 """
+import csv
 import os
 from pathlib import Path
 import jsonlines
@@ -66,3 +67,27 @@ def load_equivalency_mappings(nodes_file: Path) -> Dict[str, str]:
     
     logging.info(f"Loaded equivalencies for {len(equivalencies)} ids")
     return equivalencies
+
+
+def load_csv_to_dict_list(filename: Path):
+    """
+    Load a CSV file into a list of dictionaries where each row becomes a dictionary
+    with column headers as keys.
+
+    Args:
+        filename (str): Path to the CSV file
+
+    Returns:
+        list: List of dictionaries, one per row
+    """
+    records = []
+
+    with open(filename, 'r', encoding='utf-8') as file:
+        # Create a CSV reader that automatically uses the first row as headers
+        csv_reader = csv.DictReader(file)
+
+        # Convert each row to a dictionary and add to our list
+        for row in csv_reader:
+            records.append(dict(row))
+
+    return records

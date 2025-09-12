@@ -46,10 +46,9 @@ def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path
         for prop_name, prefix_entry in prefix_map.items():
             if prop_name in properties:
                 equiv_id = str(properties[prop_name])
-                if isinstance(prefix_entry, str):
-                    equiv_curie, _ = id_norm.construct_curie(equiv_id, prefix_entry, stop_on_failure=True)
-                    if equiv_curie and equiv_curie != KNOWN_INVALID:
-                        equivalent_ids.add(equiv_curie)
+                equiv_curie, _ = id_norm.construct_curie(equiv_id, prefix_entry, stop_on_failure=True)
+                if equiv_curie and equiv_curie != KNOWN_INVALID:
+                    equivalent_ids.add(equiv_curie)
 
         # Grab all names/synonyms
         name = properties.get('NAME')

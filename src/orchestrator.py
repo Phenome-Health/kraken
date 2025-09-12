@@ -9,6 +9,7 @@ import logging
 
 from .harmonizers.kg2 import harmonize_kg2
 from .harmonizers.lipidmaps import harmonize_lipidmaps
+from .harmonizers.refmet import harmonize_refmet
 from .harmonizers.spoke import harmonize_spoke
 from .harmonizers.umls import harmonize_umls
 from .integration.entity_resolution import integrate_sources
@@ -78,7 +79,8 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
         'kg2': harmonize_kg2,
         'spoke': harmonize_spoke,
         'umls': harmonize_umls,
-        'lipidmaps': harmonize_lipidmaps
+        'lipidmaps': harmonize_lipidmaps,
+        'refmet': harmonize_refmet
     }
     harmonizer = harmonizers[source_name]
     if config.get('input_file'):

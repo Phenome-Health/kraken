@@ -95,7 +95,7 @@ def integrate_nodes(primary_source_name: str,
                         # We have a one-to-many match; merge all canonical nodes for this new node into the majority canonical node
                         canonical_id_counts = Counter(canonical_ids_list)
                         most_common_canonical_id = canonical_id_counts.most_common(1)[0][0]
-                        other_canonical_ids = set(canonical_ids_list).difference({most_common_canonical_id})
+                        other_canonical_ids = canonical_ids.difference({most_common_canonical_id})
                         most_common_canonical_node = processed_canonical_nodes[most_common_canonical_id]
 
                         # Log this one-to-many mapping

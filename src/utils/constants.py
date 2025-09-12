@@ -43,6 +43,7 @@ SPOKE_INFORES: str = 'infores:spoke'
 KG2_INFORES: str = 'infores:kg2'
 UMLS_INFORES: str = 'infores:umls'
 LIPIDMAPS_CURIE: str = 'lipidmaps'
+REFMET_CURIE: str = 'refmet'
 
 BIOLINK_PREFIX = 'biolink'
 INFORES_PREFIX = 'infores'

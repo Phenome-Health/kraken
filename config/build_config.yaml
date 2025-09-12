@@ -14,15 +14,7 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
-    enabled: True
-    allow_merge: False
-
-  lipidmaps:
-    input_file: "input_data/lipidmaps/structures.sdf"
-    harmonized_output:
-      nodes: "artifacts/harmonized/lipidmaps/nodes.jsonl"
-      edges: "artifacts/harmonized/lipidmaps/edges.jsonl"
-    enabled: True
+    enabled: False
     allow_merge: False
 
   umls:
@@ -30,6 +22,22 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/umls/nodes.jsonl"
       edges: "artifacts/harmonized/umls/edges.jsonl"
+    enabled: False
+    allow_merge: False
+
+  lipidmaps:
+    input_file: "input_data/lipidmaps/structures.sdf"
+    harmonized_output:
+      nodes: "artifacts/harmonized/lipidmaps/nodes.jsonl"
+      edges: "artifacts/harmonized/lipidmaps/edges.jsonl"
+    enabled: False
+    allow_merge: False
+
+  refmet:
+    input_file: "input_data/refmet/refmet.csv"
+    harmonized_output:
+      nodes: "artifacts/harmonized/refmet/nodes.jsonl"
+      edges: "artifacts/harmonized/refmet/edges.jsonl"
     enabled: True
     allow_merge: False
 
@@ -39,7 +47,7 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/spoke/nodes.jsonl"
       edges: "artifacts/harmonized/spoke/edges.jsonl"
-    enabled: True
+    enabled: False
     allow_merge: False
 
 integration:

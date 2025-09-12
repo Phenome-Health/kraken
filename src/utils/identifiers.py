@@ -50,6 +50,7 @@ class IdentifierNorm:
         prefix_to_iri_map['SLM'] = "https://www.swisslipids.org/#/entity/SLM:"
         prefix_to_iri_map['LIPIDBANK'] = ""  # Could look harder for this iri..
         prefix_to_iri_map['PLANTFA'] = ""  # Could look harder for this iri..
+        prefix_to_iri_map['RM'] = "https://www.metabolomicsworkbench.org/databases/refmet/refmet_details.php?REFMET_ID=RM"
 
 
         # Override prefixes as needed (if Biolink's iri is broken)
@@ -115,6 +116,7 @@ class IdentifierNorm:
             'pubchem.compound': {validator: self.is_pubchem_compound_id},
             'plantfa': {validator: self.is_plantfa_id},
             'react': {validator: self.is_reactome_id},
+            'rm': {validator: self.is_refmet_id, cleaner: lambda x: x.removeprefix('RM')},
             'slm': {validator: self.is_slm_id, cleaner: lambda x: x.removeprefix('SLM:')},
             'smiles': {validator: self.is_smiles_string},
             'snomedct': {validator: self.is_snomedct_id, cleaner: self.clean_snomed_id},
@@ -214,9 +216,11 @@ class IdentifierNorm:
         return bool(re.match(r'^[A-Z]{3}\d{4}$', local_id))
 
     @staticmethod
-    def is_lipidmaps_id(local_id: str) -> bool:
+    def is_lipidmaps_id(local_id: str) -> Optional[bool]:
         # Allows: 2 uppercase letters followed by a mix of uppercase letters and digits
         # Examples: ST02030282, PR0103110003, SP0501AA01
+        if local_id == 'GP0202a9AAA':  # One weird LM id in refmet (only one with a lowercase letter)
+            return None
         return bool(re.match(r'^[A-Z]{2}[A-Z0-9]+$', local_id))
 
     @staticmethod
@@ -332,6 +336,11 @@ class IdentifierNorm:
             return None
         else:
             return bool(re.match(r'^R-[A-Z]{3}-[0-9]+$', local_id))
+
+    @staticmethod
+    def is_refmet_id(local_id: str) -> bool:
+        # Allows: exactly 7 digits
+        return bool(re.match(r'^\d{7}$', local_id))
 
     @staticmethod
     def is_slm_id(local_id: str) -> bool:
@@ -451,7 +460,7 @@ class IdentifierNorm:
     @staticmethod
     def is_inchikey_id(local_id: str) -> bool:
         # Allows: standard InChI key format (e.g., AMOFQIUOTAJRKS-UHFFFAOYSA-N)
-        return bool(re.match(r'^[A-Z]{14}-[A-Z]{10}-[A-Z]$', local_id))
+        return bool(re.match(r'^([A-Z]{14}|[A-Z]{12})-[A-Z]{10}-[A-Z]$', local_id))
 
     @staticmethod
     def is_icd10_id(local_id: str) -> bool:
