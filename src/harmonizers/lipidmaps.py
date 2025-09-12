@@ -9,6 +9,7 @@ from rdkit.Chem import Descriptors
 from ..utils.constants import *
 from ..utils.identifiers import IdentifierNorm
 from ..utils.kg_io import save_to_jsonl
+from ..utils.general import create_node
 
 
 def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
@@ -57,22 +58,17 @@ def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path
         synonyms = {synonym.strip() for synonym in (lm_synonyms + other_synonyms) if synonym}
 
         # Put together our node
-        node = {
-            ID: lm_curie,
-            CATEGORIES: ['biolink:SmallMolecule'],  # TODO: Is this right?
-            EQUIVALENT_IDS: list(equivalent_ids),
-            PROVIDED_BY: ['lipidmaps']
-        }
-        if name:
-            node[NAME] = name
-        if lm_iri:
-            node[IRI] = lm_iri
-        if synonyms:
-            node[SYNONYMS] = list(synonyms)
+        node = create_node(curie=lm_curie,
+                           categories=['biolink:SmallMolecule'],
+                           equivalent_ids=list(equivalent_ids),
+                           provided_by=[LIPIDMAPS_CURIE],
+                           name=name,
+                           iri=lm_iri,
+                           synonyms=list(synonyms),
+                           chemical_formula=properties['FORMULA'],
+                           exact_mass=properties['EXACT_MASS'])
 
         # Tack on other attributes
-        node['chemical_formula'] = properties['FORMULA']
-        node['exact_mass'] = properties['EXACT_MASS']
         other_prop_names = ['CATEGORY', 'MAIN_CLASS', 'SUB_CLASS', 'CLASS_LEVEL4', 'INCHI']
         other_props = {other_prop_name: properties[other_prop_name]
                        for other_prop_name in other_prop_names if other_prop_name in properties}

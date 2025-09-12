@@ -9,8 +9,7 @@ from typing import List, Optional, Tuple
 import jsonlines
 import logging
 
-from ..utils.general import load_biolink_file
-from ..utils.metagraph import generate_metagraph_for_source
+from ..utils.general import load_biolink_file, create_node, create_edge
 from ..utils.constants import *
 from ..utils.kg_io import stream_mixed_jsonl
 from .spoke_id_utils import SpokeIDNormalizer
@@ -88,18 +87,14 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optiona
         additional_equivalent_ids = id_norm.extract_equivalent_identifiers(node_type, properties)
         all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
 
-        harmonized_node = {
-            ID: normalized_id,
-            CATEGORIES: map_spoke_labels_to_biolink(labels, primary_source, normalized_id),
-            PROVIDED_BY: [SPOKE_INFORES],
-            EQUIVALENT_IDS: all_equivalent_ids,
-            'spoke_nodes': [node_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier)
-        }
-        if properties.get(NAME):
-            harmonized_node[NAME] = properties[NAME]
-            harmonized_node[SYNONYMS] = [harmonized_node[NAME]]  # TODO: down the road see about extracting SPOKE synonyms
-        if iri:
-            harmonized_node[IRI] = iri
+        harmonized_node = create_node(curie=normalized_id,
+                                      categories=map_spoke_labels_to_biolink(labels, primary_source, normalized_id),
+                                      provided_by=[SPOKE_INFORES],
+                                      equivalent_ids=all_equivalent_ids,
+                                      name=properties.get('name'),
+                                      synonyms=[properties['name']] if properties.get('name') else None,
+                                      iri=iri)
+        harmonized_node['spoke_nodes'] = [node_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier)
 
         return harmonized_node
     else:
@@ -140,26 +135,18 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict, klat_map
 
     normalized_primary_ks = normalize_source(primary_source, edge_item)
 
-    harmonized_edge = {
-        SUBJECT: normalized_subject_id,
-        OBJECT: normalized_object_id,
-        PREDICATE: predicate,
-        PRIMARY_KS: normalized_primary_ks,
-        AGGREGATOR_KS: SPOKE_INFORES,
-        KNOWLEDGE_LEVEL: klat_map.get(normalized_primary_ks, dict()).get('knowledge_level', 'not_provided'),
-        AGENT_TYPE: klat_map.get(normalized_primary_ks, dict()).get('agent_type', 'not_provided'),
-        'spoke_edges': [edge_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier, creating duplicate edges)
-    }
-    # Tack on any additional sources
-    if secondary_sources:
-        harmonized_edge[SUPPORTING_SOURCES] = list({normalize_source(s, edge_item) for s in secondary_sources})
-    # Tack on any qualifiers
-    if qual_predicate:
-        harmonized_edge[QUALIFIED_PREDICATE] = qual_predicate
-    if qual_direction:
-        harmonized_edge[QUALIFIED_DIRECTION] = qual_direction
-    if qual_aspect:
-        harmonized_edge[QUALIFIED_ASPECT] = qual_aspect
+    harmonized_edge = create_edge(subject_id=normalized_subject_id,
+                                  object_id=normalized_object_id,
+                                  predicate=predicate,
+                                  primary_ks=normalized_primary_ks,
+                                  knowledge_level=klat_map.get(normalized_primary_ks, dict()).get('knowledge_level', 'not_provided'),
+                                  agent_type=klat_map.get(normalized_primary_ks, dict()).get('agent_type', 'not_provided'),
+                                  aggregator_ks=SPOKE_INFORES,
+                                  supporting_sources=list({normalize_source(s, edge_item) for s in secondary_sources}),
+                                  qualified_predicate=qual_predicate,
+                                  qualified_direction=qual_direction,
+                                  qualified_aspect=qual_aspect)
+    harmonized_edge['spoke_edges'] = [edge_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier, creating duplicate edges)
     
     return harmonized_edge
 

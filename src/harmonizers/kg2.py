@@ -5,7 +5,6 @@ RTX-KG2 harmonizer - converts RTX-KG2 format to our schema
 from pathlib import Path
 import jsonlines
 import logging
-from ..utils.metagraph import generate_metagraph_for_source
 from ..utils.constants import *
 from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
 
