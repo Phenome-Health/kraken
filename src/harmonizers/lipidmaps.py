@@ -73,7 +73,7 @@ def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path
         # Tack on other attributes
         node['chemical_formula'] = properties['FORMULA']
         node['exact_mass'] = properties['EXACT_MASS']
-        other_prop_names = ['CATEGORY', 'MAIN_CLASS', 'SUB_CLASS', 'CLASS_LEVEL4']
+        other_prop_names = ['CATEGORY', 'MAIN_CLASS', 'SUB_CLASS', 'CLASS_LEVEL4', 'INCHI']
         other_props = {other_prop_name: properties[other_prop_name]
                        for other_prop_name in other_prop_names if other_prop_name in properties}
         node['lipidmaps_info'] = other_props
