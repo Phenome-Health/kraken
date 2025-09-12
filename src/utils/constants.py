@@ -11,6 +11,10 @@ EQUIVALENT_IDS = 'equivalent_ids'
 
 CORE_NODE_PROPERTIES = {ID, NAME, IRI, CATEGORIES, PROVIDED_BY, SYNONYMS, EQUIVALENT_IDS}
 
+CHEMICAL_FORMULA = 'chemical_formula'
+EXACT_MASS = 'exact_mass'
+
+
 
 # Define core edge property names
 SUBJECT = 'subject'
@@ -35,9 +39,11 @@ ROOT_PREDICATE = 'biolink:related_to'
 UNKNOWN_KNOWLEDGE_LEVEL = 'not_provided'
 UNKNOWN_AGENT_TYPE = 'not_provided'
 
-SPOKE_INFORES = 'infores:spoke'
-KG2_INFORES = 'infores:kg2'
-UMLS_INFORES = 'infores:umls'
+SPOKE_INFORES: str = 'infores:spoke'
+KG2_INFORES: str = 'infores:kg2'
+UMLS_INFORES: str = 'infores:umls'
+LIPIDMAPS_CURIE: str = 'lipidmaps'
+REFMET_CURIE: str = 'refmet'
 
 BIOLINK_PREFIX = 'biolink'
 INFORES_PREFIX = 'infores'

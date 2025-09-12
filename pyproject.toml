@@ -8,6 +8,7 @@ dependencies = [
     "bmt>=1.4.5",
     "jsonlines>=4.0.0",
     "pyyaml>=6.0.2",
+    "rdkit>=2025.3.6",
     "requests>=2.32.5",
 ]
 

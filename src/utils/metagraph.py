@@ -136,6 +136,7 @@ def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir
     """Generate and save complete metagraph suite for a single source"""
     if source_name is None:
         source_name = nodes_file.parent.name
+    logging.info(f"Generating metagraph for source {source_name}")
     
     output_dir.mkdir(parents=True, exist_ok=True)
     

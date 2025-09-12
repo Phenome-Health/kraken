@@ -5,7 +5,6 @@ RTX-KG2 harmonizer - converts RTX-KG2 format to our schema
 from pathlib import Path
 import jsonlines
 import logging
-from ..utils.metagraph import generate_metagraph_for_source
 from ..utils.constants import *
 from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
 
@@ -22,7 +21,7 @@ KG2_EDGE_PROP_NAME_OVERRIDES = {
 }
 
 
-def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, biolink_version: str, build_metagraph: bool):
+def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     """Harmonize RTX-KG2 to unified Biolink schema using streaming"""
     logging.info(f"Harmonizing RTX-KG2: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
 
@@ -46,14 +45,6 @@ def harmonize_kg2(nodes_input: Path, edges_input: Path, nodes_output: Path, edge
                 edge_count += 1
 
     logging.info(f"RTX-KG2 harmonization complete: {node_count} nodes, {edge_count} edges")
-    
-    if build_metagraph:
-        # Generate metagraph for harmonized output
-        # Store metagraphs in artifacts/metagraphs/harmonized/source_name/
-        artifacts_root = Path("artifacts")
-        metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / "kg2"
-        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, "kg2")
-        logging.info("RTX-KG2 metagraph generated")
 
 
 def harmonize_kg2_node(node: dict) -> dict:

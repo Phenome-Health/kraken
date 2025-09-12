@@ -7,9 +7,10 @@ from pathlib import Path
 import jsonlines
 from ..utils.constants import *
 from ..utils.kg_io import save_to_jsonl
+from ..utils.general import create_node, create_edge
 
 
-def harmonize_umls(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str, build_metagraph: bool):
+def harmonize_umls(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     logging.info(f"Harmonizing UMLS: {input_file} -> {nodes_output}, {edges_output}")
 
     nodes = dict()
@@ -24,27 +25,29 @@ def harmonize_umls(input_file: Path, nodes_output: Path, edges_output: Path, bio
             # Add a LOINC node for the observable (e.g., clinical lab test), if one doesn't yet exist
             loinc_observable_curie = f"LOINC:{loinc_observable_id}"
             if loinc_observable_curie not in nodes:
-                observable_node = {ID: loinc_observable_curie,
-                                   EQUIVALENT_IDS: [loinc_observable_curie],
-                                   CATEGORIES: ['biolink:ClinicalFinding'],
-                                   PROVIDED_BY: [UMLS_INFORES]}
+                observable_node = create_node(curie=loinc_observable_curie,
+                                              equivalent_ids=[loinc_observable_curie],
+                                              categories=['biolink:ClinicalFinding'],
+                                              provided_by=[UMLS_INFORES])
                 nodes[observable_node[ID]] = observable_node
             
             # Add a node representing the LOINC part captured in this row (e.g., compound measured), if one doesn't yet exist
             loinc_part_curie = f"LOINC:{loinc_part_id}"
             umls_part_curie = f"UMLS:{umls_part_id}"
             if umls_part_curie not in nodes:
-                part_node = {ID: umls_part_curie,
-                             EQUIVALENT_IDS: [umls_part_curie, loinc_part_curie],
-                             CATEGORIES: [ROOT_CATEGORY],
-                             PROVIDED_BY: [UMLS_INFORES]}
+                part_node = create_node(curie=umls_part_curie,
+                                        equivalent_ids=[umls_part_curie, loinc_part_curie],
+                                        categories=[ROOT_CATEGORY],
+                                        provided_by=[UMLS_INFORES])
                 nodes[part_node[ID]] = part_node
             
             # Add an edge connecting the observable node to its parts
-            edge = {SUBJECT: loinc_observable_curie,
-                    OBJECT: umls_part_curie,
-                    PREDICATE: ROOT_PREDICATE,
-                    PRIMARY_KS: UMLS_INFORES}
+            edge = create_edge(subject_id=loinc_observable_curie,
+                               object_id=umls_part_curie,
+                               predicate=ROOT_PREDICATE,
+                               primary_ks=UMLS_INFORES,
+                               knowledge_level='knowledge_assertion',
+                               agent_type='not_provided')
             edges.append(edge)
     
     logging.info(f"Saving {len(nodes)} nodes and {len(edges)} edges")

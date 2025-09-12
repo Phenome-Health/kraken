@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Union, List, Set, Optional, Dict, Any
 
 import requests
 import yaml
@@ -10,6 +11,73 @@ from .constants import *
 
 
 ILLEGAL_KEY_PATTERN = r"[^a-zA-Z0-9_\-\.:%\+\*]"
+
+
+def create_node(curie: str,
+                categories: List[str],
+                equivalent_ids: List[str],
+                provided_by: List[str],
+                name: Optional[str] = None,
+                iri: Optional[str] = None,
+                synonyms: Optional[List[str]] = None,
+                chemical_formula: Optional[str] = None,
+                exact_mass: Optional[float] = None) -> Dict[str, Any]:
+    # TODO: switch to pydantic for nodes/edges...
+    assert curie and categories and equivalent_ids and provided_by
+
+    # Assemble the node, with properties in a specific order (for convenient review)
+    # TODO: add description... (check kg2 for anything else)
+    node = {ID: curie}
+    if name:
+        node[NAME] = name
+    node[CATEGORIES] = categories
+    if iri:
+        node[IRI] = iri
+    if chemical_formula:
+        node[CHEMICAL_FORMULA] = chemical_formula
+    if exact_mass:
+        node[EXACT_MASS] = exact_mass
+
+    node[PROVIDED_BY] = provided_by
+    node[EQUIVALENT_IDS] = equivalent_ids
+    if synonyms:
+        node[SYNONYMS] = synonyms
+
+    return node
+
+
+def create_edge(subject_id: str,
+                object_id: str,
+                predicate: str,
+                primary_ks: str,
+                knowledge_level: str,
+                agent_type: str,
+                aggregator_ks: Optional[str] = None,
+                supporting_sources: Optional[List[str]] = None,
+                qualified_predicate: Optional[str] = None,
+                qualified_direction: Optional[str] = None,
+                qualified_aspect: Optional[str] = None) -> Dict[str, Any]:
+    assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
+
+    # Assemble the edge, with properties in a specific order (for convenient review)
+    edge = {SUBJECT: subject_id,
+            OBJECT: object_id,
+            PREDICATE: predicate,
+            PRIMARY_KS: primary_ks,
+            KNOWLEDGE_LEVEL: knowledge_level,
+            AGENT_TYPE: agent_type}
+    if qualified_predicate:
+        edge[QUALIFIED_PREDICATE] = qualified_predicate
+    if qualified_direction:
+        edge[QUALIFIED_DIRECTION] = qualified_direction
+    if qualified_aspect:
+        edge[QUALIFIED_ASPECT] = qualified_aspect
+    if supporting_sources:
+        edge[SUPPORTING_SOURCES] = supporting_sources
+    if aggregator_ks:
+        edge[AGGREGATOR_KS] = aggregator_ks
+
+    return edge
 
 
 def create_edge_key(edge: dict) -> str:
