@@ -46,7 +46,7 @@ class SpokeIDNormalizer:
             ('Compound', 'kegg_compound_ids'): 'kegg.compound',
             ('Compound', 'kegg_drug_ids'): 'kegg.drug',
             ('Compound', 'pubchem_compound_ids'): 'pubchem.compound',
-            # ('Compound', 'standardized_smiles'): 'smiles',
+            # ('Compound', 'standardized_smiles'): 'smiles',  #  Some of these are incorrect; skipping for now
             ('Cytoband', 'unknown'): 'cytoband',
             ('DietarySupplement', 'nhanes'): 'nhanes',
             ('Disease', 'doid'): 'doid',
