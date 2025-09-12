@@ -26,6 +26,7 @@ def create_node(curie: str,
     assert curie and categories and equivalent_ids and provided_by
 
     # Assemble the node, with properties in a specific order (for convenient review)
+    # TODO: add description... (check kg2 for anything else)
     node = {ID: curie}
     if name:
         node[NAME] = name
