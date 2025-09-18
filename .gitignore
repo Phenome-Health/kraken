@@ -6,8 +6,13 @@ __pycache__/
 input_data/
 artifacts/
 cache/
+
 scripts/*.json
 scripts/*.jsonl
+scripts/*.png
+scripts/*.html
+scripts/*.csv
+scripts/*.txt
 
 *.log
 package-lock.json
