@@ -117,47 +117,148 @@ def create_heatmap(df: pd.DataFrame, output_dir: Path):
     print(f"Saved heatmap: {output_file}")
 
 
+def categorize_node_theme(category: str) -> str:
+    """Categorize node categories into themes based on metagraph.py rules"""
+    # Remove biolink prefix for checking
+    clean_cat = category.replace('biolink:', '')
+    
+    # Gene/Protein entities (light blue)
+    if any(term in clean_cat for term in ['Gene', 'Protein', 'Polypeptide', 'NucleicAcidEntity', 
+                                          'SequenceVariant', 'Haplotype', 'MacromolecularComplex']):
+        return 'Gene/Protein'
+    
+    # Chemical/Drug entities (greens)
+    elif any(term in clean_cat for term in ['Chemical', 'Drug', 'SmallMolecule', 'Compound',
+                                            'MolecularMixture', 'Metabolite', 'Food', 'MolecularEntity']):
+        return 'Chemical/Drug'
+    
+    # Disease/Phenotype entities (reds/pinks)
+    elif any(term in clean_cat for term in ['Disease', 'Phenotypic', 'Symptom', 'ClinicalFinding',
+                                            'BehavioralFeature']):
+        return 'Disease/Phenotype'
+    
+    # Anatomy/Biology entities (purples)
+    elif any(term in clean_cat for term in ['Anatomical', 'Cell', 'Tissue', 'Organ',
+                                            'OrganismTaxon', 'Cellular']):
+        return 'Anatomy/Biology'
+    
+    # Pathway/Process entities (oranges)
+    elif any(term in clean_cat for term in ['Pathway', 'Process', 'Activity', 'Function',
+                                            'Event', 'BiologicalEntity']):
+        return 'Pathway/Process'
+    
+    # Other
+    else:
+        return 'Other'
+
+
 def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
-    """Create bubble grid chart visualization"""
+    """Create separate bubble grid charts by theme"""
     # Filter data for better visualization
     df_filtered = filter_data_for_visualization(df, min_count=1000)
+    
+    # Add theme categorization
+    df_filtered['theme'] = df_filtered['category'].apply(categorize_node_theme)
     
     # Add log-scaled count for color and size mapping
     import numpy as np
     df_viz = df_filtered.copy()
-    df_viz['sqrt_count'] = df_viz['count'].apply(lambda x: max(1, x)).apply(lambda x: x**0.5)  # Square root scale for size
-    df_viz['log_count'] = df_viz['count'].apply(lambda x: max(1, x)).apply(np.log10)  # Log10 scale for color
+    df_viz['sqrt_count'] = df_viz['count'].apply(lambda x: max(1, x)).apply(lambda x: x**0.5)
+    df_viz['log_count'] = df_viz['count'].apply(lambda x: max(1, x)).apply(np.log10)
     
-    # Create bubble chart with log scaling
-    fig = px.scatter(df_viz, 
-                     x='category', 
-                     y='vocabulary',
-                     size='sqrt_count',
-                     color='log_count',  # Use log scale for color
-                     hover_data=['count'],
-                     title='Node Categories by Vocabulary - Bubble Chart (Filtered: ≥1000 counts)',
-                     color_continuous_scale='Viridis',
-                     size_max=50)
+    # Get themes sorted by total count
+    theme_totals = df_viz.groupby('theme')['count'].sum().sort_values(ascending=False)
     
-    # Calculate appropriate height based on number of vocabularies
-    num_vocabularies = df_filtered['vocabulary'].nunique()
-    height = max(1200, num_vocabularies * 25)  # At least 25 pixels per vocabulary
+    print(f"Creating bubble charts for {len(theme_totals)} themes:")
+    for theme, total in theme_totals.items():
+        print(f"  {theme}: {total:,} total nodes")
     
-    fig.update_layout(
+    # Create separate chart for each theme
+    for theme in theme_totals.index:
+        if theme == 'Other':
+            continue  # Skip 'Other' category
+            
+        theme_data = df_viz[df_viz['theme'] == theme].copy()
+        
+        if theme_data.empty:
+            continue
+            
+        # Filter vocabularies with at least 500 total counts within this theme
+        vocab_totals = theme_data.groupby('vocabulary')['count'].sum()
+        valid_vocabs = vocab_totals[vocab_totals >= 500].index
+        theme_data_filtered = theme_data[theme_data['vocabulary'].isin(valid_vocabs)].copy()
+        
+        if theme_data_filtered.empty:
+            print(f"  No vocabularies with ≥500 counts for {theme}, skipping...")
+            continue
+        
+        # Order vocabularies by total count within this theme (highest at top)
+        vocab_totals_filtered = theme_data_filtered.groupby('vocabulary')['count'].sum().sort_values(ascending=False)
+        vocab_order = vocab_totals_filtered.index.tolist()
+        
+        print(f"  {theme}: {len(vocab_order)} vocabularies with ≥500 counts")
+        
+        # Create bubble chart for this theme (no title)
+        fig = px.scatter(theme_data_filtered, 
+                         x='category', 
+                         y='vocabulary',
+                         size='sqrt_count',
+                         color='log_count',
+                         hover_data=['count'],
+                         color_continuous_scale='Viridis',
+                         size_max=50,
+                         category_orders={'vocabulary': vocab_order})  # Custom vocabulary order
+        
+        # Calculate appropriate height and width based on filtered data
+        num_vocabularies = theme_data_filtered['vocabulary'].nunique()
+        num_categories = theme_data_filtered['category'].nunique()
+        height = max(800, num_vocabularies * 25)
+        width = max(800, min(1000, num_categories * 150))  # Narrower width based on categories
+        
+        fig.update_layout(
+            width=width,
+            height=height,
+            xaxis=dict(
+                tickangle=45,
+                title='Category',
+                side='top',  # Move labels to top only
+                showticklabels=True
+            ),
+            yaxis_title='Vocabulary'
+        )
+        
+        fig.update_coloraxes(colorbar_title="Count (log₁₀ scale)")
+        
+        # Save with theme name in filename
+        safe_theme = theme.replace('/', '_').replace(' ', '_').lower()
+        output_file = output_dir / f'vocabulary_category_bubble_{safe_theme}.html'
+        fig.write_html(output_file)
+        print(f"Saved {theme} bubble chart: {output_file}")
+    
+    # Also create a combined overview chart
+    fig_combined = px.scatter(df_viz[df_viz['theme'] != 'Other'], 
+                             x='category', 
+                             y='vocabulary',
+                             size='sqrt_count',
+                             color='theme',
+                             hover_data=['count'],
+                             color_discrete_sequence=px.colors.qualitative.Set1)
+    
+    num_vocabularies = df_viz['vocabulary'].nunique()
+    height = max(1200, num_vocabularies * 25)
+    
+    fig_combined.update_layout(
         width=1400,
         height=height,
         xaxis_tickangle=45,
         xaxis_title='Category',
         yaxis_title='Vocabulary',
-        yaxis=dict(categoryorder='total ascending')  # Sort vocabularies by total count
+        yaxis=dict(categoryorder='total ascending')
     )
     
-    # Update colorbar to show log scale
-    fig.update_coloraxes(colorbar_title="Count (log₁₀ scale)")
-    
-    output_file = output_dir / 'vocabulary_category_bubble.html'
-    fig.write_html(output_file)
-    print(f"Saved bubble chart: {output_file}")
+    output_file = output_dir / 'vocabulary_category_bubble_combined.html'
+    fig_combined.write_html(output_file)
+    print(f"Saved combined bubble chart: {output_file}")
 
 
 def create_network_graph(df: pd.DataFrame, output_dir: Path):
@@ -168,23 +269,18 @@ def create_network_graph(df: pd.DataFrame, output_dir: Path):
     # Create network graph
     G = nx.Graph()
     
-    # Add nodes
-    vocabularies = df_filtered['vocabulary'].unique()
-    categories = df_filtered['category'].unique()
-    
-    # Add vocabulary nodes (left side)
-    for vocab in vocabularies:
-        G.add_node(f"vocab_{vocab}", node_type='vocabulary', label=vocab, size=20)
-    
-    # Add category nodes (right side)  
-    for cat in categories:
-        G.add_node(f"cat_{cat}", node_type='category', label=cat, size=15)
-    
-    # Add edges with weights
+    # Add edges first to ensure only connected nodes are included
     for _, row in df_filtered.iterrows():
         vocab_node = f"vocab_{row['vocabulary']}"
         cat_node = f"cat_{row['category']}"
         weight = row['count']
+        
+        # Add nodes if they don't exist (this ensures only connected nodes are added)
+        if not G.has_node(vocab_node):
+            G.add_node(vocab_node, node_type='vocabulary', label=row['vocabulary'], size=20)
+        if not G.has_node(cat_node):
+            G.add_node(cat_node, node_type='category', label=row['category'], size=15)
+            
         G.add_edge(vocab_node, cat_node, weight=weight)
     
     # Create layout
@@ -192,13 +288,17 @@ def create_network_graph(df: pd.DataFrame, output_dir: Path):
     vocab_nodes = [n for n in G.nodes() if n.startswith('vocab_')]
     cat_nodes = [n for n in G.nodes() if n.startswith('cat_')]
     
-    # Position vocabulary nodes on left
-    for i, node in enumerate(vocab_nodes):
-        pos[node] = (-1, i - len(vocab_nodes)/2)
+    # Calculate compact spacing to prevent overlap but keep tight
+    vocab_spacing = len(vocab_nodes) * 0.5  # More compact spacing
+    cat_spacing = len(cat_nodes) * 0.5
     
-    # Position category nodes on right
+    # Position vocabulary nodes on left with compact spacing
+    for i, node in enumerate(vocab_nodes):
+        pos[node] = (-0.6, (i - len(vocab_nodes)/2) * vocab_spacing / len(vocab_nodes))  # Closer to center
+    
+    # Position category nodes on right with compact spacing
     for i, node in enumerate(cat_nodes):
-        pos[node] = (1, i - len(cat_nodes)/2)
+        pos[node] = (0.6, (i - len(cat_nodes)/2) * cat_spacing / len(cat_nodes))  # Closer to center
     
     # Create interactive plot with plotly
     edge_x = []
@@ -260,11 +360,16 @@ def create_network_graph(df: pd.DataFrame, output_dir: Path):
         hovertemplate='Category: %{text}<extra></extra>'
     ))
     
+    # Calculate height based on the maximum number of nodes to prevent overlap
+    max_nodes = max(len(vocab_nodes), len(cat_nodes))
+    height = max(1500, max_nodes * 20)  # More compact: 20 pixels per node
+    
     fig.update_layout(
         title='Vocabulary-Category Network Graph (Filtered: ≥1000 counts)<br><sub>Edge thickness represents node count</sub>',
         showlegend=True,
-        width=1400,
-        height=1000,
+        width=1200,  # Increase total width to accommodate margins
+        height=height,
+        margin=dict(l=300, r=300, t=10, b=10),  # Keep larger margins for labels
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         plot_bgcolor='white'
