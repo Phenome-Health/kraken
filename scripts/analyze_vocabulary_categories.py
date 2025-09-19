@@ -212,7 +212,7 @@ def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
         # Calculate appropriate height and width based on filtered data
         num_vocabularies = theme_data_filtered['vocabulary'].nunique()
         num_categories = theme_data_filtered['category'].nunique()
-        height = max(800, num_vocabularies * 25)
+        height = max(800, num_vocabularies * 28)  # Increased spacing between vocabularies
         width = max(800, min(1000, num_categories * 150))  # Narrower width based on categories
         
         fig.update_layout(
@@ -227,7 +227,35 @@ def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
             yaxis_title='Vocabulary'
         )
         
-        fig.update_coloraxes(colorbar_title="Count (log₁₀ scale)")
+        # Create custom colorbar with actual count labels instead of log values
+        min_count = theme_data_filtered['count'].min()
+        max_count = theme_data_filtered['count'].max()
+        
+        # Create tick values in log space that correspond to nice round numbers
+        import numpy as np
+        tick_values_log = []
+        tick_labels = []
+        
+        # Generate ticks for powers of 10 and some intermediate values
+        for power in range(int(np.log10(min_count)), int(np.log10(max_count)) + 2):
+            for multiplier in [1, 2, 5]:
+                value = multiplier * (10 ** power)
+                if min_count <= value <= max_count:
+                    tick_values_log.append(np.log10(value))
+                    if value >= 1000000:
+                        tick_labels.append(f"{value/1000000:.1f}M")
+                    elif value >= 1000:
+                        tick_labels.append(f"{value/1000:.0f}K")
+                    else:
+                        tick_labels.append(f"{value:.0f}")
+        
+        fig.update_coloraxes(
+            colorbar_title="Node Count",
+            colorbar=dict(
+                tickvals=tick_values_log,
+                ticktext=tick_labels
+            )
+        )
         
         # Save with theme name in filename
         safe_theme = theme.replace('/', '_').replace(' ', '_').lower()
