@@ -183,13 +183,13 @@ def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
         if theme_data.empty:
             continue
             
-        # Filter vocabularies with at least 500 total counts within this theme
+        # Filter vocabularies with at least 1000 total counts within this theme
         vocab_totals = theme_data.groupby('vocabulary')['count'].sum()
-        valid_vocabs = vocab_totals[vocab_totals >= 500].index
+        valid_vocabs = vocab_totals[vocab_totals >= 1000].index
         theme_data_filtered = theme_data[theme_data['vocabulary'].isin(valid_vocabs)].copy()
         
         if theme_data_filtered.empty:
-            print(f"  No vocabularies with ≥500 counts for {theme}, skipping...")
+            print(f"  No vocabularies with ≥1000 counts for {theme}, skipping...")
             continue
         
         # Order vocabularies by total count within this theme (highest at top)
@@ -227,7 +227,7 @@ def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
             # Fallback to alphabetical for themes not in our predefined list
             category_order = sorted(theme_data_filtered['category'].unique())
         
-        print(f"  {theme}: {len(vocab_order)} vocabularies with ≥500 counts")
+        print(f"  {theme}: {len(vocab_order)} vocabularies with ≥1000 counts")
         
         # Create bubble chart for this theme (no title)
         fig = px.scatter(theme_data_filtered, 
@@ -443,18 +443,23 @@ def create_network_graph(df: pd.DataFrame, output_dir: Path):
 
 def generate_summary_stats(df: pd.DataFrame, output_dir: Path):
     """Generate summary statistics"""
+    vocab_totals = df.groupby('vocabulary')['count'].sum().sort_values(ascending=False)
+    cat_totals = df.groupby('category')['count'].sum().sort_values(ascending=False)
+    
+    # Count vocabularies with at least 1,000 nodes
+    vocabs_with_1k_plus = (vocab_totals >= 1000).sum()
+    
     print("\n=== SUMMARY STATISTICS ===")
     print(f"Total vocabularies: {df['vocabulary'].nunique()}")
+    print(f"Vocabularies with ≥1,000 nodes: {vocabs_with_1k_plus}")
     print(f"Total categories: {df['category'].nunique()}")
     print(f"Total node count: {df['count'].sum():,}")
     
     print(f"\nTop 10 vocabularies by node count:")
-    vocab_totals = df.groupby('vocabulary')['count'].sum().sort_values(ascending=False)
     for vocab, count in vocab_totals.head(10).items():
         print(f"  {vocab}: {count:,}")
     
     print(f"\nTop 10 categories by node count:")
-    cat_totals = df.groupby('category')['count'].sum().sort_values(ascending=False)
     for cat, count in cat_totals.head(10).items():
         print(f"  {cat}: {count:,}")
     
@@ -463,6 +468,7 @@ def generate_summary_stats(df: pd.DataFrame, output_dir: Path):
     with open(summary_file, 'w') as f:
         f.write("=== VOCABULARY-CATEGORY ANALYSIS SUMMARY ===\n\n")
         f.write(f"Total vocabularies: {df['vocabulary'].nunique()}\n")
+        f.write(f"Vocabularies with ≥1,000 nodes: {vocabs_with_1k_plus}\n")
         f.write(f"Total categories: {df['category'].nunique()}\n") 
         f.write(f"Total node count: {df['count'].sum():,}\n\n")
         
