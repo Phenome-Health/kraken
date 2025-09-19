@@ -445,33 +445,58 @@ def generate_summary_stats(df: pd.DataFrame, output_dir: Path):
 
 
 def main():
-    # File paths - use ArangoDB export
+    import argparse
+    
+    # Set up command line arguments
+    parser = argparse.ArgumentParser(description='Visualize vocabulary-category distributions from KRAKEN data')
+    parser.add_argument('--reprocess', action='store_true', 
+                       help='Reprocess KRAKEN data even if CSV exists')
+    parser.add_argument('--viz-only', action='store_true',
+                       help='Only generate visualizations from existing CSV data')
+    args = parser.parse_args()
+    
+    # File paths
     nodes_file = Path("artifacts/export/arango/kraken_1.0.0_nodes_arango.jsonl")
     output_dir = Path("scripts")
-    
-    if not nodes_file.exists():
-        print(f"Error: {nodes_file} not found!")
-        return
-    
-    # Count nodes by vocabulary and category
-    df = count_nodes_by_vocab_category(nodes_file)
-    
-    if df.empty:
-        print("No data found!")
-        return
-    
-    # Save raw data
     csv_file = output_dir / 'vocabulary_category_counts.csv'
-    df.to_csv(csv_file, index=False)
-    print(f"Saved raw data: {csv_file}")
+    
+    # Check if we need to process data
+    if args.viz_only or (csv_file.exists() and not args.reprocess):
+        if csv_file.exists():
+            print(f"Loading existing data from: {csv_file}")
+            df = pd.read_csv(csv_file)
+        else:
+            print(f"Error: {csv_file} not found! Run with --reprocess to generate data.")
+            return
+    else:
+        # Process KRAKEN data
+        if not nodes_file.exists():
+            print(f"Error: {nodes_file} not found!")
+            return
+        
+        print("Processing KRAKEN data...")
+        df = count_nodes_by_vocab_category(nodes_file)
+        
+        if df.empty:
+            print("No data found!")
+            return
+        
+        # Save raw data
+        df.to_csv(csv_file, index=False)
+        print(f"Saved raw data: {csv_file}")
     
     # Generate visualizations
+    print("Generating visualizations...")
     create_heatmap(df, output_dir)
     create_bubble_chart(df, output_dir)
     create_network_graph(df, output_dir)
     
     # Generate summary statistics
     generate_summary_stats(df, output_dir)
+    
+    print("\nUsage tips:")
+    print("  python scripts/visualize_vocabulary_categories.py --viz-only    # Only create visualizations")
+    print("  python scripts/visualize_vocabulary_categories.py --reprocess   # Reprocess KRAKEN data")
 
 
 if __name__ == "__main__":
