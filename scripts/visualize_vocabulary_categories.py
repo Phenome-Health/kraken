@@ -196,6 +196,9 @@ def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
         vocab_totals_filtered = theme_data_filtered.groupby('vocabulary')['count'].sum().sort_values(ascending=False)
         vocab_order = vocab_totals_filtered.index.tolist()
         
+        # Order categories alphabetically
+        category_order = sorted(theme_data_filtered['category'].unique())
+        
         print(f"  {theme}: {len(vocab_order)} vocabularies with ≥500 counts")
         
         # Create bubble chart for this theme (no title)
@@ -207,13 +210,13 @@ def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
                          hover_data=['count'],
                          color_continuous_scale='Viridis',
                          size_max=50,
-                         category_orders={'vocabulary': vocab_order})  # Custom vocabulary order
+                         category_orders={'vocabulary': vocab_order, 'category': category_order})  # Custom ordering
         
         # Calculate appropriate height and width based on filtered data
         num_vocabularies = theme_data_filtered['vocabulary'].nunique()
         num_categories = theme_data_filtered['category'].nunique()
-        height = max(800, num_vocabularies * 28)  # Increased spacing between vocabularies
-        width = max(800, min(1000, num_categories * 150))  # Narrower width based on categories
+        height = max(800, num_vocabularies * 30)  # Increased spacing between vocabularies
+        width = max(800, min(800, num_categories * 100))  # Narrower width based on categories
         
         fig.update_layout(
             width=width,
