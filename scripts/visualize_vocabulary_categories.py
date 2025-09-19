@@ -196,8 +196,36 @@ def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
         vocab_totals_filtered = theme_data_filtered.groupby('vocabulary')['count'].sum().sort_values(ascending=False)
         vocab_order = vocab_totals_filtered.index.tolist()
         
-        # Order categories alphabetically
-        category_order = sorted(theme_data_filtered['category'].unique())
+        # Define hierarchical category orders for each theme
+        category_orders = {
+            'Disease/Phenotype': ['DiseaseOrPhenotypicFeature', 'Disease', 'PhenotypicFeature', 'BehavioralFeature', 'ClinicalFinding'],
+            'Chemical/Drug': ['ChemicalEntity', 'MolecularEntity', 'SmallMolecule', 'ChemicalMixture', 'MolecularMixture', 'Drug', 'Food'],
+            'Gene/Protein': ['Gene', 'Haplotype', 'SequenceVariant', 'NucleicAcidEntity', 'Polypeptide', 'Protein', 'ProteinDomain', 'MacromolecularComplex'],
+            'Anatomy/Biology': ['OrganismTaxon', 'OrganismalEntity', 'AnatomicalEntity', 'GrossAnatomicalStructure', 'Cell', 'CellularComponent', 'CellLine', 'IndividualOrganism', 'PopulationOfIndividualOrganisms'],
+            'Pathway/Process': ['BiologicalProcessOrActivity', 'MolecularActivity', 'BiologicalProcess', 'Pathway', 'PhysiologicalProcess', 'PathologicalProcess', 'Activity']
+        }
+        
+        # Filter out BiologicalEntity from Pathway/Process theme
+        if theme == 'Pathway/Process':
+            theme_data_filtered = theme_data_filtered[theme_data_filtered['category'] != 'BiologicalEntity'].copy()
+            if theme_data_filtered.empty:
+                print(f"  No data after filtering BiologicalEntity for {theme}, skipping...")
+                continue
+        
+        # Get hierarchical order for this theme, falling back to alphabetical for any missing categories
+        if theme in category_orders:
+            predefined_order = category_orders[theme]
+            actual_categories = set(theme_data_filtered['category'].unique())
+            
+            # Start with predefined order, only include categories that exist in data
+            category_order = [cat for cat in predefined_order if cat in actual_categories]
+            
+            # Add any remaining categories alphabetically
+            remaining_categories = sorted(actual_categories - set(category_order))
+            category_order.extend(remaining_categories)
+        else:
+            # Fallback to alphabetical for themes not in our predefined list
+            category_order = sorted(theme_data_filtered['category'].unique())
         
         print(f"  {theme}: {len(vocab_order)} vocabularies with ≥500 counts")
         
@@ -223,11 +251,13 @@ def create_bubble_chart(df: pd.DataFrame, output_dir: Path):
             height=height,
             xaxis=dict(
                 tickangle=45,
-                title='Category',
+                title=None,  # Remove x-axis title
                 side='top',  # Move labels to top only
                 showticklabels=True
             ),
-            yaxis_title='Vocabulary'
+            yaxis=dict(
+                title=None  # Remove y-axis title
+            )
         )
         
         # Create custom colorbar with actual count labels instead of log values
