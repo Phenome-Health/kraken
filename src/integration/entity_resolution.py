@@ -29,16 +29,16 @@ def integrate_sources(harmonized_source_paths: Dict[str, Dict[str, Path]],
     output_dir.mkdir(parents=True, exist_ok=True)
     
     logging.info("Starting source integration...")
-    
-    # Phase 1: Build equivalency mappings from primary source
-    primary_source_name = config['integration'].get('primary_source', 'kg2')
-    primary_nodes_path = harmonized_source_paths[primary_source_name]['nodes']
-    logging.info(f"Loading equivalency mappings from {primary_source_name}")
+
+    # Phase 1: Build base equivalency mappings from primary source
+    primary_source = config['integration']['primary_source']
+    primary_nodes_path = harmonized_source_paths[primary_source]['nodes']
+    logging.info(f"Loading equivalency mappings from primary source ({primary_source})")
     equivalency_index = load_equivalency_mappings(primary_nodes_path)
     assert equivalency_index
 
     # Phase 2: Integrate all nodes, merging as we go
-    integrate_nodes(primary_source_name, harmonized_source_paths, equivalency_index, output_dir, unified_nodes_path, config)
+    integrate_nodes(harmonized_source_paths, primary_source, equivalency_index, output_dir, unified_nodes_path, config)
     
     # Phase 3: Process all edges with node ID resolution (merge edges with the same key -- note aggregator is in key)
     integrate_edges(unified_edges_path, harmonized_source_paths, equivalency_index, output_dir)
@@ -46,109 +46,120 @@ def integrate_sources(harmonized_source_paths: Dict[str, Dict[str, Path]],
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
 
 
-def integrate_nodes(primary_source_name: str,
-                    harmonized_source_paths: Dict[str, Dict[str, Path]],
+def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
+                    primary_source: str,
                     equivalency_index: Dict[str, str],
                     output_dir: Path,
                     unified_nodes_path: Path,
                     config: dict):
+    # Load the primary source as our starting point
+    logging.info(f"Loading {primary_source} nodes as starting point")
+    primary_nodes_path = harmonized_source_paths[primary_source]['nodes']
+    current_canonical_nodes = {node[ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)}  # canonical_id -> merged_node_data
+    assert current_canonical_nodes
 
-    logging.info(f"Loading {primary_source_name} nodes as starting point")
-    primary_nodes_path = harmonized_source_paths[primary_source_name]['nodes']
-    processed_canonical_nodes = {node[ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)}  # canonical_id -> merged_node_data
+    # Figure out what order to integrate sources in (save ones not allowed to merge entities for last)
+    sources_config = config['sources']
+    allowed_to_merge_entities = [source_name for source_name, source_config in sources_config.items()
+                                 if source_config.get('allow_merge') and source_name != primary_source]
+    not_allowed_to_merge = [source_name for source_name, source_config in sources_config.items()
+                            if not source_config.get('allow_merge') and source_name != primary_source]
+    ordered_sources = allowed_to_merge_entities + not_allowed_to_merge
+    logging.info(f"Will integrate remaining sources into {primary_source} in this order: {ordered_sources}")
 
-    for source_name, source_files in harmonized_source_paths.items():
-        source_allowed_to_merge_nodes = config['sources'][source_name]['allow_merge']
+    for source_name in ordered_sources:
+        source_files = harmonized_source_paths[source_name]
+        source_allowed_to_merge_nodes = sources_config[source_name]['allow_merge']
 
-        if source_name != primary_source_name:  # Already loaded these as the starting point
-            # Set up logs for non-one-to-one mappings
-            one_to_many_log = output_dir / f"{source_name}_one_to_many.jsonl"
-            one_to_zero_log = output_dir / f"{source_name}_one_to_zero.jsonl"
-            remove_file(one_to_many_log)
-            remove_file(one_to_zero_log)
+        # Set up logs for non-one-to-one mappings
+        one_to_many_log = output_dir / f"{source_name}_one_to_many.jsonl"
+        one_to_zero_log = output_dir / f"{source_name}_one_to_zero.jsonl"
+        remove_file(one_to_many_log)
+        remove_file(one_to_zero_log)
 
-            logging.info(f"Integrating nodes from {source_name} (allowed_to_merge_nodes={source_allowed_to_merge_nodes})")
-            nodes_file = source_files['nodes']
+        logging.info(f"Integrating nodes from {source_name} (allowed_to_merge_nodes={source_allowed_to_merge_nodes})")
+        nodes_file = source_files['nodes']
 
-            for node in stream_nodes_from_jsonl(nodes_file):
-                node_id = node[ID]
-                node_equiv_ids = node[EQUIVALENT_IDS]
+        for node in stream_nodes_from_jsonl(nodes_file):
+            node_id = node[ID]
+            node_equiv_ids = node[EQUIVALENT_IDS]
 
-                if source_allowed_to_merge_nodes:
-                    # TODO: Figure out why running into overlapping equiv id sets when use this mode
-                    # Merge all pre-existing canonical nodes referenced by this node's equivalent IDs
-                    canonical_ids_list = [equivalency_index[equiv_id] for equiv_id in node_equiv_ids
-                                          if equivalency_index.get(equiv_id)]
-                    canonical_ids = set(canonical_ids_list)
+            if source_allowed_to_merge_nodes:
+                # Merge all pre-existing canonical nodes referenced by this node's equivalent IDs
+                canonical_ids_list = [equivalency_index[equiv_id] for equiv_id in node_equiv_ids
+                                      if equivalency_index.get(equiv_id)]
+                canonical_ids = set(canonical_ids_list)
 
-                    if not canonical_ids:
-                        # First time seeing this entity in any fashion
-                        canonical_id = node[ID]
-                        processed_canonical_nodes[canonical_id] = node
-                        save_to_jsonl([node], one_to_zero_log, mode='a')
-                    elif len(canonical_ids) == 1:
-                        # We have a one-to-one match; merge this node with its canonical node
-                        canonical_id = canonical_ids_list[0]
-                        existing_canonical_node = processed_canonical_nodes[canonical_id]
-                        merge_into_existing_node(node, existing_canonical_node)
-                    else:
-                        # We have a one-to-many match; merge all canonical nodes for this new node into the majority canonical node
-                        canonical_id_counts = Counter(canonical_ids_list)
-                        most_common_canonical_id = canonical_id_counts.most_common(1)[0][0]
-                        other_canonical_ids = canonical_ids.difference({most_common_canonical_id})
-                        most_common_canonical_node = processed_canonical_nodes[most_common_canonical_id]
-
-                        # Log this one-to-many mapping
-                        log_item = {'node_id': node_id, 'majority_canonical_id': most_common_canonical_id,
-                                    'other_canonical_ids': list(other_canonical_ids), 'node': node}
-                        save_to_jsonl([log_item], one_to_many_log, mode='a')
-
-                        # Merge the new node into the majority canonical node
-                        merge_into_existing_node(node, most_common_canonical_node)
-                        # Then merge the other canonical nodes into the majority canonical node
-                        for other_canonical_id in other_canonical_ids:
-                            other_existing_canonical_node = processed_canonical_nodes[other_canonical_id]
-                            merge_into_existing_node(other_existing_canonical_node, most_common_canonical_node)
-
-                        canonical_id = most_common_canonical_id
+                if not canonical_ids:
+                    # First time seeing this entity in any fashion
+                    canonical_id = node[ID]
+                    current_canonical_nodes[canonical_id] = node
+                    save_to_jsonl([node], one_to_zero_log, mode='a')
+                    # Update equivalency index appropriately
+                    for equiv_id in node[EQUIVALENT_IDS]:
+                        equivalency_index[equiv_id] = canonical_id
+                elif len(canonical_ids) == 1:
+                    # We have a one-to-one match; merge this node with its canonical node
+                    canonical_id = canonical_ids_list[0]
+                    existing_canonical_node = current_canonical_nodes[canonical_id]
+                    merge_into_existing_node(node, existing_canonical_node, equivalency_index)
                 else:
-                    # Find the 'majority' canonical ID for this node (not allowed to merge pre-existing canonical nodes)
-                    canonical_id, new_equiv_ids = find_majority_canonical_id(node_id, node_equiv_ids, equivalency_index,
-                                                                             one_to_many_log, node)
+                    # We have a one-to-many match; merge all canonical nodes for this new node into the majority canonical node
+                    canonical_id_counts = Counter(canonical_ids_list)
+                    most_common_canonical_id = canonical_id_counts.most_common(1)[0][0]
+                    other_canonical_ids = canonical_ids.difference({most_common_canonical_id})
+                    most_common_canonical_node = current_canonical_nodes[most_common_canonical_id]
 
-                    if canonical_id in processed_canonical_nodes:
-                        # Merge with existing canonical node
-                        existing_canonical_node = processed_canonical_nodes[canonical_id]
-                        merge_into_existing_node(node, existing_canonical_node, new_equiv_ids)
-                    else:
-                        # First time seeing this canonical entity
-                        processed_canonical_nodes[node[ID]] = node
-                        save_to_jsonl([node], one_to_zero_log, mode='a')
+                    # Log this one-to-many mapping
+                    log_item = {'node_id': node_id, 'majority_canonical_id': most_common_canonical_id,
+                                'other_canonical_ids': list(other_canonical_ids), 'node': node}
+                    save_to_jsonl([log_item], one_to_many_log, mode='a')
 
-                # Update our equivalency index with any new canonical mappings
-                for equiv_id in processed_canonical_nodes[canonical_id][EQUIVALENT_IDS]:
-                    equivalency_index[equiv_id] = canonical_id
+                    # Merge the new node into the majority canonical node
+                    merge_into_existing_node(node, most_common_canonical_node, equivalency_index)
+                    # Then merge the other canonical nodes into the majority canonical node
+                    for other_canonical_id in other_canonical_ids:
+                        other_existing_canonical_node = current_canonical_nodes[other_canonical_id]
+                        merge_into_existing_node(other_existing_canonical_node, most_common_canonical_node, equivalency_index)
+                        del current_canonical_nodes[other_canonical_id]  # Critical to delete the previously canonical, now merged node
+            else:
+                # Find the 'majority' canonical ID for this node (not allowed to merge pre-existing canonical nodes)
+                canonical_id, new_equiv_ids = find_majority_canonical_id(node, equivalency_index, one_to_many_log)
 
-    logging.info(f"Formed {len(processed_canonical_nodes)} merged nodes")
+                if canonical_id in current_canonical_nodes:
+                    # Merge with existing canonical node
+                    existing_canonical_node = current_canonical_nodes[canonical_id]
+                    merge_into_existing_node(node, existing_canonical_node, equivalency_index, new_equiv_ids)
+                else:
+                    # First time seeing this canonical entity
+                    current_canonical_nodes[node[ID]] = node
+                    save_to_jsonl([node], one_to_zero_log, mode='a')
+                    # Update equivalency index appropriately
+                    for equiv_id in node[EQUIVALENT_IDS]:
+                        equivalency_index[equiv_id] = canonical_id
+
+    logging.info(f"Formed {len(current_canonical_nodes)} merged nodes")
 
     logging.info(f"Verifying we have disjoint equivalent_id sets..")
     seen_ids = set()
-    for unified_node in processed_canonical_nodes.values():
+    for unified_node in current_canonical_nodes.values():
         equiv_ids = set(unified_node[EQUIVALENT_IDS])
         if equiv_ids.intersection(seen_ids):
             logging.error(f"Unified node {unified_node[ID]} has equiv IDs present on another unified node(s). "
-                          f"Overlapping equiv IDs are: {equiv_ids.intersection(seen_ids)}")
+                          f"Overlapping equiv IDs are: {equiv_ids.intersection(seen_ids)}. "
+                          f"Unified node is: {unified_node}")
             sys.exit(1)
         seen_ids |= equiv_ids
 
     # Save unified nodes
-    save_to_jsonl(processed_canonical_nodes.values(), unified_nodes_path, mode='w')
+    save_to_jsonl(current_canonical_nodes.values(), unified_nodes_path, mode='w')
 
 
 def integrate_edges(unified_edges_path: Path,
                     harmonized_source_paths: Dict[str, Dict[str, Path]],
                     equivalency_index: Dict[str, str],
                     output_dir: Path):
+    assert equivalency_index
     all_merged_edges = []
     with jsonlines.open(unified_edges_path, 'w') as writer:
         for source_name, source_files in harmonized_source_paths.items():
@@ -192,24 +203,27 @@ def integrate_edges(unified_edges_path: Path,
     save_to_jsonl(all_merged_edges, unified_edges_path, mode='a')
 
 
-def find_majority_canonical_id(node_id: str, equiv_ids: List[str], equivalency_index: Dict[str, str], one_to_many_log: Path, node: dict) -> Tuple[str, Set[str]]:
+def find_majority_canonical_id(node: dict,
+                               equivalency_index: Dict[str, str],
+                               one_to_many_log: Path) -> Tuple[str, Set[str]]:
     """Find canonical ID for this node using equivalency mappings"""
     # Tally up votes for the canonical node from all the equivalent ids
+    node_id = node['id']
     votes = defaultdict(list)
-    no_mappings = set()
-    for equiv_id in equiv_ids:
-        canonical_id = equivalency_index.get(equiv_id)
-        if canonical_id:
-            votes[canonical_id].append(equiv_id)
+    equiv_ids_without_mappings = set()
+    for equiv_id in node[EQUIVALENT_IDS]:
+        canonical_id_vote = equivalency_index.get(equiv_id)
+        if canonical_id_vote:
+            votes[canonical_id_vote].append(equiv_id)
         else:
-            no_mappings.add(equiv_id)
+            equiv_ids_without_mappings.add(equiv_id)
     vote_tallies = {canonical_id: len(corresponding_ids) + (9 if node_id in corresponding_ids else 0)  # Favor the main node.id (10x the vote)
                     for canonical_id, corresponding_ids in votes.items()}
     
     if vote_tallies:
         # Choose the node in the merged graph with the most 'votes' from the equivalent IDs
         canonical_id = max(vote_tallies, key=vote_tallies.get)
-        new_equiv_ids = no_mappings
+        new_equiv_ids = equiv_ids_without_mappings
 
         # Log if we have a one-to-many mapping
         if len(vote_tallies) > 1:
@@ -219,16 +233,22 @@ def find_majority_canonical_id(node_id: str, equiv_ids: List[str], equivalency_i
     else:
         # Can't find a node in the merged graph that this node corresponds to; add it as a new node
         canonical_id = node_id
-        new_equiv_ids = equiv_ids
+        new_equiv_ids = set(node[EQUIVALENT_IDS])
     
     return canonical_id, new_equiv_ids
 
 
-def merge_into_existing_node(new_node: dict, existing_node: dict, new_equiv_ids: Optional[Set[str]] = None):
+def merge_into_existing_node(new_node: dict, existing_node: dict, equivalency_index: Dict[str, str], new_equiv_ids: Optional[Set[str]] = None):
     """Merge data from new node into existing node (edits in place)"""
-    # Merge any equivalent IDs for this node as appropriate (not necessarily ALL equivalent_ids the source provides, due to one-to-manys when using majority approach)
+
+    # Merge any equivalent IDs for this node as appropriate (not necessarily ALL equivalent_ids the source provides,
+    #    due to one-to-manys when using majority approach)
     equiv_ids_to_merge = new_equiv_ids if new_equiv_ids is not None else set(new_node[EQUIVALENT_IDS])
     existing_node[EQUIVALENT_IDS] = list(set(existing_node[EQUIVALENT_IDS]) | equiv_ids_to_merge)
+    # Make sure our equivalency index is up to date with any new canonical mappings
+    canonical_id = existing_node[ID]
+    for equiv_id in existing_node[EQUIVALENT_IDS]:
+        equivalency_index[equiv_id] = canonical_id
 
     # Add the new node's name as a synonym for the merged node
     if new_node.get(NAME):

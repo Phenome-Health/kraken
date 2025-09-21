@@ -1,5 +1,5 @@
 biolink_version: 4.2.5
-kraken_version: 1.0.0
+kraken_version: 1.0.1
 steps:
   harmonize: True
   integrate: True
@@ -15,31 +15,7 @@ sources:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
     enabled: True
-    allow_merge: False
-
-  umls:
-    input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
-    harmonized_output:
-      nodes: "artifacts/harmonized/umls/nodes.jsonl"
-      edges: "artifacts/harmonized/umls/edges.jsonl"
-    enabled: True
-    allow_merge: False
-
-  lipidmaps:
-    input_file: "input_data/lipidmaps/structures.sdf"
-    harmonized_output:
-      nodes: "artifacts/harmonized/lipidmaps/nodes.jsonl"
-      edges: "artifacts/harmonized/lipidmaps/edges.jsonl"
-    enabled: True
-    allow_merge: False
-
-  refmet:
-    input_file: "input_data/refmet/refmet.csv"
-    harmonized_output:
-      nodes: "artifacts/harmonized/refmet/nodes.jsonl"
-      edges: "artifacts/harmonized/refmet/edges.jsonl"
-    enabled: True
-    allow_merge: False
+    allow_merge: True
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
@@ -50,9 +26,33 @@ sources:
     enabled: True
     allow_merge: False
 
+  umls:
+    input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
+    harmonized_output:
+      nodes: "artifacts/harmonized/umls/nodes.jsonl"
+      edges: "artifacts/harmonized/umls/edges.jsonl"
+    enabled: True
+    allow_merge: True
+
+  lipidmaps:
+    input_file: "input_data/lipidmaps/structures.sdf"
+    harmonized_output:
+      nodes: "artifacts/harmonized/lipidmaps/nodes.jsonl"
+      edges: "artifacts/harmonized/lipidmaps/edges.jsonl"
+    enabled: True
+    allow_merge: True
+
+  refmet:
+    input_file: "input_data/refmet/refmet.csv"
+    harmonized_output:
+      nodes: "artifacts/harmonized/refmet/nodes.jsonl"
+      edges: "artifacts/harmonized/refmet/edges.jsonl"
+    enabled: True
+    allow_merge: True
+
 integration:
   output_directory: "artifacts/integrated/"
-  primary_source: "kg2"  # Source to use for equivalency mappings (base)
+  primary_source: "kg2"
 
 post_processing:
   arango_export:
