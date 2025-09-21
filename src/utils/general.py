@@ -6,6 +6,7 @@ from typing import Union, List, Set, Optional, Dict, Any
 
 import requests
 import yaml
+from rdkit import Chem
 
 from .constants import *
 
@@ -138,3 +139,31 @@ def load_biolink_file(url: str, biolink_version: str) -> dict:
     with open(local_path, 'r') as cache_file:
         contents = json.load(cache_file)
         return contents
+
+
+def get_canonical_smiles(smiles_string: str) -> Optional[str]:
+    """
+    Convert a SMILES string to its canonical form using RDKit
+
+    Args:
+        smiles_string (str): Input SMILES string
+
+    Returns:
+        str: Canonical SMILES string, or None if invalid
+    """
+    try:
+        # Parse the SMILES string into a molecule object
+        mol = Chem.MolFromSmiles(smiles_string)
+
+        # Check if parsing was successful
+        if mol is None:
+            logging.warning(f"Invalid SMILES - could not get canonical version: {smiles_string}")
+            return None
+
+        # Generate canonical SMILES
+        canonical_smiles = Chem.MolToSmiles(mol)
+        return canonical_smiles
+
+    except Exception as e:
+        logging.error(f"Error processing SMILES: {e}")
+        return None

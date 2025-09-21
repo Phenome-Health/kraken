@@ -4,12 +4,11 @@ from collections import defaultdict
 from pathlib import Path
 
 from rdkit import Chem
-from rdkit.Chem import Descriptors
 
 from ..utils.constants import *
 from ..utils.identifiers import IdentifierNorm
 from ..utils.kg_io import save_to_jsonl
-from ..utils.general import create_node
+from ..utils.general import create_node, get_canonical_smiles
 
 
 def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
@@ -46,6 +45,12 @@ def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path
         for prop_name, prefix_entry in prefix_map.items():
             if prop_name in properties:
                 equiv_id = str(properties[prop_name])
+
+                # If this is a SMILES string, convert it to canonical format
+                if prop_name == 'SMILES':
+                    canonical_smiles = get_canonical_smiles(equiv_id)
+                    equiv_id = canonical_smiles if canonical_smiles else equiv_id  # Just use given if standardization failed
+
                 equiv_curie, _ = id_norm.construct_curie(equiv_id, prefix_entry, stop_on_failure=True)
                 if equiv_curie and equiv_curie != KNOWN_INVALID:
                     equivalent_ids.add(equiv_curie)
