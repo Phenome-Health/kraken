@@ -60,16 +60,16 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
 
     # Figure out what order to integrate sources in (save ones not allowed to merge entities for last)
     sources_config = config['sources']
-    allowed_to_merge_entities = [source_name for source_name, source_config in sources_config.items()
-                                 if source_config.get('allow_merge') and source_name != primary_source]
+    allowed_to_merge_existing = [source_name for source_name, source_config in sources_config.items()
+                                 if source_config.get('can_merge_existing_nodes') and source_name != primary_source]
     not_allowed_to_merge = [source_name for source_name, source_config in sources_config.items()
-                            if not source_config.get('allow_merge') and source_name != primary_source]
-    ordered_sources = allowed_to_merge_entities + not_allowed_to_merge
+                            if not source_config.get('can_merge_existing_nodes') and source_name != primary_source]
+    ordered_sources = allowed_to_merge_existing + not_allowed_to_merge
     logging.info(f"Will integrate remaining sources into {primary_source} in this order: {ordered_sources}")
 
     for source_name in ordered_sources:
         source_files = harmonized_source_paths[source_name]
-        source_allowed_to_merge_nodes = sources_config[source_name]['allow_merge']
+        source_allowed_to_merge_nodes = sources_config[source_name].get('can_merge_existing_nodes')
 
         # Set up logs for non-one-to-one mappings
         one_to_many_log = output_dir / f"{source_name}_one_to_many.jsonl"
@@ -77,7 +77,7 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
         remove_file(one_to_many_log)
         remove_file(one_to_zero_log)
 
-        logging.info(f"Integrating nodes from {source_name} (allowed_to_merge_nodes={source_allowed_to_merge_nodes})")
+        logging.info(f"Integrating nodes from {source_name} (can_merge_existing_nodes={source_allowed_to_merge_nodes})")
         nodes_file = source_files['nodes']
 
         for node in stream_nodes_from_jsonl(nodes_file):

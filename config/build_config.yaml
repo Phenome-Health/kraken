@@ -15,7 +15,7 @@ sources:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
     enabled: True
-    allow_merge: True
+    can_merge_existing_nodes: True
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
@@ -24,7 +24,7 @@ sources:
       nodes: "artifacts/harmonized/spoke/nodes.jsonl"
       edges: "artifacts/harmonized/spoke/edges.jsonl"
     enabled: True
-    allow_merge: False
+    can_merge_existing_nodes: False
 
   umls:
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
@@ -32,7 +32,7 @@ sources:
       nodes: "artifacts/harmonized/umls/nodes.jsonl"
       edges: "artifacts/harmonized/umls/edges.jsonl"
     enabled: True
-    allow_merge: True
+    can_merge_existing_nodes: True
 
   lipidmaps:
     input_file: "input_data/lipidmaps/structures.sdf"
@@ -40,7 +40,7 @@ sources:
       nodes: "artifacts/harmonized/lipidmaps/nodes.jsonl"
       edges: "artifacts/harmonized/lipidmaps/edges.jsonl"
     enabled: True
-    allow_merge: True
+    can_merge_existing_nodes: True
 
   refmet:
     input_file: "input_data/refmet/refmet.csv"
@@ -48,7 +48,7 @@ sources:
       nodes: "artifacts/harmonized/refmet/nodes.jsonl"
       edges: "artifacts/harmonized/refmet/edges.jsonl"
     enabled: True
-    allow_merge: True
+    can_merge_existing_nodes: True
 
 integration:
   output_directory: "artifacts/integrated/"
