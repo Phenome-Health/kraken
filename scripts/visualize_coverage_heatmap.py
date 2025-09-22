@@ -33,15 +33,23 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     
     # Create coverage matrix and annotation matrix
     entity_types = df['Entity_Type'].dropna().tolist()
-    coverage_matrix = pd.DataFrame(index=entity_types, columns=datasets, dtype=float)
-    annotation_matrix = pd.DataFrame(index=entity_types, columns=datasets, dtype=str)
+    
+    # Replace "Chemistry" with "Clinical Labs" in entity types for display
+    entity_types_display = []
+    for entity_type in entity_types:
+        if entity_type == 'Chemistry':
+            entity_types_display.append('Clinical Labs')
+        else:
+            entity_types_display.append(entity_type)
+    coverage_matrix = pd.DataFrame(index=entity_types_display, columns=datasets, dtype=float)
+    annotation_matrix = pd.DataFrame(index=entity_types_display, columns=datasets, dtype=str)
     
     for dataset in datasets:
         coverage_col = f"{dataset}_coverage"
         mapped_col = f"{dataset}_mapped"
         total_col = f"{dataset}_total"
         
-        for idx, entity_type in enumerate(entity_types):
+        for idx, (entity_type, entity_type_display) in enumerate(zip(entity_types, entity_types_display)):
             if idx < len(df):
                 coverage = df.loc[idx, coverage_col]
                 mapped = df.loc[idx, mapped_col]
@@ -49,19 +57,26 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
                 
                 # Handle N/A values
                 if pd.isna(coverage) or coverage == 'N/A':
-                    coverage_matrix.loc[entity_type, dataset] = np.nan
-                    annotation_matrix.loc[entity_type, dataset] = 'N/A'
+                    coverage_matrix.loc[entity_type_display, dataset] = np.nan
+                    annotation_matrix.loc[entity_type_display, dataset] = 'N/A'
                 else:
                     try:
                         coverage_val = float(coverage)
                         mapped_val = int(mapped) if not pd.isna(mapped) else 0
                         total_val = int(total) if not pd.isna(total) else 0
                         
-                        coverage_matrix.loc[entity_type, dataset] = coverage_val
-                        annotation_matrix.loc[entity_type, dataset] = f"{coverage_val:.1f}%\n{mapped_val:,} / {total_val:,}"
+                        coverage_matrix.loc[entity_type_display, dataset] = coverage_val
+                        
+                        # Add asterisk for specific cells that use Nightingale NMR data
+                        asterisk = ""
+                        if (dataset == "Israeli10K" and entity_type_display in ["Proteins", "Metabolites", "Clinical Labs"]) or \
+                           (dataset == "UKBB" and entity_type_display == "Metabolites"):
+                            asterisk = "*"
+                        
+                        annotation_matrix.loc[entity_type_display, dataset] = f"{coverage_val:.1f}%\n\n{mapped_val:,} / {total_val:,}{asterisk}"
                     except (ValueError, TypeError):
-                        coverage_matrix.loc[entity_type, dataset] = np.nan
-                        annotation_matrix.loc[entity_type, dataset] = 'N/A'
+                        coverage_matrix.loc[entity_type_display, dataset] = np.nan
+                        annotation_matrix.loc[entity_type_display, dataset] = 'N/A'
     
     return coverage_matrix, annotation_matrix
 
@@ -95,16 +110,21 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
     )
     
     # Customize the plot
-    plt.title('Entity Type Coverage Across Datasets', fontsize=16, fontweight='bold', pad=20)
+    plt.title('KG Mapping Across Datasets - Coverage', fontsize=16, fontweight='bold', pad=20)
     plt.xlabel('Dataset', fontsize=12, fontweight='bold')
     plt.ylabel('Entity Type', fontsize=12, fontweight='bold')
     
-    # Rotate x-axis labels for better readability
-    plt.xticks(rotation=45, ha='right')
+    # Keep x-axis labels horizontal
+    plt.xticks(rotation=0, ha='center')
     plt.yticks(rotation=0)
     
-    # Adjust layout to prevent label cutoff
+    # Add footnote for asterisk explanation
+    plt.figtext(0.7, -0.03, '* From Nightingale NMR; N includes only those that are possible to map for the given entity type.', 
+                fontsize=9, style='italic', ha='center', va='bottom')
+    
+    # Adjust layout to prevent label cutoff and accommodate footnote
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.08)  # Make room for footnote
     
     # Save the plot
     output_file = output_dir / 'coverage_heatmap.png'
