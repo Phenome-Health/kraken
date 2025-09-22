@@ -21,6 +21,9 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     # Remove empty rows
     df = df.dropna(how='all')
     
+    # Filter out individual LOINC and MONDO rows, keep only LOINC OR MONDO
+    df = df[~df['Entity_Type'].isin(['Questionnaires → LOINC', 'Questionnaires → MONDO'])]
+    
     # Get unique dataset names (everything before '_coverage', '_mapped', '_total')
     datasets = []
     for col in df.columns:
@@ -34,11 +37,13 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     # Create coverage matrix and annotation matrix
     entity_types = df['Entity_Type'].dropna().tolist()
     
-    # Replace "Chemistry" with "Clinical Labs" in entity types for display
+    # Replace "Chemistry" with "Clinical Labs" and "Questionnaires → LOINC OR MONDO" with "Questionnaires" for display
     entity_types_display = []
     for entity_type in entity_types:
         if entity_type == 'Chemistry':
             entity_types_display.append('Clinical Labs')
+        elif entity_type == 'Questionnaires → LOINC OR MONDO':
+            entity_types_display.append('Questionnaires')
         else:
             entity_types_display.append(entity_type)
     coverage_matrix = pd.DataFrame(index=entity_types_display, columns=datasets, dtype=float)
@@ -49,34 +54,33 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         mapped_col = f"{dataset}_mapped"
         total_col = f"{dataset}_total"
         
-        for idx, (entity_type, entity_type_display) in enumerate(zip(entity_types, entity_types_display)):
-            if idx < len(df):
-                coverage = df.loc[idx, coverage_col]
-                mapped = df.loc[idx, mapped_col]
-                total = df.loc[idx, total_col]
-                
-                # Handle N/A values
-                if pd.isna(coverage) or coverage == 'N/A':
+        for df_idx, (entity_type, entity_type_display) in zip(df.index, zip(entity_types, entity_types_display)):
+            coverage = df.loc[df_idx, coverage_col]
+            mapped = df.loc[df_idx, mapped_col]
+            total = df.loc[df_idx, total_col]
+            
+            # Handle N/A values
+            if pd.isna(coverage) or coverage == 'N/A':
+                coverage_matrix.loc[entity_type_display, dataset] = np.nan
+                annotation_matrix.loc[entity_type_display, dataset] = 'N/A'
+            else:
+                try:
+                    coverage_val = float(coverage)
+                    mapped_val = int(mapped) if not pd.isna(mapped) else 0
+                    total_val = int(total) if not pd.isna(total) else 0
+                    
+                    coverage_matrix.loc[entity_type_display, dataset] = coverage_val
+                    
+                    # Add asterisk for specific cells that use Nightingale NMR data
+                    asterisk = ""
+                    if (dataset == "Israeli10K" and entity_type_display in ["Proteins", "Metabolites", "Clinical Labs"]) or \
+                       (dataset == "UKBB" and entity_type_display == "Metabolites"):
+                        asterisk = "*"
+                    
+                    annotation_matrix.loc[entity_type_display, dataset] = f"{coverage_val:.1f}%\n\n{mapped_val:,} / {total_val:,}{asterisk}"
+                except (ValueError, TypeError):
                     coverage_matrix.loc[entity_type_display, dataset] = np.nan
                     annotation_matrix.loc[entity_type_display, dataset] = 'N/A'
-                else:
-                    try:
-                        coverage_val = float(coverage)
-                        mapped_val = int(mapped) if not pd.isna(mapped) else 0
-                        total_val = int(total) if not pd.isna(total) else 0
-                        
-                        coverage_matrix.loc[entity_type_display, dataset] = coverage_val
-                        
-                        # Add asterisk for specific cells that use Nightingale NMR data
-                        asterisk = ""
-                        if (dataset == "Israeli10K" and entity_type_display in ["Proteins", "Metabolites", "Clinical Labs"]) or \
-                           (dataset == "UKBB" and entity_type_display == "Metabolites"):
-                            asterisk = "*"
-                        
-                        annotation_matrix.loc[entity_type_display, dataset] = f"{coverage_val:.1f}%\n\n{mapped_val:,} / {total_val:,}{asterisk}"
-                    except (ValueError, TypeError):
-                        coverage_matrix.loc[entity_type_display, dataset] = np.nan
-                        annotation_matrix.loc[entity_type_display, dataset] = 'N/A'
     
     return coverage_matrix, annotation_matrix
 
@@ -119,7 +123,7 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
     plt.yticks(rotation=0)
     
     # Add footnote for asterisk explanation
-    plt.figtext(0.7, -0.03, '* From Nightingale NMR; N includes only those that are possible to map for the given entity type.', 
+    plt.figtext(0.6, -0.03, '* From Nightingale NMR; N includes only those that are possible to map for the given entity type.', 
                 fontsize=9, style='italic', ha='center', va='bottom')
     
     # Adjust layout to prevent label cutoff and accommodate footnote
@@ -193,8 +197,8 @@ def generate_summary_stats(coverage_matrix: pd.DataFrame, output_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize coverage data as a heatmap')
-    parser.add_argument('--input', default='scripts/coverage_data.tsv', 
-                       help='Input TSV file path (default: scripts/coverage_data.tsv)')
+    parser.add_argument('--input', default='scripts/coverage_data_kraken.tsv', 
+                       help='Input TSV file path (default: scripts/coverage_data_kraken.tsv)')
     parser.add_argument('--output', default='scripts', 
                        help='Output directory (default: scripts)')
     args = parser.parse_args()
