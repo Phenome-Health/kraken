@@ -4,7 +4,7 @@ import sys
 from collections import defaultdict
 from email.policy import default
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import pandas as pd
 import numpy as np
@@ -25,10 +25,8 @@ ID_COLS = list(VOCAB_MAP.keys())
 
 IDNORM = IdentifierNorm(biolink_version="4.2.5")
 
-# KNOWN_INVALID_IDS = {'CAS': {'120K5305', '11/2/3483', '10-2005-9', '59-007'}}  # Record invalid IDs in the source data
 
-
-def get_curies(row: pd.Series) -> Tuple[List[str], defaultdict[str, List[str]]]:
+def get_curies(row: pd.Series) -> Tuple[List[str], Dict[str, List[str]]]:
     # First load IDs of different types, handling multiple IDs in one cell as necessary
     local_ids_map = {id_col: [local_id for local_id in re.split('[,;]', row[id_col])]
                      for id_col in ID_COLS if pd.notnull(row[id_col])}
@@ -44,7 +42,7 @@ def get_curies(row: pd.Series) -> Tuple[List[str], defaultdict[str, List[str]]]:
                 # It failed validation; record this
                 invalid_ids[id_col].append(local_id)
 
-    return list(all_curies), invalid_ids
+    return list(all_curies), dict(invalid_ids)
 
 
 def extract_metabolite_ids(file_name: str):
