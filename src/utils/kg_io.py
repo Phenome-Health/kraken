@@ -54,7 +54,7 @@ def remove_file(file_path: Path):
 
 def load_equivalency_mappings(nodes_file: Path) -> Dict[str, str]:
     """Load equivalency mappings for entity resolution"""
-    logging.debug(f"Loading equivalency mappings from {nodes_file}")
+    logging.info(f"Loading equivalency mappings from {nodes_file}")
     
     equivalencies = {}
     
