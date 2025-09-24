@@ -18,7 +18,9 @@ VOCAB_MAP = {
     'KEGG': ['kegg.compound', 'kegg.drug'],
     'HMDB': 'hmdb',
     'PUBCHEM': 'pubchem.compound',
-    'uniprot': 'uniprotkb'
+    'uniprot': 'uniprotkb',
+    'Labcorp LOINC ID': 'loinc',
+    'Quest LOINC ID': 'loinc'
 }
 
 IDNORM = IdentifierNorm(biolink_version="4.2.5")
@@ -65,7 +67,7 @@ def extract_protein_ids(input_dir: Path, output_dir: Path):
     id_cols = ['uniprot']
     other_cols = ['name', 'panel', 'gene_name', 'gene_description', 'gene_id', 'transcript_id', 'protein_id']
 
-    df = pd.read_table(input_path, dtype={'PUBCHEM': str}, usecols=other_cols + id_cols, skiprows=13)
+    df = pd.read_table(input_path, usecols=other_cols + id_cols, skiprows=13)
     print(df)
 
     df[['curies', 'invalid_ids']] = df.apply(lambda row: get_curies(row, id_cols), axis=1, result_type='expand')
@@ -75,12 +77,29 @@ def extract_protein_ids(input_dir: Path, output_dir: Path):
     df.to_csv(output_path, sep='\t', index=False)
 
 
+def extract_clinical_lab_ids(input_dir: Path, output_dir: Path):
+    input_path = input_dir / 'chemistries_metadata.tsv'
+
+    id_cols = ['Labcorp LOINC ID', 'Quest LOINC ID']
+    other_cols = ['Name', 'Display Name', 'Labcorp ID', 'Labcorp Name', 'Labcorp LOINC Name', 'Quest ID', 'Quest Name']
+
+    df = pd.read_table(input_path, usecols=other_cols + id_cols, skiprows=13)
+    print(df)
+
+    df[['curies', 'invalid_ids']] = df.apply(lambda row: get_curies(row, id_cols), axis=1, result_type='expand')
+    print(df)
+
+    output_path = output_dir / 'arivale_clinicallabs_with_curies.tsv'
+    df.to_csv(output_path, sep='\t', index=False)
+
+
 def main():
     input_dir = PROJECT_ROOT_PATH / 'input_data' / 'mapping' / 'arivale'
     output_dir = PROJECT_ROOT_PATH / 'src' / 'mapping'
 
     extract_metabolite_ids(input_dir, output_dir)
     extract_protein_ids(input_dir, output_dir)
+    extract_clinical_lab_ids(input_dir, output_dir)
 
 
 if __name__ == "__main__":

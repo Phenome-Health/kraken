@@ -452,11 +452,21 @@ class IdentifierNorm:
 
     @staticmethod
     def is_uniprot_protein_id(local_id: str) -> bool:
-        # Allows: 6 or 10 uppercase alphanumeric characters, requires >=1 letter and >=1 digit
-        is_proper_alphanumeric = bool(re.match(r'^([A-Z0-9]{6}|[A-Z0-9]{10})$', local_id))
-        has_letter = any(c.isalpha() for c in local_id)
-        has_digit = any(c.isdigit() for c in local_id)
-        return is_proper_alphanumeric and has_letter and has_digit
+        # Allows: Base ID (6 or 10 chars) with an optional isoform suffix (e.g., -2)
+        # The base ID must still contain at least one letter and one digit.
+
+        # 1. Check the overall format (base ID + optional isoform part)
+        if not re.match(r'^([A-Z0-9]{6}|[A-Z0-9]{10})(-\d+)?$', local_id):
+            return False
+
+        # 2. Isolate the base ID to check its content
+        base_id = local_id.split('-')[0]
+
+        # 3. Ensure the base ID has both letters and digits
+        has_letter = any(c.isalpha() for c in base_id)
+        has_digit = any(c.isdigit() for c in base_id)
+
+        return has_letter and has_digit
 
     @staticmethod
     def is_uniprot_feature_id(local_id: str) -> bool:
