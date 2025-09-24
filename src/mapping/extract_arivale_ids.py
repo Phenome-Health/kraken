@@ -19,6 +19,7 @@ VOCAB_MAP = {
     'HMDB': 'hmdb',
     'PUBCHEM': 'pubchem.compound',
     'uniprot': 'uniprotkb',
+    'gene_id': 'ensembl',
     'Labcorp LOINC ID': 'loinc',
     'Quest LOINC ID': 'loinc'
 }
@@ -64,7 +65,7 @@ def extract_metabolite_ids(input_dir: Path, output_dir: Path):
 def extract_protein_ids(input_dir: Path, output_dir: Path):
     input_path = input_dir / 'proteomics_metadata.tsv'
 
-    id_cols = ['uniprot']
+    id_cols = ['uniprot', 'gene_id']
     other_cols = ['name', 'panel', 'gene_name', 'gene_description', 'gene_id', 'transcript_id', 'protein_id']
 
     df = pd.read_table(input_path, usecols=other_cols + id_cols, skiprows=13)

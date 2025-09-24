@@ -26,10 +26,10 @@ def main():
                          'arivale_clinicallabs_with_curies.tsv', 'ukbb_proteins_with_curies.tsv']
 
 
-    equivalency_map = load_equivalency_mappings(PROJECT_ROOT_PATH / 'artifacts' / 'integrated' / 'kraken_nodes_1.0.0.jsonl')
+    equivalency_map = load_equivalency_mappings(PROJECT_ROOT_PATH / 'artifacts' / 'integrated' / 'kraken_nodes_1.0.1.jsonl')
 
 
-    headers = ['dataset', 'total_items', 'has_valid_curies', 'no_provided_ids', 'has_invalid_ids', 'in_kraken']
+    headers = ['dataset', 'total_items', 'has_valid_ids', 'in_kraken', 'no_provided_ids', 'has_invalid_ids', 'has_invalid_ids_and_not_in_kraken']
     stats = []
     for file_name in files_to_evaluate:
         file_path = input_dir / file_name
@@ -45,10 +45,9 @@ def main():
         has_no_ids = ((df.curies.apply(len) == 0) & (df.invalid_ids.apply(len) == 0)).sum()
         has_invalid_ids = df.invalid_ids.apply(lambda x: len(x) > 0).sum()
         in_kraken = df.kraken_canonical_ids.apply(lambda x: len(x) > 0).sum()
+        has_invalid_ids_and_not_in_kraken = ((df.invalid_ids.apply(len) > 0) & (df.kraken_canonical_ids.apply(len) == 0)).sum()
 
-        # Now check how many of the curies are actually in kraken
-
-        row = [file_shortname, total_items, has_valid_curies, has_no_ids, has_invalid_ids, in_kraken]
+        row = [file_shortname, total_items, has_valid_curies, in_kraken, has_no_ids, has_invalid_ids, has_invalid_ids_and_not_in_kraken]
         stats.append(row)
 
         # Record the full results
@@ -65,6 +64,10 @@ def main():
         # Record the items that DID map to kraken, for easy reference
         mapped = df[df.kraken_canonical_ids.apply(len) > 0]
         mapped.to_csv(output_dir / f"{file_shortname}_d_mapped.tsv", sep='\t')
+
+        # Record the items with invalid IDs, for easy reference
+        invalid_ids = df[df.invalid_ids.apply(lambda x: len(x) > 0)]
+        invalid_ids.to_csv(output_dir / f"{file_shortname}_e_invalid_ids.tsv", sep='\t')
 
 
     stats_df = pd.DataFrame(stats, columns=headers)
