@@ -70,6 +70,7 @@ class IdentifierNorm:
             'ahrq': {validator: self.is_ahrq_id},
             'bfo': {validator: self.is_bfo_id},
             'bvbrc': {validator: self.is_bvbrc_id},
+            'cas': {validator: self.is_cas_id},
             'cdcsvi': {validator: self.is_cdcsvi_id},
             'chebi': {validator: self.is_chebi_id},
             'chembl.compound': {validator: self.is_chembl_compound_id},
@@ -89,7 +90,7 @@ class IdentifierNorm:
             'fips.state': {validator: self.is_fips_state_id},
             'geonames': {validator: self.is_geonames_id},
             'go': {validator: self.is_go_id},
-            'hmdb': {validator: self.is_hmdb_id},
+            'hmdb': {validator: self.is_hmdb_id, cleaner: self.convert_to_7_digit_form},
             'hps': {validator: self.is_hps_id},
             'icd9': {validator: self.is_icd9_id},
             'icd10': {validator: self.is_icd10_id},
@@ -199,6 +200,16 @@ class IdentifierNorm:
     def clean_wikipathways_id(local_id: str) -> str:
         # Get rid of version suffix info, like in WP5395_r126912
         return local_id.split('_')[0]
+
+    @staticmethod
+    def convert_to_7_digit_form(local_id: str) -> str:
+        # Convert any 5-digit HMDB local IDs to current 7-digit form
+        if local_id.startswith('HMDB') and len(local_id) == 9:
+            id_digits = local_id.removeprefix('HMDB')
+            return f"HMDB00{id_digits}"
+        else:
+            return local_id
+
 
 
     # ----------------------------------------------- VALIDATORS ---------------------------------------------------- #
@@ -536,6 +547,12 @@ class IdentifierNorm:
     def is_bvbrc_id(local_id: str) -> bool:
         # Allows: digits, a period, and more digits
         return bool(re.match(r'^\d+\.\d+$', local_id))
+
+    @staticmethod
+    def is_cas_id(local_id: str) -> bool:
+        # Allows: 2-7 digits, hyphen, 2 digits, hyphen, 1 digit
+        # Examples: 2906-39-0, 124-20-9, 54-16-0
+        return bool(re.match(r'^\d{2,7}-\d{2}-\d$', local_id))
 
     @staticmethod
     def is_cdcsvi_id(local_id: str) -> bool:
