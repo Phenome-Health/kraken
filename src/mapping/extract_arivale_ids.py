@@ -1,8 +1,6 @@
-import os
 import re
 import sys
 from collections import defaultdict
-from email.policy import default
 from pathlib import Path
 from typing import List, Tuple, Dict
 
@@ -21,15 +19,14 @@ VOCAB_MAP = {
     'HMDB': 'hmdb',
     'PUBCHEM': 'pubchem.compound'
 }
-ID_COLS = list(VOCAB_MAP.keys())
 
 IDNORM = IdentifierNorm(biolink_version="4.2.5")
 
 
-def get_curies(row: pd.Series) -> Tuple[List[str], Dict[str, List[str]]]:
+def get_curies(row: pd.Series, id_cols: List[str]) -> Tuple[List[str], Dict[str, List[str]]]:
     # First load IDs of different types, handling multiple IDs in one cell as necessary
     local_ids_map = {id_col: [local_id for local_id in re.split('[,;]', row[id_col])]
-                     for id_col in ID_COLS if pd.notnull(row[id_col])}
+                     for id_col in id_cols if pd.notnull(row[id_col])}
 
     all_curies = set()
     invalid_ids = defaultdict(list)
@@ -45,26 +42,28 @@ def get_curies(row: pd.Series) -> Tuple[List[str], Dict[str, List[str]]]:
     return list(all_curies), dict(invalid_ids)
 
 
-def extract_metabolite_ids(file_name: str):
-    file_path = PROJECT_ROOT_PATH / 'input_data' / 'mapping' / 'arivale' / file_name
+def extract_metabolite_ids(input_dir: Path, output_dir: Path):
+    input_path = input_dir / 'metabolomics_metadata.tsv'
 
+    id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM']
     relevant_cols = ['CHEMICAL_ID', 'SUB_PATHWAY', 'SUPER_PATHWAY', 'BIOCHEMICAL_NAME']
 
     metabolite_col_name = 'BIOCHEMICAL_NAME'
-    df = pd.read_table(file_path, dtype={'PUBCHEM': str}, usecols=relevant_cols + ID_COLS, skiprows=13)
+    df = pd.read_table(input_path, dtype={'PUBCHEM': str}, usecols=relevant_cols + id_cols, skiprows=13)
     print(df)
 
-    df[['curies', 'invalid_ids']] = df.apply(get_curies, axis=1, result_type='expand')
+    df[['curies', 'invalid_ids']] = df.apply(lambda row: get_curies(row, id_cols), axis=1, result_type='expand')
     print(df)
 
-    output_path = PROJECT_ROOT_PATH / 'src' / 'mapping' / 'arivale_metabolites_with_curies.tsv'
+    output_path = output_dir / 'arivale_metabolites_with_curies.tsv'
     df.to_csv(output_path, sep='\t', index=False)
 
 
 def main():
-    metabolites_file_name = "metabolomics_metadata.tsv"
+    input_dir = PROJECT_ROOT_PATH / 'input_data' / 'mapping' / 'arivale'
+    output_dir = PROJECT_ROOT_PATH / 'src' / 'mapping'
 
-    extract_metabolite_ids(metabolites_file_name)
+    extract_metabolite_ids(input_dir, output_dir)
 
 
 if __name__ == "__main__":
