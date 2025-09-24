@@ -1,7 +1,9 @@
 import ast
 import logging
 import sys
+from collections import Counter
 from pathlib import Path
+from typing import Optional, List
 
 import pandas as pd
 
@@ -15,8 +17,17 @@ from src.utils.kg_io import load_equivalency_mappings
 setup_logging()
 
 
-def get_canonical_ids(curies_list, equivalency_map):
+def get_canonical_ids(curies_list, equivalency_map) -> List[str]:
     return list({equivalency_map[curie] for curie in curies_list if curie in equivalency_map})
+
+
+def get_majority_canonical_id(curies_list, equivalency_map) -> Optional[str]:
+    votes = [equivalency_map[curie] for curie in curies_list if curie in equivalency_map]
+    if votes:
+        most_frequent = Counter(votes).most_common(1)[0][0]
+        return most_frequent
+    else:
+        return None
 
 
 def main():
@@ -29,7 +40,8 @@ def main():
     equivalency_map = load_equivalency_mappings(PROJECT_ROOT_PATH / 'artifacts' / 'integrated' / 'kraken_nodes_1.0.1.jsonl')
 
 
-    headers = ['dataset', 'total_items', 'has_valid_ids', 'in_kraken', 'no_provided_ids', 'has_invalid_ids', 'has_invalid_ids_and_not_in_kraken']
+    headers = ['dataset', 'total_items', 'has_valid_ids', 'mapped_to_kraken', 'one_to_one_mappings', 'one_to_many_mappings',
+               'no_provided_ids', 'has_invalid_ids', 'has_invalid_ids_and_not_in_kraken']
     stats = []
     for file_name in files_to_evaluate:
         file_path = input_dir / file_name
@@ -37,6 +49,7 @@ def main():
         df.curies = df.curies.apply(ast.literal_eval)
         df.invalid_ids = df.invalid_ids.apply(ast.literal_eval)
         df['kraken_canonical_ids'] = df.curies.apply(lambda x: get_canonical_ids(x, equivalency_map))
+        df['kraken_majority_canonical_id'] = df.curies.apply(lambda x: get_majority_canonical_id(x, equivalency_map))
 
         file_shortname = '_'.join(file_name.split('_')[:2])
 
@@ -46,8 +59,11 @@ def main():
         has_invalid_ids = df.invalid_ids.apply(lambda x: len(x) > 0).sum()
         in_kraken = df.kraken_canonical_ids.apply(lambda x: len(x) > 0).sum()
         has_invalid_ids_and_not_in_kraken = ((df.invalid_ids.apply(len) > 0) & (df.kraken_canonical_ids.apply(len) == 0)).sum()
+        one_to_one_mappings = df.kraken_canonical_ids.apply(lambda x: len(x) == 1).sum()
+        one_to_many_mappings = df.kraken_canonical_ids.apply(lambda x: len(x) > 1).sum()
 
-        row = [file_shortname, total_items, has_valid_curies, in_kraken, has_no_ids, has_invalid_ids, has_invalid_ids_and_not_in_kraken]
+        row = [file_shortname, total_items, has_valid_curies, in_kraken, one_to_one_mappings, one_to_many_mappings,
+               has_no_ids, has_invalid_ids, has_invalid_ids_and_not_in_kraken]
         stats.append(row)
 
         # Record the full results
@@ -68,6 +84,10 @@ def main():
         # Record the items with invalid IDs, for easy reference
         invalid_ids = df[df.invalid_ids.apply(lambda x: len(x) > 0)]
         invalid_ids.to_csv(output_dir / f"{file_shortname}_e_invalid_ids.tsv", sep='\t')
+
+        # Record the one-to-many items, for easy reference
+        one_to_many_items = df[df.kraken_canonical_ids.apply(lambda x: len(x) > 1)]
+        one_to_many_items.to_csv(output_dir / f"{file_shortname}_f_one_to_many.tsv", sep='\t')
 
 
     stats_df = pd.DataFrame(stats, columns=headers)

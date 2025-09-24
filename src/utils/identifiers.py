@@ -85,6 +85,7 @@ class IdentifierNorm:
             'doid': {validator: self.is_doid_id},
             'drugbank': {validator: self.is_drugbank_id},
             'ec': {validator: self.is_ec_id},
+            'ensembl': {validator: self.is_ensembl_gene_id},
             'envo': {validator: self.is_envo_id},
             'fips.place': {validator: self.is_fips_compound_id},
             'fips.state': {validator: self.is_fips_state_id},
@@ -328,6 +329,12 @@ class IdentifierNorm:
                 return False
 
         return True
+
+    @staticmethod
+    def is_ensembl_gene_id(local_id: str) -> bool:
+        # Allows: ENSG followed by exactly 11 digits
+        # Example: ENSG00000138675
+        return bool(re.match(r'^ENSG\d{11}$', local_id))
 
     @staticmethod
     def is_envo_id(local_id: str) -> bool:
