@@ -17,7 +17,8 @@ VOCAB_MAP = {
     'CAS': 'cas',
     'KEGG': ['kegg.compound', 'kegg.drug'],
     'HMDB': 'hmdb',
-    'PUBCHEM': 'pubchem.compound'
+    'PUBCHEM': 'pubchem.compound',
+    'uniprot': 'uniprotkb'
 }
 
 IDNORM = IdentifierNorm(biolink_version="4.2.5")
@@ -46,10 +47,9 @@ def extract_metabolite_ids(input_dir: Path, output_dir: Path):
     input_path = input_dir / 'metabolomics_metadata.tsv'
 
     id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM']
-    relevant_cols = ['CHEMICAL_ID', 'SUB_PATHWAY', 'SUPER_PATHWAY', 'BIOCHEMICAL_NAME']
+    other_cols = ['CHEMICAL_ID', 'SUB_PATHWAY', 'SUPER_PATHWAY', 'BIOCHEMICAL_NAME']
 
-    metabolite_col_name = 'BIOCHEMICAL_NAME'
-    df = pd.read_table(input_path, dtype={'PUBCHEM': str}, usecols=relevant_cols + id_cols, skiprows=13)
+    df = pd.read_table(input_path, dtype={'PUBCHEM': str}, usecols=other_cols + id_cols, skiprows=13)
     print(df)
 
     df[['curies', 'invalid_ids']] = df.apply(lambda row: get_curies(row, id_cols), axis=1, result_type='expand')
@@ -59,11 +59,28 @@ def extract_metabolite_ids(input_dir: Path, output_dir: Path):
     df.to_csv(output_path, sep='\t', index=False)
 
 
+def extract_protein_ids(input_dir: Path, output_dir: Path):
+    input_path = input_dir / 'proteomics_metadata.tsv'
+
+    id_cols = ['uniprot']
+    other_cols = ['name', 'panel', 'gene_name', 'gene_description', 'gene_id', 'transcript_id', 'protein_id']
+
+    df = pd.read_table(input_path, dtype={'PUBCHEM': str}, usecols=other_cols + id_cols, skiprows=13)
+    print(df)
+
+    df[['curies', 'invalid_ids']] = df.apply(lambda row: get_curies(row, id_cols), axis=1, result_type='expand')
+    print(df)
+
+    output_path = output_dir / 'arivale_proteins_with_curies.tsv'
+    df.to_csv(output_path, sep='\t', index=False)
+
+
 def main():
     input_dir = PROJECT_ROOT_PATH / 'input_data' / 'mapping' / 'arivale'
     output_dir = PROJECT_ROOT_PATH / 'src' / 'mapping'
 
     extract_metabolite_ids(input_dir, output_dir)
+    extract_protein_ids(input_dir, output_dir)
 
 
 if __name__ == "__main__":
