@@ -59,7 +59,7 @@ def get_curies(row: pd.Series, id_cols: List[str], array_delimiters: List[str]) 
 
 
 def annotate_with_curies(dataset_df: pd.DataFrame, id_cols: List[str], dataset_name: str, entity_type: str, version: str, array_delimiters: Optional[List[str]] = None):
-    print(f"On dataset {dataset_name},  {entity_type}, {version}")
+    print(f"On dataset {dataset_name}, {entity_type}, {version}")
     array_delimiters = array_delimiters if array_delimiters else [',', ';']  # Default to comma and semicolon
 
     dataset_df[['curies', 'invalid_ids']] = dataset_df.apply(lambda row: get_curies(row, id_cols, array_delimiters),
@@ -88,10 +88,48 @@ def load_arivale_metabolites_gdprefmet() -> Tuple[pd.DataFrame, List[str], List[
 def load_arivale_metabolites_lancerefmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
     id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM', 'INCHIKEY', 'SMILES', 'PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
     delimiters = [',', ';']
+    # This one is already the source metadata merged with Lance's refmet annotations
     input_path = MAPPING_INPUT_DIR / 'arivale' / 'metabolites_ChemicalAnnotation-Table1.tsv'
     df = pd.read_table(input_path)
     df[id_cols] = df[id_cols].replace('-', np.nan)
     return df, id_cols, delimiters
+
+def load_arivale_proteins_original() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['uniprot', 'gene_id']
+    delimiters = [',', ';']
+    input_path = MAPPING_INPUT_DIR / 'arivale' / 'proteomics_metadata.tsv'
+    df = pd.read_table(input_path, skiprows=13)
+    return df, id_cols, delimiters
+
+def load_arivale_clinicallabs_original() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['Labcorp LOINC ID', 'Quest LOINC ID']
+    delimiters = [',', ';']
+    input_path = MAPPING_INPUT_DIR / 'arivale' / 'chemistries_metadata.tsv'
+    df = pd.read_table(input_path, skiprows=13)
+    return df, id_cols, delimiters
+
+def load_arivale_lipids_initial() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['HMDB', 'KEGG']
+    delimiters = [',', ';']
+    input_path = MAPPING_INPUT_DIR / 'arivale' / 'lipids_ChemicalAnnotation-Table1.tsv'
+    df = pd.read_table(input_path)
+    df[id_cols] = df[id_cols].replace('-', np.nan)
+    return df, id_cols, delimiters
+
+def load_arivale_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['HMDB', 'KEGG', 'PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+    delimiters = [',', ';']
+
+    # Join the source metadata with the refmet annotations file from Lance
+    input_path_source = MAPPING_INPUT_DIR / 'arivale' / 'lipids_ChemicalAnnotation-Table1.tsv'
+    input_path_refmet = MAPPING_INPUT_DIR / 'arivale' / 'Arivale_lipidomics_metadata_REFMETANNOT.tsv'
+    source_df = pd.read_table(input_path_source)
+    refmet_df = pd.read_table(input_path_refmet)
+    df = pd.merge(source_df, refmet_df, left_on='CHEMICAL_NAME', right_on='Input.name')
+
+    df[id_cols] = df[id_cols].replace('-', np.nan)
+    return df, id_cols, delimiters
+
 
 def main():
     files_to_map = {
@@ -100,6 +138,16 @@ def main():
                 'original': load_arivale_metabolites_original,
                 'gdprefmet': load_arivale_metabolites_gdprefmet,
                 'lancerefmet': load_arivale_metabolites_lancerefmet
+            },
+            'proteins': {
+                'original': load_arivale_proteins_original
+            },
+            'clinicallabs': {
+                'original': load_arivale_clinicallabs_original
+            },
+            'lipids': {
+                'initial': load_arivale_lipids_initial,
+                'refmet': load_arivale_lipids_refmet
             }
         }
     }
