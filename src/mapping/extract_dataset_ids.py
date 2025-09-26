@@ -155,6 +155,22 @@ def load_ukbb_clinicallabs_filtered() -> Tuple[pd.DataFrame, List[str], List[str
     df[id_cols] = df[id_cols].replace('NO_MATCH', np.nan)
     return df, id_cols, delimiters
 
+def load_israeli10k_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+    delimiters = [';']
+    input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_lipidomics_metadata_REFMETANNOT.tsv'
+    df = pd.read_table(input_path)
+    df[id_cols] = df[id_cols].replace('-', np.nan)
+    return df, id_cols, delimiters
+
+def load_israeli10k_lipids_website() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+    delimiters = [';']
+    input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'Israeli10k_website_lipidomics_metadata_REFMETANNOT.tsv'
+    df = pd.read_table(input_path)
+    df[id_cols] = df[id_cols].replace('-', np.nan)
+    return df, id_cols, delimiters
+
 
 def main():
     files_to_map = {
@@ -181,6 +197,12 @@ def main():
             },
             'clinicallabs': {
                 'v1_filtered': load_ukbb_clinicallabs_filtered
+            }
+        },
+        'israeli10k': {
+            'lipids': {
+                'v1_refmet': load_israeli10k_lipids_refmet,
+                'v2_websiterefmet': load_israeli10k_lipids_website
             }
         }
     }
