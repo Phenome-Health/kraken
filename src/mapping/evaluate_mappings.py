@@ -33,8 +33,10 @@ def get_majority_canonical_id(curies_list, equivalency_map) -> Optional[str]:
 def main():
     input_dir = PROJECT_ROOT_PATH / 'src' / 'mapping'
     output_dir = PROJECT_ROOT_PATH / 'src' / 'mapping' / 'results'
-    files_to_evaluate = ['arivale_metabolites_with_curies.tsv', 'arivale_proteins_with_curies.tsv',
-                         'arivale_clinicallabs_with_curies.tsv', 'ukbb_proteins_with_curies.tsv']
+    files_to_evaluate = ['ukbb_proteins_with_curies.tsv',
+                         'arivale_metabolites_with_curies.tsv', 'arivale_proteins_with_curies.tsv',
+                         'arivale_clinicallabs_with_curies.tsv', 'arivale_lipids_with_curies.tsv',
+                         'israeli10k_lipids_with_curies.tsv']
 
 
     equivalency_map = load_equivalency_mappings(PROJECT_ROOT_PATH / 'artifacts' / 'integrated' / 'kraken_nodes_1.0.1.jsonl')
