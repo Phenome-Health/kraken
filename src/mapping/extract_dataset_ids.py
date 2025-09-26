@@ -25,12 +25,14 @@ VOCAB_MAP = {
     'KEGG_ID': 'kegg.compound',
     'Labcorp LOINC ID': 'loinc',
     'LM_ID': 'lm',
+    'loinc_code': 'loinc',
     'PUBCHEM': 'pubchem.compound',
     'PubChem_CID': 'pubchem.compound',
     'Quest LOINC ID': 'loinc',
     'RefMet_ID': 'rm',
     'SMILES': 'smiles',
-    'uniprot': 'uniprotkb'
+    'uniprot': 'uniprotkb',
+    'UniProt': 'uniprotkb'
 }
 
 IDNORM = IdentifierNorm(biolink_version="4.2.5")
@@ -130,34 +132,65 @@ def load_arivale_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
     df[id_cols] = df[id_cols].replace('-', np.nan)
     return df, id_cols, delimiters
 
+def load_ukbb_proteins_original() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['UniProt']
+    delimiters = ['_']
+    input_path = MAPPING_INPUT_DIR / 'ukbb' / 'UKBB_Protein_Meta.tsv'
+    df = pd.read_table(input_path)
+    return df, id_cols, delimiters
+
+def load_ukbb_clinicallabs_filtered() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['loinc_code']
+    delimiters = ['_']
+
+    # The biomapper results for this one contain qc fields as well; filter those out
+    biomapper_results_path = MAPPING_INPUT_DIR / 'ukbb' / 'ukbb_chemistry_COMPLETE.tsv'
+    fieldnames_path = MAPPING_INPUT_DIR / 'ukbb' / 'clinicallab_fieldnames.tsv'  # Copied from web (per Lance)
+    fieldnames_df = pd.read_table(fieldnames_path)
+    field_names = set(fieldnames_df['Description'].unique())
+    print(f"Field names to filter to: {field_names}")
+    df = pd.read_table(biomapper_results_path)
+    df = df[df['field_name'].isin(field_names)]
+
+    df[id_cols] = df[id_cols].replace('NO_MATCH', np.nan)
+    return df, id_cols, delimiters
+
 
 def main():
     files_to_map = {
         'arivale': {
             'metabolites': {
-                'original': load_arivale_metabolites_original,
-                'gdprefmet': load_arivale_metabolites_gdprefmet,
-                'lancerefmet': load_arivale_metabolites_lancerefmet
+                'v1_original': load_arivale_metabolites_original,
+                'v2_gdprefmet': load_arivale_metabolites_gdprefmet,
+                'v3_lancerefmet': load_arivale_metabolites_lancerefmet
             },
             'proteins': {
-                'original': load_arivale_proteins_original
+                'v1_original': load_arivale_proteins_original
             },
             'clinicallabs': {
-                'original': load_arivale_clinicallabs_original
+                'v1_original': load_arivale_clinicallabs_original
             },
             'lipids': {
-                'initial': load_arivale_lipids_initial,
-                'refmet': load_arivale_lipids_refmet
+                'v1_initial': load_arivale_lipids_initial,
+                'v2_refmet': load_arivale_lipids_refmet
+            }
+        },
+        'ukbb': {
+            'proteins': {
+                'v1_original': load_ukbb_proteins_original
+            },
+            'clinicallabs': {
+                'v1_filtered': load_ukbb_clinicallabs_filtered
             }
         }
     }
 
+    # Loop through and extract ids from all the above-defined files
     for dataset, info in files_to_map.items():
         for entity_type, versions in info.items():
             for version, loader in versions.items():
                 df, id_cols, array_delimiters = loader()
                 annotate_with_curies(df, id_cols, dataset, entity_type, version, array_delimiters)
-
 
 
 
