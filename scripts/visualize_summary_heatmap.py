@@ -164,7 +164,7 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
     plt.yticks(rotation=0)
 
     # Add footnote explaining the data
-    plt.figtext(0.6, -0.03, 'Values show percentage of items successfully mapped to knowledge graph.',
+    plt.figtext(0.6, -0.03, f'Values show percentage of items successfully mapped to {kg_name}.',
                 fontsize=9, style='italic', ha='center', va='bottom')
 
     # Adjust layout to prevent label cutoff and accommodate footnote

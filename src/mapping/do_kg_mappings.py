@@ -17,8 +17,9 @@ from src.utils.kg_io import load_equivalency_mappings
 
 setup_logging()
 
-INTERMEDIATE_RESULTS_DIR = PROJECT_ROOT_PATH / 'src' / 'mapping' / 'results_intermediate'
-FINAL_RESULTS_DIR = PROJECT_ROOT_PATH / 'src' / 'mapping' / 'results'
+MAPPING_DIR = PROJECT_ROOT_PATH / 'src' / 'mapping'
+INTERMEDIATE_RESULTS_DIR = MAPPING_DIR / 'results_intermediate'
+FINAL_RESULTS_DIR = MAPPING_DIR / 'results'
 
 
 def get_canonical_ids(curies_list, equivalency_map) -> List[str]:
@@ -103,7 +104,11 @@ def main():
 
 
         stats_df = pd.DataFrame(stats, columns=headers)
-        stats_df.to_csv(kg_results_dir / 'a_summary.tsv', sep='\t', index=False)
+        summary_stats_path = kg_results_dir / 'a_summary.tsv'
+        stats_df.to_csv(summary_stats_path, sep='\t', index=False)
+
+        print(f"Generating heatmap visualization for {graph_name}")
+        os.system(f"uv run python {MAPPING_DIR / 'visualize_summary_heatmap.py'} {graph_name} --input {summary_stats_path} --output {kg_results_dir}")
 
 
 
