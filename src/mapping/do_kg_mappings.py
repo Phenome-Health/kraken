@@ -39,7 +39,8 @@ def main():
     print(f"Found {len(files_to_evaluate)} intermediate results files to evaluate.")
     graphs_to_map_to = {
         'kraken': PROJECT_ROOT_PATH / 'artifacts' / 'integrated' / 'kraken_nodes_1.0.1.jsonl',
-        'kg2': PROJECT_ROOT_PATH / 'artifacts' / 'harmonized' / 'kg2' / 'nodes.jsonl'
+        'kg2': PROJECT_ROOT_PATH / 'artifacts' / 'harmonized' / 'kg2' / 'nodes.jsonl',
+        'spoke': PROJECT_ROOT_PATH / 'artifacts' / 'harmonized' / 'spoke' / 'nodes.jsonl'
     }
     print(f"Will map them to {len(graphs_to_map_to)} graphs: {list(graphs_to_map_to.keys())}")
 
@@ -47,6 +48,7 @@ def main():
         print(f"On graph {graph_name}")
         equivalency_map = load_equivalency_mappings(nodes_path)
         kg_results_dir = FINAL_RESULTS_DIR / graph_name
+        os.makedirs(kg_results_dir, exist_ok=True)
 
         headers = ['dataset', 'total_items', 'has_valid_ids', 'mapped_to_kg', 'one_to_one_mappings', 'one_to_many_mappings',
                    'no_provided_ids', 'has_invalid_ids', 'has_invalid_ids_and_not_in_kg']
