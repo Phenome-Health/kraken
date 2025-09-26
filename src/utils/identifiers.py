@@ -91,7 +91,7 @@ class IdentifierNorm:
             'fips.state': {validator: self.is_fips_state_id},
             'geonames': {validator: self.is_geonames_id},
             'go': {validator: self.is_go_id},
-            'hmdb': {validator: self.is_hmdb_id, cleaner: self.convert_to_7_digit_form},
+            'hmdb': {validator: self.is_hmdb_id, cleaner: self.clean_hmdb_id},
             'hps': {validator: self.is_hps_id},
             'icd9': {validator: self.is_icd9_id},
             'icd10': {validator: self.is_icd10_id},
@@ -150,6 +150,8 @@ class IdentifierNorm:
 
 
     def construct_curie(self, local_id: str, vocab_prefix_lowercase: Union[str, List[str]], stop_on_failure: bool = False) -> Tuple[str, str]:
+        # First, if this is a proper curie - remove its prefix
+        local_id = local_id.split(':')[1] if ':' in local_id else local_id
         # Constructs a standardized curie for the given local ID and vocabulary (or list of vocabularies; first valid kept)
         prefixes_lowercase = [vocab_prefix_lowercase] if isinstance(vocab_prefix_lowercase, str) else vocab_prefix_lowercase
         curie = ''
@@ -203,7 +205,11 @@ class IdentifierNorm:
         return local_id.split('_')[0]
 
     @staticmethod
-    def convert_to_7_digit_form(local_id: str) -> str:
+    def clean_hmdb_id(local_id: str) -> str:
+        # Remove any double-HMDB prefix
+        if local_id.startswith('HMDBHMDB'):
+            local_id = local_id.removeprefix('HMDB')
+
         # Convert any 5-digit HMDB local IDs to current 7-digit form
         if local_id.startswith('HMDB') and len(local_id) == 9:
             id_digits = local_id.removeprefix('HMDB')

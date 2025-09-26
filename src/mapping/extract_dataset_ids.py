@@ -16,6 +16,7 @@ from src.utils.identifiers import IdentifierNorm
 VOCAB_MAP = {
     'CAS': 'cas',
     'ChEBI_ID': 'chebi',
+    'derived_uniprot': 'uniprotkb',
     'gene_id': 'ensembl',
     'HMDB': 'hmdb',
     'HMDB_ID': 'hmdb',
@@ -26,6 +27,7 @@ VOCAB_MAP = {
     'Labcorp LOINC ID': 'loinc',
     'LM_ID': 'lm',
     'loinc_code': 'loinc',
+    'original_chebi_id': 'chebi',
     'PUBCHEM': 'pubchem.compound',
     'PubChem_CID': 'pubchem.compound',
     'Quest LOINC ID': 'loinc',
@@ -182,6 +184,27 @@ def load_israeli10k_lipids_website() -> Tuple[pd.DataFrame, List[str], List[str]
     df[id_cols] = df[id_cols].replace('-', np.nan)
     return df, id_cols, delimiters
 
+def load_israeli10k_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['original_chebi_id']
+    delimiters = [';']
+    input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_metabolites_COMPLETE.tsv'
+    df = pd.read_table(input_path)
+    return df, id_cols, delimiters
+
+def load_israeli10k_proteins_biomapper() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['derived_uniprot']
+    delimiters = [';']
+    input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_nightingale_proteins_mapped.tsv'
+    df = pd.read_table(input_path)
+    return df, id_cols, delimiters
+
+def load_israeli10k_clinicallabs_biomapper() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['loinc_code']
+    delimiters = [';']
+    input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_chemistry_loinc_COMPLETE.tsv'
+    df = pd.read_table(input_path)
+    return df, id_cols, delimiters
+
 
 def main():
     files_to_map = {
@@ -217,6 +240,15 @@ def main():
             'lipids': {
                 'v1_refmet': load_israeli10k_lipids_refmet,
                 'v2_websiterefmet': load_israeli10k_lipids_website
+            },
+            'metabolites': {
+                'v1_biomapper': load_israeli10k_metabolites_biomapper
+            },
+            'proteins': {
+                'v1_biomapper': load_israeli10k_proteins_biomapper
+            },
+            'clinicallabs': {
+                'v1_biomapper': load_israeli10k_clinicallabs_biomapper
             }
         }
     }
