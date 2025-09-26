@@ -59,9 +59,9 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
             mapped = df.loc[df_idx, mapped_col]
             total = df.loc[df_idx, total_col]
             
-            # Handle N/A values
-            if pd.isna(coverage) or coverage == 'N/A':
-                coverage_matrix.loc[entity_type_display, dataset] = np.nan
+            # Handle N/A values (including empty strings)
+            if pd.isna(coverage) or coverage == 'N/A' or coverage == '':
+                coverage_matrix.loc[entity_type_display, dataset] = -1  # Use -1 as placeholder for N/A
                 annotation_matrix.loc[entity_type_display, dataset] = 'N/A'
             else:
                 try:
@@ -92,11 +92,12 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
     plt.figure(figsize=(12, 8))
     
     # Create heatmap with custom colormap
-    mask = coverage_matrix.isna()
-    
     # Use a colormap that goes from red (low coverage) to green (high coverage)
     cmap = sns.diverging_palette(10, 130, as_cmap=True)  # Red to green
-    
+
+    # Create mask for N/A values (where coverage_matrix == -1)
+    mask = (coverage_matrix == -1)
+
     ax = sns.heatmap(
         coverage_matrix,
         annot=annotation_matrix,
@@ -112,6 +113,14 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
         linewidths=0.5,
         linecolor='white'
     )
+
+    # Manually add N/A annotations for masked cells
+    for i, row_name in enumerate(coverage_matrix.index):
+        for j, col_name in enumerate(coverage_matrix.columns):
+            if coverage_matrix.loc[row_name, col_name] == -1:
+                ax.text(j + 0.5, i + 0.5, 'N/A',
+                       ha='center', va='center', fontsize=10,
+                       color='black')
     
     # Customize the plot
     plt.title('KG Mapping Across Datasets - Coverage', fontsize=16, fontweight='bold', pad=20)
