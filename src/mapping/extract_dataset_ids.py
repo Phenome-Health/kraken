@@ -197,6 +197,7 @@ def load_israeli10k_proteins_biomapper() -> Tuple[pd.DataFrame, List[str], List[
     id_cols = ['derived_uniprot']
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_nightingale_proteins_mapped.tsv'
+    # NOTE: I manually collapsed the one derived measure into one in this tsv; has both uniprot ids
     df = pd.read_table(input_path)
     return df, id_cols, delimiters
 
