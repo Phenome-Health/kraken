@@ -31,6 +31,9 @@ VOCAB_MAP = {
     'Quest LOINC ID': 'loinc',
     'RefMet_ID': 'rm',
     'SMILES': 'smiles',
+    'source_chebi_id': 'chebi',
+    'source_hmdb_id': 'hmdb',
+    'source_pubchem_id': 'pubchem.compound',
     'uniprot': 'uniprotkb',
     'UniProt': 'uniprotkb'
 }
@@ -155,6 +158,14 @@ def load_ukbb_clinicallabs_filtered() -> Tuple[pd.DataFrame, List[str], List[str
     df[id_cols] = df[id_cols].replace('NO_MATCH', np.nan)
     return df, id_cols, delimiters
 
+def load_ukbb_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['source_chebi_id', 'source_hmdb_id', 'source_pubchem_id']
+    delimiters = [';']
+    input_path = MAPPING_INPUT_DIR / 'ukbb' / 'ukbb_metabolites_COMPLETE.tsv'
+    df = pd.read_table(input_path, dtype={'source_pubchem_id': str})
+    df.source_pubchem_id = df.source_pubchem_id.str.removesuffix('.0')
+    return df, id_cols, delimiters
+
 def load_israeli10k_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
     id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
     delimiters = [';']
@@ -197,6 +208,9 @@ def main():
             },
             'clinicallabs': {
                 'v1_filtered': load_ukbb_clinicallabs_filtered
+            },
+            'metabolites': {
+                'v1_biomapper': load_ukbb_metabolites_biomapper
             }
         },
         'israeli10k': {
