@@ -108,7 +108,7 @@ def main():
         stats_df.to_csv(summary_stats_path, sep='\t', index=False)
 
         print(f"Generating heatmap visualization for {graph_name}")
-        os.system(f"uv run python {MAPPING_DIR / 'visualize_summary_heatmap.py'} {graph_name} --input {summary_stats_path} --output {kg_results_dir}")
+        os.system(f"uv run python {MAPPING_DIR / 'visualize_summary_heatmap.py'} {graph_name.upper()} --input {summary_stats_path} --output {kg_results_dir}")
 
 
 

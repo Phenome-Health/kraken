@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 from collections import defaultdict
@@ -44,6 +45,7 @@ IDNORM = IdentifierNorm(biolink_version="4.2.5")
 
 MAPPING_INPUT_DIR = PROJECT_ROOT_PATH / 'input_data' / 'mapping'
 INTERMEDIATE_RESULTS_DIR = PROJECT_ROOT_PATH / 'src' / 'mapping' / 'results_intermediate'
+os.makedirs(INTERMEDIATE_RESULTS_DIR, exist_ok=True)
 
 
 def get_curies(row: pd.Series, id_cols: List[str], array_delimiters: List[str]) -> Tuple[List[str], Dict[str, List[str]]]:
@@ -205,6 +207,14 @@ def load_israeli10k_clinicallabs_biomapper() -> Tuple[pd.DataFrame, List[str], L
     df = pd.read_table(input_path)
     return df, id_cols, delimiters
 
+def load_israeli10k_clinicallabs_biomapper2() -> Tuple[pd.DataFrame, List[str], List[str]]:
+    id_cols = ['loinc_code']
+    delimiters = [';']
+    input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_chemistry_loinc_COMPLETE_2.tsv'
+    df = pd.read_table(input_path)
+    df[id_cols] = df[id_cols].replace('NO_MATCH', np.nan)
+    return df, id_cols, delimiters
+
 
 def main():
     files_to_map = {
@@ -248,7 +258,8 @@ def main():
                 'v1_biomapper': load_israeli10k_proteins_biomapper
             },
             'clinicallabs': {
-                'v1_biomapper': load_israeli10k_clinicallabs_biomapper
+                'v1_biomapper': load_israeli10k_clinicallabs_biomapper,
+                'v2_biomapper': load_israeli10k_clinicallabs_biomapper2
             }
         }
     }
