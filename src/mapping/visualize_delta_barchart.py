@@ -26,7 +26,7 @@ def parse_dataset_info(dataset_name: str) -> tuple[str, str, int]:
         raise ValueError(f"Cannot parse dataset name: {dataset_name}")
 
 
-def load_and_process_summary_data(file_path: Path) -> pd.DataFrame:
+def load_and_process_summary_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load TSV data and process into coverage DataFrame"""
 
     # Read the TSV file
@@ -68,10 +68,11 @@ def load_and_process_summary_data(file_path: Path) -> pd.DataFrame:
         aggfunc='first'
     ).reset_index()
 
-    return result_df
+    return result_df, latest_df
 
 
 def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame,
+                         baseline_raw_df: pd.DataFrame, comparison_raw_df: pd.DataFrame,
                          baseline_name: str, comparison_name: str, output_dir: Path):
     """Create and save the delta bar chart"""
 
@@ -110,6 +111,7 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
     # Create ordered labels (first by entity type, then by dataset)
     ordered_labels = []
     ordered_deltas = []
+    ordered_counts = []  # Store count information for each bar
     colors = []
     entity_type_positions = []  # Track where each entity type ends
 
@@ -129,6 +131,29 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
                 label = f"{dataset_display}"  # Just the dataset name
                 ordered_labels.append(label)
                 ordered_deltas.append(row['delta'])
+
+                # Store count information for display - get actual counts from raw data
+                baseline_raw_row = baseline_raw_df[(baseline_raw_df['dataset'] == dataset) &
+                                                  (baseline_raw_df['entity_type'] == entity_type)]
+                comparison_raw_row = comparison_raw_df[(comparison_raw_df['dataset'] == dataset) &
+                                                      (comparison_raw_df['entity_type'] == entity_type)]
+
+                if len(baseline_raw_row) > 0 and len(comparison_raw_row) > 0:
+                    # Get actual mapped counts and total items
+                    baseline_mapped = int(baseline_raw_row['mapped_to_kg'].iloc[0])
+                    comparison_mapped = int(comparison_raw_row['mapped_to_kg'].iloc[0])
+                    total_items = int(comparison_raw_row['total_items'].iloc[0])
+
+                    # Calculate the difference
+                    count_diff = comparison_mapped - baseline_mapped
+
+                    # Always show count info now
+                    count_info = f"({count_diff:+d} / {total_items})"
+                else:
+                    count_info = ""
+
+                ordered_counts.append(count_info)
+
                 current_position += 1
                 # Color coding: positive = green, negative = red, zero = gray
                 if row['delta'] > 0:
@@ -188,12 +213,34 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
                         bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgray', alpha=1.0))
                 current_pos = end_pos
 
-    # Add value labels on bars
-    for i, (bar, delta) in enumerate(zip(bars, ordered_deltas)):
+    # Add delta labels and count labels above bars
+    for i, (bar, delta, counts) in enumerate(zip(bars, ordered_deltas, ordered_counts)):
         height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width()/2., height + (1 if height >= 0 else -3),
-                f'{delta:+.1f}%', ha='center', va='bottom' if height >= 0 else 'top',
-                fontsize=9, fontweight='bold')
+        x_center = bar.get_x() + bar.get_width()/2.
+
+        if height >= 0:  # Positive bars - stack labels above
+            # Delta percentage at the top
+            delta_y = height + 3
+            # Count info below the delta (closer spacing)
+            count_y = height + 1
+            va_delta = 'bottom'
+            va_count = 'bottom'
+        else:  # Negative bars - stack labels below
+            # Delta percentage at the bottom
+            delta_y = height - 3
+            # Count info above the delta (closer spacing)
+            count_y = height - 1
+            va_delta = 'top'
+            va_count = 'top'
+
+        # Delta label
+        plt.text(x_center, delta_y, f'{delta:+.1f}%',
+                ha='center', va=va_delta, fontsize=9, fontweight='bold')
+
+        # Count label (always show now if there's text)
+        if counts:  # Only add label if counts is not empty
+            plt.text(x_center, count_y, counts,
+                    ha='center', va=va_count, fontsize=7, fontweight='normal')
 
     # Add legend outside the plot area
     from matplotlib.patches import Patch
@@ -328,16 +375,17 @@ def main():
 
     # Load and process data
     print(f"Loading baseline data from: {baseline_file}")
-    baseline_df = load_and_process_summary_data(baseline_file)
+    baseline_df, baseline_raw_df = load_and_process_summary_data(baseline_file)
 
     print(f"Loading comparison data from: {comparison_file}")
-    comparison_df = load_and_process_summary_data(comparison_file)
+    comparison_df, comparison_raw_df = load_and_process_summary_data(comparison_file)
 
     print(f"\nBaseline data shape: {baseline_df.shape}")
     print(f"Comparison data shape: {comparison_df.shape}")
 
     # Create visualization
-    merged_df = create_delta_barchart(baseline_df, comparison_df, args.baseline_name, args.comparison_name, output_dir)
+    merged_df = create_delta_barchart(baseline_df, comparison_df, baseline_raw_df, comparison_raw_df,
+                                     args.baseline_name, args.comparison_name, output_dir)
 
     # Generate summary statistics
     generate_delta_summary(merged_df, args.baseline_name, args.comparison_name, output_dir)
