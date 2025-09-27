@@ -81,13 +81,22 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     entity_types_display = [entity_type_mapping.get(et, et.title()) for et in entity_types]
 
+    # Map dataset names for display
+    datasets_display = []
+    for dataset in datasets:
+        if dataset.lower() == 'ukbb':
+            datasets_display.append('UKBB')
+        else:
+            datasets_display.append(dataset.title())
+
     print(f"Datasets: {datasets}")
+    print(f"Datasets display: {datasets_display}")
     print(f"Entity types: {entity_types}")
     print(f"Entity types display: {entity_types_display}")
 
     # Create coverage matrix and annotation matrix (flipped: datasets on y-axis, entity types on x-axis)
-    coverage_matrix = pd.DataFrame(index=datasets, columns=entity_types_display, dtype=float)
-    annotation_matrix = pd.DataFrame(index=datasets, columns=entity_types_display, dtype=str)
+    coverage_matrix = pd.DataFrame(index=datasets_display, columns=entity_types_display, dtype=float)
+    annotation_matrix = pd.DataFrame(index=datasets_display, columns=entity_types_display, dtype=str)
 
     # Fill matrices
     for _, row in latest_df.iterrows():
@@ -95,24 +104,30 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         entity_type = row['entity_type']
         entity_type_display = entity_type_mapping.get(entity_type, entity_type.title())
 
+        # Get dataset display name
+        if dataset.lower() == 'ukbb':
+            dataset_display = 'UKBB'
+        else:
+            dataset_display = dataset.title()
+
         total_items = row['total_items']
         mapped_to_kg = row['mapped_to_kg']
 
         # Calculate percentage
         if total_items > 0:
             coverage_percentage = (mapped_to_kg / total_items) * 100
-            coverage_matrix.loc[dataset, entity_type_display] = coverage_percentage
-            annotation_matrix.loc[dataset, entity_type_display] = f"$\\mathbf{{{coverage_percentage:.1f}\\%}}$\n\n{mapped_to_kg:,} / {total_items:,}"
+            coverage_matrix.loc[dataset_display, entity_type_display] = coverage_percentage
+            annotation_matrix.loc[dataset_display, entity_type_display] = f"$\\mathbf{{{coverage_percentage:.1f}\\%}}$\n\n{mapped_to_kg:,} / {total_items:,}"
         else:
-            coverage_matrix.loc[dataset, entity_type_display] = -1  # Use -1 as placeholder for N/A
-            annotation_matrix.loc[dataset, entity_type_display] = 'N/A'
+            coverage_matrix.loc[dataset_display, entity_type_display] = -1  # Use -1 as placeholder for N/A
+            annotation_matrix.loc[dataset_display, entity_type_display] = 'N/A'
 
     # Fill missing combinations with N/A
-    for dataset in datasets:
+    for dataset_display in datasets_display:
         for entity_type_display in entity_types_display:
-            if pd.isna(coverage_matrix.loc[dataset, entity_type_display]):
-                coverage_matrix.loc[dataset, entity_type_display] = -1
-                annotation_matrix.loc[dataset, entity_type_display] = 'N/A'
+            if pd.isna(coverage_matrix.loc[dataset_display, entity_type_display]):
+                coverage_matrix.loc[dataset_display, entity_type_display] = -1
+                annotation_matrix.loc[dataset_display, entity_type_display] = 'N/A'
 
     return coverage_matrix, annotation_matrix
 
@@ -155,8 +170,8 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
                        color='black')
 
     # Customize the plot
-    plt.title(f'{kg_name} Mapping Summary - Coverage', fontsize=16, fontweight='bold', pad=20)
-    plt.xlabel('Entity Type', fontsize=12, fontweight='bold')
+    plt.title(f'{kg_name} Mapping Summary', fontsize=16, fontweight='bold', pad=20)
+    # plt.xlabel('Entity Type', fontsize=12, fontweight='bold')
     plt.ylabel('Dataset', fontsize=12, fontweight='bold')
 
     # Keep x-axis labels horizontal
