@@ -155,7 +155,7 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
         vmax=100,
         mask=mask,
         cbar_kws={'label': 'Coverage (%)'},
-        annot_kws={'size': 10, 'ha': 'center', 'va': 'center'},
+        annot_kws={'size': 9, 'ha': 'center', 'va': 'center'},
         square=True,
         linewidths=0.5,
         linecolor='white'
@@ -166,7 +166,7 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
         for j, col_name in enumerate(coverage_matrix.columns):
             if coverage_matrix.loc[row_name, col_name] == -1:
                 ax.text(j + 0.5, i + 0.5, 'N/A',
-                       ha='center', va='center', fontsize=10,
+                       ha='center', va='center', fontsize=9,
                        color='black')
 
     # Customize the plot
