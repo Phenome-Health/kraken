@@ -107,13 +107,16 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
     # Order entity types in reverse alphabetical order (same as heatmap)
     entity_type_order = ['proteins', 'metabolites', 'lipids', 'clinicallabs']
 
-    # Create ordered labels
+    # Create ordered labels (first by entity type, then by dataset)
     ordered_labels = []
     ordered_deltas = []
     colors = []
+    entity_type_positions = []  # Track where each entity type ends
 
-    for dataset in dataset_order:
-        for entity_type in entity_type_order:
+    current_position = 0
+    for entity_type in entity_type_order:
+        entity_start = current_position
+        for dataset in dataset_order:
             mask = (merged_df['dataset'] == dataset) & (merged_df['entity_type'] == entity_type)
             if mask.any():
                 row = merged_df[mask].iloc[0]
@@ -121,6 +124,7 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
                 label = f"{dataset.title()}\n{entity_display}"
                 ordered_labels.append(label)
                 ordered_deltas.append(row['delta'])
+                current_position += 1
                 # Color coding: positive = green, negative = red, zero = gray
                 if row['delta'] > 0:
                     colors.append('#2E8B57')  # Sea green
@@ -128,6 +132,10 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
                     colors.append('#DC143C')  # Crimson
                 else:
                     colors.append('#808080')  # Gray
+
+        # Record the end position of this entity type (if it had any bars)
+        if current_position > entity_start:
+            entity_type_positions.append(current_position)
 
     # Create the bar chart
     plt.figure(figsize=(10, 8))
@@ -155,6 +163,11 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
 
     # Add horizontal line at y=0
     plt.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+
+    # Add vertical lines to separate entity type groups
+    for i in range(len(entity_type_positions) - 1):  # Don't draw after the last group
+        x_position = entity_type_positions[i] - 0.5
+        plt.axvline(x=x_position, color='gray', linestyle='--', linewidth=1, alpha=0.7)
 
     # Add value labels on bars
     for i, (bar, delta) in enumerate(zip(bars, ordered_deltas)):
