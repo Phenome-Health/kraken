@@ -121,7 +121,7 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
             if mask.any():
                 row = merged_df[mask].iloc[0]
                 entity_display = entity_type_mapping.get(entity_type, entity_type.title())
-                label = f"{dataset.title()}\n{entity_display}"
+                label = f"{dataset.title()}"  # Just the dataset name
                 ordered_labels.append(label)
                 ordered_deltas.append(row['delta'])
                 current_position += 1
@@ -168,6 +168,20 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
     for i in range(len(entity_type_positions) - 1):  # Don't draw after the last group
         x_position = entity_type_positions[i] - 0.5
         plt.axvline(x=x_position, color='gray', linestyle='--', linewidth=1, alpha=0.7)
+
+    # Add entity type labels right at the top of the chart area
+    current_pos = 0
+    for i, entity_type in enumerate(entity_type_order):
+        # Find the range for this entity type
+        if i < len(entity_type_positions):
+            end_pos = entity_type_positions[i]
+            if end_pos > current_pos:  # Only add label if there are bars for this entity type
+                center_pos = (current_pos + end_pos - 1) / 2
+                entity_display = entity_type_mapping.get(entity_type, entity_type.title())
+                plt.text(center_pos, plt.ylim()[1] - 1, entity_display,
+                        ha='center', va='bottom', fontsize=11, fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgray', alpha=1.0))
+                current_pos = end_pos
 
     # Add value labels on bars
     for i, (bar, delta) in enumerate(zip(bars, ordered_deltas)):
