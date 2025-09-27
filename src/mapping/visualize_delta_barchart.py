@@ -144,7 +144,7 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
 
     # Customize the plot
     plt.title(f'Coverage Delta: {comparison_name} vs {baseline_name}', fontsize=16, fontweight='bold', pad=50)
-    plt.xlabel('Dataset - Entity Type', fontsize=12, fontweight='bold')
+    plt.xlabel('Dataset and Entity Type', fontsize=12, fontweight='bold')
     plt.ylabel('Coverage Difference (percent)', fontsize=12, fontweight='bold')
 
     # Set x-axis labels
