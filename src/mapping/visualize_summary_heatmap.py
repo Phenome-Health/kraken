@@ -136,7 +136,7 @@ def create_coverage_heatmap(coverage_matrix: pd.DataFrame, annotation_matrix: pd
     """Create and save the coverage heatmap"""
 
     # Set up the plot (smaller cells relative to text)
-    plt.figure(figsize=(8, 5))
+    plt.figure(figsize=(7, 4))
 
     # Create heatmap with custom colormap
     # Use a colormap that goes from red (low coverage) to green (high coverage)
