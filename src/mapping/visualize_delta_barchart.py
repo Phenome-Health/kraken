@@ -130,17 +130,28 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
                     colors.append('#808080')  # Gray
 
     # Create the bar chart
-    plt.figure(figsize=(14, 8))
+    plt.figure(figsize=(10, 8))
 
     bars = plt.bar(range(len(ordered_labels)), ordered_deltas, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
 
     # Customize the plot
-    plt.title(f'Coverage Delta: {comparison_name} vs {baseline_name}', fontsize=16, fontweight='bold', pad=20)
+    plt.title(f'Coverage Delta: {comparison_name} vs {baseline_name}', fontsize=16, fontweight='bold', pad=50)
     plt.xlabel('Dataset - Entity Type', fontsize=12, fontweight='bold')
-    plt.ylabel('Coverage Difference (percentage points)', fontsize=12, fontweight='bold')
+    plt.ylabel('Coverage Difference (percent)', fontsize=12, fontweight='bold')
 
     # Set x-axis labels
     plt.xticks(range(len(ordered_labels)), ordered_labels, rotation=45, ha='right')
+
+    # Set consistent y-axis scale for comparability
+    min_delta = min(ordered_deltas) if ordered_deltas else 0
+    max_delta = max(ordered_deltas) if ordered_deltas else 0
+
+    if min_delta >= 0:  # Only positive or zero differences
+        plt.ylim(0, 100)
+    elif max_delta <= 0:  # Only negative or zero differences
+        plt.ylim(-100, 0)
+    else:  # Both positive and negative differences
+        plt.ylim(-100, 100)
 
     # Add horizontal line at y=0
     plt.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
@@ -152,18 +163,13 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
                 f'{delta:+.1f}%', ha='center', va='bottom' if height >= 0 else 'top',
                 fontsize=9, fontweight='bold')
 
-    # Add legend
+    # Add legend outside the plot area
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor='#2E8B57', alpha=0.7, label=f'{comparison_name} higher'),
-        Patch(facecolor='#DC143C', alpha=0.7, label=f'{baseline_name} higher'),
-        Patch(facecolor='#808080', alpha=0.7, label='Equal')
+        Patch(facecolor='#2E8B57', alpha=0.7, label=f'{comparison_name} gain vs. {baseline_name}'),
+        Patch(facecolor='#DC143C', alpha=0.7, label=f'{comparison_name} loss vs. {baseline_name}')
     ]
-    plt.legend(handles=legend_elements, loc='upper right')
-
-    # Add footnote
-    plt.figtext(0.5, 0.02, f'Positive values indicate {comparison_name} has higher coverage than {baseline_name}.',
-                fontsize=9, style='italic', ha='center', va='bottom')
+    plt.legend(handles=legend_elements, bbox_to_anchor=(0.5, 1.04), loc='lower center', ncol=2)
 
     # Adjust layout
     plt.tight_layout()
