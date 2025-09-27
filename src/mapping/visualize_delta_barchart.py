@@ -170,7 +170,7 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
     # Create the bar chart
     plt.figure(figsize=(10, 8))
 
-    bars = plt.bar(range(len(ordered_labels)), ordered_deltas, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
+    bars = plt.bar(range(len(ordered_labels)), ordered_deltas, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5, width=0.6)
 
     # Customize the plot
     plt.title(f'Coverage Delta: {comparison_name} vs {baseline_name}', fontsize=16, fontweight='bold', pad=50)
@@ -389,10 +389,6 @@ def main():
 
     # Generate summary statistics
     generate_delta_summary(merged_df, args.baseline_name, args.comparison_name, output_dir)
-
-    print(f"\nUsage tips:")
-    print(f"  python src/mapping/visualize_delta_barchart.py baseline.tsv comparison.tsv")
-    print(f"  python src/mapping/visualize_delta_barchart.py kraken.tsv kg2.tsv --baseline-name KRAKEN --comparison-name KG2")
 
 
 if __name__ == "__main__":

@@ -267,10 +267,6 @@ def main():
     # Generate summary statistics
     generate_summary_stats(coverage_matrix, output_dir, args.kg_name)
 
-    print(f"\nUsage tips:")
-    print(f"  python scripts/visualize_summary_heatmap.py KRAKEN                    # Use default files with KRAKEN")
-    print(f"  python scripts/visualize_summary_heatmap.py MONARCH --input data.tsv  # Use custom input file with MONARCH")
-
 
 if __name__ == "__main__":
     main()

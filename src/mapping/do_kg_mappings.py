@@ -110,6 +110,18 @@ def main():
         print(f"Generating heatmap visualization for {graph_name}")
         os.system(f"uv run python {MAPPING_DIR / 'visualize_summary_heatmap.py'} {graph_name.upper()} --input {summary_stats_path} --output {kg_results_dir}")
 
+    # Generate comparative delta barcharts of percent gained/lost with different KGs
+    print(f"Generating delta barcharts")
+    kraken_summary_path = MAPPING_DIR / 'results' / 'kraken' / 'a_summary.tsv'
+    kg2_summary_path = MAPPING_DIR / 'results' / 'kg2' / 'a_summary.tsv'
+    spoke_summary_path = MAPPING_DIR / 'results' / 'spoke' / 'a_summary.tsv'
+    barchart_run_command = f"uv run python {MAPPING_DIR / 'visualize_delta_barchart.py'}"
+    os.system(f"{barchart_run_command} {kg2_summary_path} {kraken_summary_path} --baseline-name KG2 --comparison-name KRAKEN --output {FINAL_RESULTS_DIR}")
+    os.system(f"{barchart_run_command} {spoke_summary_path} {kraken_summary_path} --baseline-name SPOKE --comparison-name KRAKEN --output {FINAL_RESULTS_DIR}")
+    os.system(f"{barchart_run_command} {kraken_summary_path} {kg2_summary_path} --baseline-name KRAKEN --comparison-name KG2 --output {FINAL_RESULTS_DIR}")
+    os.system(f"{barchart_run_command} {kraken_summary_path} {spoke_summary_path} --baseline-name KRAKEN --comparison-name SPOKE --output {FINAL_RESULTS_DIR}")
+
+
 
 
 if __name__ == "__main__":
