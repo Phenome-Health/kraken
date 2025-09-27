@@ -121,7 +121,12 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
             if mask.any():
                 row = merged_df[mask].iloc[0]
                 entity_display = entity_type_mapping.get(entity_type, entity_type.title())
-                label = f"{dataset.title()}"  # Just the dataset name
+                # Special formatting for dataset names
+                if dataset.lower() == 'ukbb':
+                    dataset_display = 'UKBB'
+                else:
+                    dataset_display = dataset.title()
+                label = f"{dataset_display}"  # Just the dataset name
                 ordered_labels.append(label)
                 ordered_deltas.append(row['delta'])
                 current_position += 1
@@ -144,8 +149,8 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
 
     # Customize the plot
     plt.title(f'Coverage Delta: {comparison_name} vs {baseline_name}', fontsize=16, fontweight='bold', pad=50)
-    plt.xlabel('Dataset and Entity Type', fontsize=12, fontweight='bold')
-    plt.ylabel('Coverage Difference (percent)', fontsize=12, fontweight='bold')
+    plt.xlabel('Dataset', fontsize=12, fontweight='bold')
+    plt.ylabel('Coverage Difference (%)', fontsize=12, fontweight='bold')
 
     # Set x-axis labels
     plt.xticks(range(len(ordered_labels)), ordered_labels, rotation=45, ha='right')
