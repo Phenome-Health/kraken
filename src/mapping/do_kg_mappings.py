@@ -51,8 +51,6 @@ def main():
         kg_results_dir = FINAL_RESULTS_DIR / graph_name
         os.makedirs(kg_results_dir, exist_ok=True)
 
-        headers = ['dataset', 'total_items', 'has_valid_ids', 'mapped_to_kg', 'one_to_one_mappings', 'one_to_many_mappings',
-                   'no_provided_ids', 'has_invalid_ids', 'has_invalid_ids_and_not_in_kg']
         stats = []
         for file_name in files_to_evaluate:
             print(f"On file {file_name}")
@@ -60,23 +58,44 @@ def main():
             dataset, entity_type, version = file_name.split('_')[:3]
             df = pd.read_table(file_path)
             df.curies = df.curies.apply(ast.literal_eval)
+            df.curies_provided = df.curies_provided.apply(ast.literal_eval)
+            df.curies_assigned = df.curies_assigned.apply(ast.literal_eval)
             df.invalid_ids = df.invalid_ids.apply(ast.literal_eval)
+            df.invalid_ids_provided = df.invalid_ids_provided.apply(ast.literal_eval)
+            df.invalid_ids_assigned = df.invalid_ids_assigned.apply(ast.literal_eval)
             df['kg_canonical_ids'] = df.curies.apply(lambda x: get_canonical_ids(x, equivalency_map))
             df['kg_majority_canonical_id'] = df.curies.apply(lambda x: get_majority_canonical_id(x, equivalency_map))
+            df['kg_canonical_ids_provided'] = df.curies_provided.apply(lambda x: get_canonical_ids(x, equivalency_map))
+            df['kg_canonical_ids_assigned'] = df.curies_assigned.apply(lambda x: get_canonical_ids(x, equivalency_map))
 
             total_items = len(df)
-            has_valid_curies = df.curies.apply(lambda x: len(x) > 0).sum()
+            has_valid_ids = df.curies.apply(lambda x: len(x) > 0).sum()
+            has_valid_ids_provided = df.curies_provided.apply(lambda x: len(x) > 0).sum()
+            has_valid_ids_assigned = df.curies_assigned.apply(lambda x: len(x) > 0).sum()
             has_no_ids = ((df.curies.apply(len) == 0) & (df.invalid_ids.apply(len) == 0)).sum()
             has_invalid_ids = df.invalid_ids.apply(lambda x: len(x) > 0).sum()
-            in_kg = df.kg_canonical_ids.apply(lambda x: len(x) > 0).sum()
+            has_invalid_ids_provided = df.invalid_ids_provided.apply(lambda x: len(x) > 0).sum()
+            has_invalid_ids_assigned = df.invalid_ids_assigned.apply(lambda x: len(x) > 0).sum()
+            mapped_to_kg = df.kg_canonical_ids.apply(lambda x: len(x) > 0).sum()
+            mapped_to_kg_provided = df.kg_canonical_ids_provided.apply(lambda x: len(x) > 0).sum()
+            mapped_to_kg_assigned = df.kg_canonical_ids_assigned.apply(lambda x: len(x) > 0).sum()
+            assigned_mappings_verified = df.apply(lambda r: len(set(r.kg_canonical_ids_provided) & set(r.kg_canonical_ids_assigned)) > 0, axis=1).sum()
             has_invalid_ids_and_not_in_kg = ((df.invalid_ids.apply(len) > 0) & (df.kg_canonical_ids.apply(len) == 0)).sum()
             one_to_one_mappings = df.kg_canonical_ids.apply(lambda x: len(x) == 1).sum()
             one_to_many_mappings = df.kg_canonical_ids.apply(lambda x: len(x) > 1).sum()
 
             file_shortname = f"{dataset}_{entity_type}_{version}"
 
-            row = [file_shortname, total_items, has_valid_curies, in_kg, one_to_one_mappings, one_to_many_mappings,
-                   has_no_ids, has_invalid_ids, has_invalid_ids_and_not_in_kg]
+            headers = ['dataset', 'total_items', 'has_valid_ids', 'has_valid_ids_provided', 'has_valid_ids_assigned',
+                       'mapped_to_kg', 'one_to_one_mappings', 'one_to_many_mappings',
+                       'mapped_to_kg_provided', 'mapped_to_kg_assigned', 'assigned_mappings_verified',
+                       'has_invalid_ids', 'has_invalid_ids_provided', 'has_invalid_ids_assigned',
+                       'has_no_ids', 'has_invalid_ids_and_not_in_kg']
+            row = [file_shortname, total_items, has_valid_ids, has_valid_ids_provided, has_valid_ids_assigned,
+                   mapped_to_kg, one_to_one_mappings, one_to_many_mappings,
+                   mapped_to_kg_provided, mapped_to_kg_assigned, assigned_mappings_verified,
+                   has_invalid_ids, has_invalid_ids_provided, has_invalid_ids_assigned,
+                   has_no_ids, has_invalid_ids_and_not_in_kg]
             stats.append(row)
 
             # Record the full results

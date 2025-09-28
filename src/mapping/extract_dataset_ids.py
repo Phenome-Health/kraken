@@ -67,66 +67,91 @@ def get_curies(row: pd.Series, id_cols: List[str], array_delimiters: List[str]) 
     return list(all_curies), dict(invalid_ids)
 
 
-def annotate_with_curies(dataset_df: pd.DataFrame, id_cols: List[str], dataset_name: str, entity_type: str, version: str, array_delimiters: Optional[List[str]] = None):
+def annotate_with_curies(dataset_df: pd.DataFrame,
+                         provided_id_cols: List[str],
+                         assigned_id_cols: List[str],
+                         dataset_name: str,
+                         entity_type: str,
+                         version: str,
+                         array_delimiters: List[str]):
     print(f"On dataset {dataset_name}, {entity_type}, {version}")
-    array_delimiters = array_delimiters if array_delimiters else [',', ';']  # Default to comma and semicolon
+    id_cols = provided_id_cols + assigned_id_cols
 
+    # First get curies for ALL id columns
     dataset_df[['curies', 'invalid_ids']] = dataset_df.apply(lambda row: get_curies(row, id_cols, array_delimiters),
                                                              axis=1,
                                                              result_type='expand')
+
+    # Then get them for two subsets of the id columns (those provided in the dataset and those we assigned somehow)
+    dataset_df[['curies_provided', 'invalid_ids_provided']] = dataset_df.apply(lambda row: get_curies(row, provided_id_cols, array_delimiters),
+                                                                               axis=1,
+                                                                               result_type='expand')
+
+    # Then get them for two subsets of the id columns (those provided in the dataset and those we assigned somehow)
+    dataset_df[['curies_assigned', 'invalid_ids_assigned']] = dataset_df.apply(lambda row: get_curies(row, assigned_id_cols, array_delimiters),
+                                                                               axis=1,
+                                                                               result_type='expand')
+
+    # Save the intermediate results file
     output_path = INTERMEDIATE_RESULTS_DIR / f"{dataset_name}_{entity_type}_{version}_with_curies.tsv"
     dataset_df.to_csv(output_path, sep='\t', index=False)
     print(dataset_df)
 
 
-def load_arivale_metabolites_original() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM']
+def load_arivale_metabolites_original() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM']
+    assigned_id_cols = []
     delimiters = [',', ';']
     input_path = MAPPING_INPUT_DIR / 'arivale' / 'metabolomics_metadata.tsv'
     df = pd.read_table(input_path, dtype={'PUBCHEM': str}, skiprows=13)
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_arivale_metabolites_gdprefmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+def load_arivale_metabolites_gdprefmet() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
     delimiters = [',', ';']
     input_path = MAPPING_INPUT_DIR / 'arivale' / 'Arivale_GDP_metadata_REFMETANNOT.tsv'
     df = pd.read_table(input_path)
-    df[id_cols] = df[id_cols].replace('-', np.nan)
-    return df, id_cols, delimiters
+    df[assigned_id_cols] = df[assigned_id_cols].replace('-', np.nan)
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_arivale_metabolites_lancerefmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM', 'INCHIKEY', 'SMILES', 'PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+def load_arivale_metabolites_lancerefmet() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM', 'INCHIKEY', 'SMILES']
+    assigned_id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
     delimiters = [',', ';']
     # This one is already the source metadata merged with Lance's refmet annotations
     input_path = MAPPING_INPUT_DIR / 'arivale' / 'metabolites_ChemicalAnnotation-Table1.tsv'
     df = pd.read_table(input_path)
-    df[id_cols] = df[id_cols].replace('-', np.nan)
-    return df, id_cols, delimiters
+    df[assigned_id_cols] = df[assigned_id_cols].replace('-', np.nan)
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_arivale_proteins_original() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['uniprot', 'gene_id']
+def load_arivale_proteins_original() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['uniprot', 'gene_id']
+    assigned_id_cols = []
     delimiters = [',', ';']
     input_path = MAPPING_INPUT_DIR / 'arivale' / 'proteomics_metadata.tsv'
     df = pd.read_table(input_path, skiprows=13)
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_arivale_clinicallabs_original() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['Labcorp LOINC ID', 'Quest LOINC ID']
+def load_arivale_clinicallabs_original() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['Labcorp LOINC ID', 'Quest LOINC ID']
+    assigned_id_cols = []
     delimiters = [',', ';']
     input_path = MAPPING_INPUT_DIR / 'arivale' / 'chemistries_metadata.tsv'
     df = pd.read_table(input_path, skiprows=13)
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_arivale_lipids_initial() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['HMDB', 'KEGG']
+def load_arivale_lipids_initial() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['HMDB', 'KEGG']
+    assigned_id_cols = []
     delimiters = [',', ';']
     input_path = MAPPING_INPUT_DIR / 'arivale' / 'lipids_ChemicalAnnotation-Table1.tsv'
     df = pd.read_table(input_path)
-    df[id_cols] = df[id_cols].replace('-', np.nan)
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_arivale_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['HMDB', 'KEGG', 'PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+def load_arivale_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['HMDB', 'KEGG']
+    assigned_id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
     delimiters = [',', ';']
 
     # Join the source metadata with the refmet annotations file from Lance
@@ -136,18 +161,20 @@ def load_arivale_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
     refmet_df = pd.read_table(input_path_refmet)
     df = pd.merge(source_df, refmet_df, left_on='CHEMICAL_NAME', right_on='Input.name')
 
-    df[id_cols] = df[id_cols].replace('-', np.nan)
-    return df, id_cols, delimiters
+    df[assigned_id_cols] = df[assigned_id_cols].replace('-', np.nan)
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_ukbb_proteins_original() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['UniProt']
+def load_ukbb_proteins_original() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['UniProt']
+    assigned_id_cols = []
     delimiters = ['_']
     input_path = MAPPING_INPUT_DIR / 'ukbb' / 'UKBB_Protein_Meta.tsv'
     df = pd.read_table(input_path)
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_ukbb_clinicallabs_filtered() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['loinc_code']
+def load_ukbb_clinicallabs_filtered() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['loinc_code']
     delimiters = ['_']
 
     # The biomapper results for this one contain qc fields as well; filter those out
@@ -159,62 +186,69 @@ def load_ukbb_clinicallabs_filtered() -> Tuple[pd.DataFrame, List[str], List[str
     df = pd.read_table(biomapper_results_path)
     df = df[df['field_name'].isin(field_names)]
 
-    df[id_cols] = df[id_cols].replace('NO_MATCH', np.nan)
-    return df, id_cols, delimiters
+    df[assigned_id_cols] = df[assigned_id_cols].replace('NO_MATCH', np.nan)
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_ukbb_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['source_chebi_id', 'source_hmdb_id', 'source_pubchem_id']
+def load_ukbb_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['source_chebi_id', 'source_hmdb_id', 'source_pubchem_id']  # TODO: verify these are assigned?
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'ukbb' / 'ukbb_metabolites_COMPLETE.tsv'
     df = pd.read_table(input_path, dtype={'source_pubchem_id': str})
     df.source_pubchem_id = df.source_pubchem_id.str.removesuffix('.0')
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_israeli10k_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+def load_israeli10k_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_lipidomics_metadata_REFMETANNOT.tsv'
     df = pd.read_table(input_path)
-    df[id_cols] = df[id_cols].replace('-', np.nan)
-    return df, id_cols, delimiters
+    df[assigned_id_cols] = df[assigned_id_cols].replace('-', np.nan)
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_israeli10k_lipids_website() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+def load_israeli10k_lipids_website() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'Israeli10k_website_lipidomics_metadata_REFMETANNOT.tsv'
     df = pd.read_table(input_path)
-    df[id_cols] = df[id_cols].replace('-', np.nan)
-    return df, id_cols, delimiters
+    df[assigned_id_cols] = df[assigned_id_cols].replace('-', np.nan)
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_israeli10k_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['original_chebi_id']
+def load_israeli10k_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['original_chebi_id']  # TODO: Verify this is assigned?
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_metabolites_COMPLETE.tsv'
     df = pd.read_table(input_path)
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_israeli10k_proteins_biomapper() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['derived_uniprot']
+def load_israeli10k_proteins_biomapper() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['derived_uniprot']
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_nightingale_proteins_mapped.tsv'
     # NOTE: I manually collapsed the one derived measure into one in this tsv; has both uniprot ids
     df = pd.read_table(input_path)
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_israeli10k_clinicallabs_biomapper() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['loinc_code']
+def load_israeli10k_clinicallabs_biomapper() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['loinc_code']
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_chemistry_loinc_COMPLETE.tsv'
     df = pd.read_table(input_path)
-    return df, id_cols, delimiters
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
-def load_israeli10k_clinicallabs_biomapper2() -> Tuple[pd.DataFrame, List[str], List[str]]:
-    id_cols = ['loinc_code']
+def load_israeli10k_clinicallabs_biomapper2() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['loinc_code']
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_chemistry_loinc_COMPLETE_2.tsv'
     df = pd.read_table(input_path)
-    df[id_cols] = df[id_cols].replace('NO_MATCH', np.nan)
-    return df, id_cols, delimiters
+    df[assigned_id_cols] = df[assigned_id_cols].replace('NO_MATCH', np.nan)
+    return df, provided_id_cols, assigned_id_cols, delimiters
 
 
 def main():
@@ -269,8 +303,8 @@ def main():
     for dataset, info in files_to_map.items():
         for entity_type, versions in info.items():
             for version, loader in versions.items():
-                df, id_cols, array_delimiters = loader()
-                annotate_with_curies(df, id_cols, dataset, entity_type, version, array_delimiters)
+                df, provided_id_cols, assigned_id_cols, array_delimiters = loader()
+                annotate_with_curies(df, provided_id_cols, assigned_id_cols, dataset, entity_type, version, array_delimiters)
 
 
 
