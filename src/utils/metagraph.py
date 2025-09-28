@@ -43,7 +43,8 @@ class MetagraphStats:
                 'total_edges': self.total_edges,
                 'unique_node_categories': len(self.node_categories),
                 'unique_edge_predicates': len(self.edge_predicates),
-                'unique_category_pairs': len(self.category_pairs)
+                'unique_category_pairs': len(self.category_pairs),
+                'unique_meta_triples': len(self.predicate_category_pairs)
             },
             'node_categories': dict(self.node_categories.most_common()),
             'edge_predicates': dict(self.edge_predicates.most_common()),
@@ -245,6 +246,8 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         f"Total Edges: {stats.total_edges:,}",
         f"Unique Node Categories: {len(stats.node_categories)}",
         f"Unique Edge Predicates: {len(stats.edge_predicates)}",
+        f"Unique Category Pairs: {len(stats.category_pairs)}",
+        f"Unique Meta-triples: {len(stats.predicate_category_pairs)}",
         "",
         "Top Node Categories:",
     ]
