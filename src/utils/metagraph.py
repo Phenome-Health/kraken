@@ -577,6 +577,12 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             </select>
             <button onclick="applyLayout()">Apply</button>
         </div>
+
+        <div>
+            <label for="threshold-input">Min Edge Count:</label>
+            <input type="number" id="threshold-input" min="1" value="1" placeholder="1" onchange="updateThreshold()" onkeyup="updateThreshold()">
+            <button onclick="resetThreshold()">Reset</button>
+        </div>
         
         <div>
             <button onclick="fitGraph()" class="secondary-btn">Fit to Screen</button>
@@ -600,6 +606,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 <li><strong>Zoom:</strong> Mouse wheel or pinch gesture</li>
                 <li><strong>Node Details:</strong> Click on nodes to see category information</li>
                 <li><strong>Edge Details:</strong> Click on edges to see relationship counts</li>
+                <li><strong>Threshold Filter:</strong> Adjust slider to hide edges with fewer connections (useful for large graphs)</li>
                 <li><strong>Node Sizes:</strong> Proportional to number of entities in each category</li>
                 <li><strong>Edge Thickness:</strong> Proportional to number of connections between categories</li>
             </ul>
@@ -630,13 +637,18 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
     <script>
         let cy;
         let currentData = null;
+        let originalData = null;
         
         function initializeCytoscape(data) {{
             if (cy) {{
                 cy.destroy();
             }}
-            
+
             currentData = data;
+            originalData = JSON.parse(JSON.stringify(data)); // Deep copy
+
+            // Update threshold slider max based on data
+            updateThresholdRange(data);
             
             cy = cytoscape({{
                 container: document.getElementById('cy'),
@@ -721,7 +733,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                         style: {{
                             'width': function(ele) {{
                                 const count = ele.data('edge_count') || 1;
-                                return Math.max(1, Math.min(8, count / 8));
+                                return Math.max(1, Math.min(25, (Math.sqrt(count + 1) / 80)));
                             }},
                             'line-color': '#888',
                             'target-arrow-color': '#888',
@@ -731,7 +743,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 return Math.max(6, Math.min(12, count / 10));
                             }},
                             'curve-style': 'bezier',
-                            'opacity': 0.8
+                            'opacity': 0.5
                         }}
                     }},
                     {{
@@ -902,7 +914,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
         function loadCustomFile(event) {{
             const file = event.target.files[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
             reader.onload = function(e) {{
                 try {{
@@ -914,6 +926,64 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 }}
             }};
             reader.readAsText(file);
+        }}
+
+        function updateThresholdRange(data) {{
+            if (!data || !data.elements || !data.elements.edges) return;
+
+            const edgeCounts = data.elements.edges.map(edge => edge.data.edge_count || 1);
+            const maxCount = Math.max(...edgeCounts);
+
+            const input = document.getElementById('threshold-input');
+            input.max = maxCount;
+
+            // Add helpful placeholder text
+            input.placeholder = `1 - ${{maxCount.toLocaleString()}}`;
+        }}
+
+        function updateThreshold() {{
+            if (!originalData || !cy) return;
+
+            const thresholdInput = document.getElementById('threshold-input');
+            const threshold = parseInt(thresholdInput.value) || 1;
+
+            // Filter edges based on threshold
+            const filteredEdges = originalData.elements.edges.filter(edge =>
+                (edge.data.edge_count || 1) >= threshold
+            );
+
+            // Get nodes that are connected by filtered edges
+            const connectedNodeIds = new Set();
+            filteredEdges.forEach(edge => {{
+                connectedNodeIds.add(edge.data.source);
+                connectedNodeIds.add(edge.data.target);
+            }});
+
+            // Filter nodes to only include those that have connections
+            const filteredNodes = originalData.elements.nodes.filter(node =>
+                connectedNodeIds.has(node.data.id)
+            );
+
+            // Update the graph
+            const filteredData = {{
+                elements: {{
+                    nodes: filteredNodes,
+                    edges: filteredEdges
+                }},
+                metadata: originalData.metadata
+            }};
+
+            cy.elements().remove();
+            cy.add(filteredData.elements);
+            cy.fit(null, 50);
+
+            // Update statistics display
+            updateStats(filteredData);
+        }}
+
+        function resetThreshold() {{
+            document.getElementById('threshold-input').value = 1;
+            updateThreshold();
         }}
         
         // Auto-load the current graph's default file
