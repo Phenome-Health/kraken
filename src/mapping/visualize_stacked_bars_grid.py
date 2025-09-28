@@ -237,7 +237,7 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
 
     # Adjust layout for better spacing
     plt.tight_layout()
-    plt.subplots_adjust(top=0.88, bottom=0.115)
+    plt.subplots_adjust(top=0.88, bottom=0.13)
 
     # Save the plot
     output_file = output_dir / f'a_stacked_bars_grid_{kg_name.lower()}.png'
