@@ -149,7 +149,7 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
                     ax.bar(x_positions[1], both_pct, bar_width, color='#D2C3DA', alpha=0.8,
                           bottom=only_provided_pct)
                     # Top chunk: only assigned IDs (muted pink)
-                    ax.bar(x_positions[1], only_assigned_pct, bar_width, color='#f3c6d1', alpha=0.8,
+                    ax.bar(x_positions[1], only_assigned_pct, bar_width, color='#f4cbd5', alpha=0.8,
                           bottom=only_provided_pct + both_pct)
 
                     # Add count labels inside the stacked parts
@@ -218,7 +218,7 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
         patches.Patch(color='lightgray', alpha=0.7, label='Total Items'),
         patches.Patch(color='lightblue', alpha=0.8, label='Only Provided IDs'),
         patches.Patch(color='#D2C3DA', alpha=0.8, label='Both Provided & Assigned IDs'),
-        patches.Patch(color='#f3c6d1', alpha=0.8, label='Only Assigned IDs'),
+        patches.Patch(color='#f4cbd5', alpha=0.8, label='Only Assigned IDs'),
         patches.Patch(color='#a6f1a6', alpha=0.8, label='1:1 KG Mappings'),
         patches.Patch(color='khaki', alpha=0.8, label='1:Many KG Mappings')
     ]
