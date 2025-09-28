@@ -35,6 +35,22 @@ def get_majority_canonical_id(curies_list, equivalency_map) -> Optional[str]:
         return None
 
 
+def get_many_to_one_rows_using_all_canonical_ids(df: pd.DataFrame) -> pd.DataFrame:
+    all_ids = []
+    for ids_list in df.kg_canonical_ids:
+        all_ids.extend(ids_list)
+
+    id_counts = Counter(all_ids)
+    shared_ids = {i for i, count in id_counts.items() if count > 1}
+
+    # Boolean mask for overlapping rows
+    has_overlap = df.kg_canonical_ids.apply(
+        lambda x: len(set(x) & shared_ids) > 0
+    )
+    overlapping_rows = df[has_overlap]
+    return overlapping_rows
+
+
 def main():
     files_to_evaluate = sorted(os.listdir(INTERMEDIATE_RESULTS_DIR))
     print(f"Found {len(files_to_evaluate)} intermediate results files to evaluate.")
@@ -84,20 +100,28 @@ def main():
             mapped_to_kg_assigned = df.kg_canonical_ids_assigned.apply(lambda x: len(x) > 0).sum()
             assigned_mappings_verified = df.apply(lambda r: len(set(r.kg_canonical_ids_provided) & set(r.kg_canonical_ids_assigned)) > 0, axis=1).sum()
             has_invalid_ids_and_not_in_kg = ((df.invalid_ids.apply(len) > 0) & (df.kg_canonical_ids.apply(len) == 0)).sum()
-            one_to_one_mappings = df.kg_canonical_ids.apply(lambda x: len(x) == 1).sum()
             one_to_many_mappings = df.kg_canonical_ids.apply(lambda x: len(x) > 1).sum()
+            many_to_one_mappings = df[df.kg_majority_canonical_id.notna() & df.kg_majority_canonical_id.duplicated(keep=False)].shape[0]
+            one_to_one_mappings = mapped_to_kg - one_to_many_mappings - many_to_one_mappings
+
+            # Do some sanity checks
+            assert one_to_many_mappings <= mapped_to_kg
+            assert many_to_one_mappings <= mapped_to_kg
+            assert one_to_many_mappings + many_to_one_mappings + one_to_one_mappings == mapped_to_kg
+            assert has_only_provided_ids + has_only_assigned_ids + has_both_provided_and_assigned_ids == has_valid_ids
+            assert assigned_mappings_verified <= mapped_to_kg_provided
 
             file_shortname = f"{dataset}_{entity_type}_{version}"
 
             headers = ['dataset', 'total_items', 'has_valid_ids', 'has_valid_ids_provided', 'has_valid_ids_assigned',
                        'has_only_provided_ids', 'has_only_assigned_ids', 'has_both_provided_and_assigned_ids',
-                       'mapped_to_kg', 'one_to_one_mappings', 'one_to_many_mappings',
+                       'mapped_to_kg', 'one_to_one_mappings', 'one_to_many_mappings', 'many_to_one_mappings',
                        'mapped_to_kg_provided', 'mapped_to_kg_assigned', 'assigned_mappings_verified',
                        'has_invalid_ids', 'has_invalid_ids_provided', 'has_invalid_ids_assigned',
                        'has_no_ids', 'has_invalid_ids_and_not_in_kg']
             row = [file_shortname, total_items, has_valid_ids, has_valid_ids_provided, has_valid_ids_assigned,
                    has_only_provided_ids, has_only_assigned_ids, has_both_provided_and_assigned_ids,
-                   mapped_to_kg, one_to_one_mappings, one_to_many_mappings,
+                   mapped_to_kg, one_to_one_mappings, one_to_many_mappings, many_to_one_mappings,
                    mapped_to_kg_provided, mapped_to_kg_assigned, assigned_mappings_verified,
                    has_invalid_ids, has_invalid_ids_provided, has_invalid_ids_assigned,
                    has_no_ids, has_invalid_ids_and_not_in_kg]
@@ -125,6 +149,10 @@ def main():
             # Record the one-to-many items, for easy reference
             one_to_many_items = df[df.kg_canonical_ids.apply(lambda x: len(x) > 1)]
             one_to_many_items.to_csv(kg_results_dir / f"{file_shortname}_f_one_to_many.tsv", sep='\t')
+
+            # Record the many-to-one items, for easy reference
+            many_to_one_items = df[df.kg_majority_canonical_id.notna() & df.kg_majority_canonical_id.duplicated(keep=False)]
+            many_to_one_items.to_csv(kg_results_dir / f"{file_shortname}_f_many_to_one.tsv", sep='\t')
 
 
         stats_df = pd.DataFrame(stats, columns=headers)
