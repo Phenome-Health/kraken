@@ -662,7 +662,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 const count = ele.data('node_count') || 1;
                                 
                                 // Determine theme based on category
-                                let baseColor = [200, 200, 200]; // Default gray
+                                let baseColor = [220, 205, 190]; // Default light muted brown
                                 
                                 // Genomic/Genetic entities (blues)
                                 if (category.includes('Gene') || category.includes('Protein') || 
@@ -713,18 +713,55 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                             'text-halign': 'center',
                             'font-size': function(ele) {{
                                 const count = ele.data('node_count') || 1;
-                                return Math.max(14, Math.min(20, 12 + count / 50)) + 'px';
+                                let nodeSize;
+                                if (count >= 500000) {{
+                                    nodeSize = 120;
+                                }} else if (count <= 100) {{
+                                    nodeSize = 40;
+                                }} else {{
+                                    const sqrtCount = Math.sqrt(count);
+                                    const sqrtMin = Math.sqrt(100);
+                                    const sqrtMax = Math.sqrt(500000);
+                                    const normalized = (sqrtCount - sqrtMin) / (sqrtMax - sqrtMin);
+                                    nodeSize = 40 + (normalized * 80);
+                                }}
+                                // Scale font from 10px to 18px based on node size (40-120)
+                                const fontSize = 10 + ((nodeSize - 40) / 80) * 8;
+                                return Math.round(fontSize) + 'px';
                             }},
                             'font-weight': 'bold',
                             'text-outline-width': 1,
                             'text-outline-color': '#fff',
                             'width': function(ele) {{
                                 const count = ele.data('node_count') || 1;
-                                return Math.max(40, Math.min(120, 30 + count / 3));
+                                if (count >= 500000) {{
+                                    return 120; // Max size for 500k+
+                                }} else if (count <= 100) {{
+                                    return 40; // Min size for 100 or fewer
+                                }} else {{
+                                    // Square root scale between 100 and 500,000
+                                    // Maps sqrt(100) to sqrt(500000) -> 40 to 120
+                                    const sqrtCount = Math.sqrt(count);
+                                    const sqrtMin = Math.sqrt(100);     // 10
+                                    const sqrtMax = Math.sqrt(500000);  // 707.1
+                                    const normalized = (sqrtCount - sqrtMin) / (sqrtMax - sqrtMin);
+                                    return 40 + (normalized * 80);
+                                }}
                             }},
                             'height': function(ele) {{
                                 const count = ele.data('node_count') || 1;
-                                return Math.max(40, Math.min(120, 30 + count / 3));
+                                if (count >= 500000) {{
+                                    return 120; // Max size for 500k+
+                                }} else if (count <= 100) {{
+                                    return 40; // Min size for 100 or fewer
+                                }} else {{
+                                    // Square root scale between 100 and 500,000
+                                    const sqrtCount = Math.sqrt(count);
+                                    const sqrtMin = Math.sqrt(100);     // 10
+                                    const sqrtMax = Math.sqrt(500000);  // 707.1
+                                    const normalized = (sqrtCount - sqrtMin) / (sqrtMax - sqrtMin);
+                                    return 40 + (normalized * 80);
+                                }}
                             }}
                         }}
                     }},
@@ -743,7 +780,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                 return Math.max(6, Math.min(12, count / 10));
                             }},
                             'curve-style': 'bezier',
-                            'opacity': 0.5
+                            'opacity': 0.35
                         }}
                     }},
                     {{
