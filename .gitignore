@@ -15,6 +15,7 @@ scripts/*.csv
 scripts/*.txt
 scripts/*.tsv
 scripts/*.pdf
+scripts/overlap/
 
 *.log
 package-lock.json

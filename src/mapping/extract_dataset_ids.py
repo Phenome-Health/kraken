@@ -43,7 +43,7 @@ VOCAB_MAP = {
 
 IDNORM = IdentifierNorm(biolink_version="4.2.5")
 
-MAPPING_INPUT_DIR = PROJECT_ROOT_PATH / 'input_data' / 'mapping'
+MAPPING_INPUT_DIR = PROJECT_ROOT_PATH / 'src' / 'mapping' / 'input_data'
 INTERMEDIATE_RESULTS_DIR = PROJECT_ROOT_PATH / 'src' / 'mapping' / 'results_intermediate'
 os.makedirs(INTERMEDIATE_RESULTS_DIR, exist_ok=True)
 

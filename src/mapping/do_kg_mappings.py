@@ -100,14 +100,18 @@ def main():
             mapped_to_kg_assigned = df.kg_canonical_ids_assigned.apply(lambda x: len(x) > 0).sum()
             assigned_mappings_verified = df.apply(lambda r: len(set(r.kg_canonical_ids_provided) & set(r.kg_canonical_ids_assigned)) > 0, axis=1).sum()
             has_invalid_ids_and_not_in_kg = ((df.invalid_ids.apply(len) > 0) & (df.kg_canonical_ids.apply(len) == 0)).sum()
-            one_to_many_mappings = df.kg_canonical_ids.apply(lambda x: len(x) > 1).sum()
-            many_to_one_mappings = df[df.kg_majority_canonical_id.notna() & df.kg_majority_canonical_id.duplicated(keep=False)].shape[0]
-            one_to_one_mappings = mapped_to_kg - one_to_many_mappings - many_to_one_mappings
+            one_to_many_mask = df.kg_canonical_ids.apply(lambda x: len(x) > 1)
+            many_to_one_mask = df.kg_majority_canonical_id.notna() & df.kg_majority_canonical_id.duplicated(keep=False)
+            one_to_many_mappings = one_to_many_mask.sum()
+            many_to_one_mappings = many_to_one_mask.sum()
+            multi_mappings = (one_to_many_mask | many_to_one_mask).sum()
+            one_to_one_mappings = mapped_to_kg - multi_mappings
 
             # Do some sanity checks
-            assert one_to_many_mappings <= mapped_to_kg
-            assert many_to_one_mappings <= mapped_to_kg
-            assert one_to_many_mappings + many_to_one_mappings + one_to_one_mappings == mapped_to_kg
+            assert multi_mappings <= mapped_to_kg
+            assert one_to_many_mappings <= multi_mappings
+            assert many_to_one_mappings <= multi_mappings
+            assert multi_mappings + one_to_one_mappings == mapped_to_kg
             assert has_only_provided_ids + has_only_assigned_ids + has_both_provided_and_assigned_ids == has_valid_ids
             assert assigned_mappings_verified <= mapped_to_kg_provided
 
@@ -115,13 +119,13 @@ def main():
 
             headers = ['dataset', 'total_items', 'has_valid_ids', 'has_valid_ids_provided', 'has_valid_ids_assigned',
                        'has_only_provided_ids', 'has_only_assigned_ids', 'has_both_provided_and_assigned_ids',
-                       'mapped_to_kg', 'one_to_one_mappings', 'one_to_many_mappings', 'many_to_one_mappings',
+                       'mapped_to_kg', 'one_to_one_mappings', 'multi_mappings', 'one_to_many_mappings', 'many_to_one_mappings',
                        'mapped_to_kg_provided', 'mapped_to_kg_assigned', 'assigned_mappings_verified',
                        'has_invalid_ids', 'has_invalid_ids_provided', 'has_invalid_ids_assigned',
                        'has_no_ids', 'has_invalid_ids_and_not_in_kg']
             row = [file_shortname, total_items, has_valid_ids, has_valid_ids_provided, has_valid_ids_assigned,
                    has_only_provided_ids, has_only_assigned_ids, has_both_provided_and_assigned_ids,
-                   mapped_to_kg, one_to_one_mappings, one_to_many_mappings, many_to_one_mappings,
+                   mapped_to_kg, one_to_one_mappings, multi_mappings, one_to_many_mappings, many_to_one_mappings,
                    mapped_to_kg_provided, mapped_to_kg_assigned, assigned_mappings_verified,
                    has_invalid_ids, has_invalid_ids_provided, has_invalid_ids_assigned,
                    has_no_ids, has_invalid_ids_and_not_in_kg]
