@@ -126,8 +126,10 @@ def main():
         summary_stats_path = kg_results_dir / 'a_summary.tsv'
         stats_df.to_csv(summary_stats_path, sep='\t', index=False)
 
-        print(f"Generating heatmap visualization for {graph_name}")
+        print(f"Generating visualizations for {graph_name}")
         os.system(f"uv run python {MAPPING_DIR / 'visualize_summary_heatmap.py'} {graph_name.upper()} --input {summary_stats_path} --output {kg_results_dir}")
+        os.system(f"uv run python {MAPPING_DIR / 'visualize_stacked_bars_grid.py'} {graph_name.upper()} --input {summary_stats_path} --output {kg_results_dir}")
+
 
     # Generate comparative delta barcharts of percent gained/lost with different KGs
     print(f"Generating delta barcharts")

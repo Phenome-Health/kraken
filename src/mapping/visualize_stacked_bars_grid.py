@@ -96,16 +96,16 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
 
     entity_types_display = [entity_type_mapping.get(et, et.title()) for et in entity_types]
 
-    # Create the grid
-    fig, axes = plt.subplots(len(datasets), len(entity_types), figsize=(len(entity_types) * 3, len(datasets) * 2))
-    if len(datasets) == 1:
-        axes = axes.reshape(1, -1)
+    # Create the grid (swapped: entity types on rows, datasets on columns)
+    fig, axes = plt.subplots(len(entity_types), len(datasets), figsize=(len(datasets) * 3, len(entity_types) * 2))
     if len(entity_types) == 1:
+        axes = axes.reshape(1, -1)
+    if len(datasets) == 1:
         axes = axes.reshape(-1, 1)
 
-    # Process each cell
-    for i, (dataset, dataset_display) in enumerate(zip(datasets, datasets_display)):
-        for j, (entity_type, entity_type_display) in enumerate(zip(entity_types, entity_types_display)):
+    # Process each cell (swapped indices: entity types on rows, datasets on columns)
+    for i, (entity_type, entity_type_display) in enumerate(zip(entity_types, entity_types_display)):
+        for j, (dataset, dataset_display) in enumerate(zip(datasets, datasets_display)):
             ax = axes[i, j]
 
             # Find data for this combination
@@ -195,14 +195,14 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
             # Add grid
             ax.grid(True, alpha=0.3, axis='y')
 
-            # Add cell label (dataset - entity type)
+            # Add cell label (entity type - dataset)
             if i == 0:  # Top row
-                ax.set_title(entity_type_display, fontsize=10, fontweight='bold', pad=10)
+                ax.set_title(dataset_display, fontsize=10, fontweight='bold', pad=10)
             if j == 0:  # Left column
-                ax.set_ylabel(dataset_display, fontsize=10, fontweight='bold')
+                ax.set_ylabel(entity_type_display, fontsize=10, fontweight='bold')
 
-    # Add overall title with more space
-    fig.suptitle(f'{kg_name} Mapping Pipeline Breakdown', fontsize=16, fontweight='bold', y=0.98)
+    # Add overall title with less space
+    fig.suptitle(f'{kg_name} Mapping Results Breakdown', fontsize=16, fontweight='bold', y=0.96)
 
     # Add legend
     legend_elements = [
@@ -212,11 +212,11 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
         patches.Patch(color='lightgreen', alpha=0.8, label='1:1 KG Mappings'),
         patches.Patch(color='khaki', alpha=0.8, label='1:Many KG Mappings')
     ]
-    fig.legend(handles=legend_elements, loc='center', bbox_to_anchor=(0.5, 0.02), ncol=5, fontsize=9)
+    fig.legend(handles=legend_elements, loc='center', bbox_to_anchor=(0.5, 0.05), ncol=5, fontsize=9)
 
-    # Adjust layout to give title more space
+    # Adjust layout for better spacing
     plt.tight_layout()
-    plt.subplots_adjust(top=0.85, bottom=0.15)
+    plt.subplots_adjust(top=0.88, bottom=0.115)
 
     # Save the plot
     output_file = output_dir / f'a_stacked_bars_grid_{kg_name.lower()}.png'
