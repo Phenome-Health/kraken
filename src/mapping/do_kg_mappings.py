@@ -72,6 +72,9 @@ def main():
             has_valid_ids = df.curies.apply(lambda x: len(x) > 0).sum()
             has_valid_ids_provided = df.curies_provided.apply(lambda x: len(x) > 0).sum()
             has_valid_ids_assigned = df.curies_assigned.apply(lambda x: len(x) > 0).sum()
+            has_only_provided_ids = has_valid_ids - has_valid_ids_assigned
+            has_only_assigned_ids = has_valid_ids - has_valid_ids_provided
+            has_both_provided_and_assigned_ids = has_valid_ids - has_only_provided_ids - has_only_assigned_ids
             has_no_ids = ((df.curies.apply(len) == 0) & (df.invalid_ids.apply(len) == 0)).sum()
             has_invalid_ids = df.invalid_ids.apply(lambda x: len(x) > 0).sum()
             has_invalid_ids_provided = df.invalid_ids_provided.apply(lambda x: len(x) > 0).sum()
@@ -87,11 +90,13 @@ def main():
             file_shortname = f"{dataset}_{entity_type}_{version}"
 
             headers = ['dataset', 'total_items', 'has_valid_ids', 'has_valid_ids_provided', 'has_valid_ids_assigned',
+                       'has_only_provided_ids', 'has_only_assigned_ids', 'has_both_provided_and_assigned_ids',
                        'mapped_to_kg', 'one_to_one_mappings', 'one_to_many_mappings',
                        'mapped_to_kg_provided', 'mapped_to_kg_assigned', 'assigned_mappings_verified',
                        'has_invalid_ids', 'has_invalid_ids_provided', 'has_invalid_ids_assigned',
                        'has_no_ids', 'has_invalid_ids_and_not_in_kg']
             row = [file_shortname, total_items, has_valid_ids, has_valid_ids_provided, has_valid_ids_assigned,
+                   has_only_provided_ids, has_only_assigned_ids, has_both_provided_and_assigned_ids,
                    mapped_to_kg, one_to_one_mappings, one_to_many_mappings,
                    mapped_to_kg_provided, mapped_to_kg_assigned, assigned_mappings_verified,
                    has_invalid_ids, has_invalid_ids_provided, has_invalid_ids_assigned,

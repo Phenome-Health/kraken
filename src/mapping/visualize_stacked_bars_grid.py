@@ -47,7 +47,9 @@ def load_and_process_summary_data(file_path: Path) -> pd.DataFrame:
                 'version': version,
                 'total_items': row['total_items'],
                 'has_valid_ids': row['has_valid_ids'],
-                'has_valid_ids_provided': row['has_valid_ids_provided'],
+                'has_only_provided_ids': row['has_only_provided_ids'],
+                'has_both_provided_and_assigned_ids': row['has_both_provided_and_assigned_ids'],
+                'has_only_assigned_ids': row['has_only_assigned_ids'],
                 'mapped_to_kg': row['mapped_to_kg'],
                 'one_to_one_mappings': row['one_to_one_mappings'],
                 'one_to_many_mappings': row['one_to_many_mappings']
@@ -116,14 +118,18 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
                 # Extract values
                 total_items = row['total_items']
                 has_valid_ids = row['has_valid_ids']
-                has_valid_ids_provided = row['has_valid_ids_provided']
+                has_only_provided_ids = row['has_only_provided_ids']
+                has_both_provided_and_assigned_ids = row['has_both_provided_and_assigned_ids']
+                has_only_assigned_ids = row['has_only_assigned_ids']
                 mapped_to_kg = row['mapped_to_kg']
                 one_to_one = row['one_to_one_mappings']
                 one_to_many = row['one_to_many_mappings']
 
                 # Calculate percentages
                 valid_ids_pct = (has_valid_ids / total_items) * 100 if total_items > 0 else 0
-                provided_ids_pct = (has_valid_ids_provided / has_valid_ids) * 100 if has_valid_ids > 0 else 0
+                only_provided_pct = (has_only_provided_ids / total_items) * 100 if total_items > 0 else 0
+                both_pct = (has_both_provided_and_assigned_ids / total_items) * 100 if total_items > 0 else 0
+                only_assigned_pct = (has_only_assigned_ids / total_items) * 100 if total_items > 0 else 0
                 mapped_pct = (mapped_to_kg / total_items) * 100 if total_items > 0 else 0
                 one_to_one_pct = (one_to_one / mapped_to_kg) * 100 if mapped_to_kg > 0 else 0
                 one_to_many_pct = (one_to_many / mapped_to_kg) * 100 if mapped_to_kg > 0 else 0
@@ -135,26 +141,29 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
                 # Bar 1: Total items baseline (always 100%)
                 ax.bar(x_positions[0], 100, bar_width, color='lightgray', alpha=0.7, label='Total Items')
 
-                # Bar 2: Valid IDs breakdown
-                # Bottom part: has_valid_ids_provided (light blue)
+                # Bar 2: Valid IDs breakdown with three chunks
                 if has_valid_ids > 0:
-                    provided_portion = (provided_ids_pct / 100) * valid_ids_pct
-                    ax.bar(x_positions[1], provided_portion, bar_width, color='lightblue', alpha=0.8)
-                    # Top part: remaining valid IDs (pale purple)
-                    remaining_portion = valid_ids_pct - provided_portion
-                    ax.bar(x_positions[1], remaining_portion, bar_width, color='thistle', alpha=0.8,
-                          bottom=provided_portion)
+                    # Bottom chunk: only provided IDs (light blue)
+                    ax.bar(x_positions[1], only_provided_pct, bar_width, color='lightblue', alpha=0.8)
+                    # Middle chunk: both provided and assigned IDs (muted purple)
+                    ax.bar(x_positions[1], both_pct, bar_width, color='#D2C3DA', alpha=0.8,
+                          bottom=only_provided_pct)
+                    # Top chunk: only assigned IDs (muted pink)
+                    ax.bar(x_positions[1], only_assigned_pct, bar_width, color='#F2C0CC', alpha=0.8,
+                          bottom=only_provided_pct + both_pct)
 
                     # Add count labels inside the stacked parts
-                    if provided_portion > 8:  # Only show if chunk is big enough
-                        ax.text(x_positions[1], provided_portion/2, f'{has_valid_ids_provided:,}',
+                    if only_provided_pct > 8:  # Only show if chunk is big enough
+                        ax.text(x_positions[1], only_provided_pct/2, f'{has_only_provided_ids:,}',
                                ha='center', va='center', fontsize=7, fontweight='bold', color='black')
-                    if remaining_portion > 8:  # Only show if chunk is big enough
-                        assigned_ids = has_valid_ids - has_valid_ids_provided
-                        ax.text(x_positions[1], provided_portion + remaining_portion/2, f'{assigned_ids:,}',
+                    if both_pct > 8:  # Only show if chunk is big enough
+                        ax.text(x_positions[1], only_provided_pct + both_pct/2, f'{has_both_provided_and_assigned_ids:,}',
+                               ha='center', va='center', fontsize=7, fontweight='bold', color='black')
+                    if only_assigned_pct > 8:  # Only show if chunk is big enough
+                        ax.text(x_positions[1], only_provided_pct + both_pct + only_assigned_pct/2, f'{has_only_assigned_ids:,}',
                                ha='center', va='center', fontsize=7, fontweight='bold', color='black')
                 else:
-                    ax.bar(x_positions[1], valid_ids_pct, bar_width, color='thistle', alpha=0.8)
+                    ax.bar(x_positions[1], valid_ids_pct, bar_width, color='lightblue', alpha=0.8)
 
                 # Bar 3: Mapping breakdown
                 # Bottom part: one_to_one (light green)
@@ -162,7 +171,7 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
                     one_to_one_portion = (one_to_one_pct / 100) * mapped_pct
                     one_to_many_portion = (one_to_many_pct / 100) * mapped_pct
 
-                    ax.bar(x_positions[2], one_to_one_portion, bar_width, color='lightgreen', alpha=0.8)
+                    ax.bar(x_positions[2], one_to_one_portion, bar_width, color='#a6f1a6', alpha=0.8)
                     # Top part: one_to_many (yellow)
                     ax.bar(x_positions[2], one_to_many_portion, bar_width, color='khaki', alpha=0.8,
                           bottom=one_to_one_portion)
@@ -207,12 +216,13 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
     # Add legend
     legend_elements = [
         patches.Patch(color='lightgray', alpha=0.7, label='Total Items'),
-        patches.Patch(color='lightblue', alpha=0.8, label='Provided IDs'),
-        patches.Patch(color='thistle', alpha=0.8, label='Assigned IDs'),
-        patches.Patch(color='lightgreen', alpha=0.8, label='1:1 KG Mappings'),
+        patches.Patch(color='lightblue', alpha=0.8, label='Only Provided IDs'),
+        patches.Patch(color='#D2C3DA', alpha=0.8, label='Both Provided & Assigned IDs'),
+        patches.Patch(color='#F2C0CC', alpha=0.8, label='Only Assigned IDs'),
+        patches.Patch(color='#a6f1a6', alpha=0.8, label='1:1 KG Mappings'),
         patches.Patch(color='khaki', alpha=0.8, label='1:Many KG Mappings')
     ]
-    fig.legend(handles=legend_elements, loc='center', bbox_to_anchor=(0.5, 0.05), ncol=5, fontsize=9)
+    fig.legend(handles=legend_elements, loc='center', bbox_to_anchor=(0.5, 0.05), ncol=3, fontsize=9)
 
     # Adjust layout for better spacing
     plt.tight_layout()
