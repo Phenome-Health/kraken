@@ -24,11 +24,16 @@ class MetagraphStats:
         self.node_categories = Counter()  # category -> count
         self.total_nodes = 0
         
-        # Edge statistics  
+        # Edge statistics
         self.edge_predicates = Counter()  # predicate -> count
         self.category_pairs = Counter()  # (subject_category, object_category) -> count
         self.predicate_category_pairs = Counter()  # (predicate, subject_cat, object_cat) -> count
         self.total_edges = 0
+
+        # Edge metadata statistics
+        self.primary_knowledge_sources = Counter()  # primary_knowledge_source -> count
+        self.knowledge_levels = Counter()  # knowledge_level -> count
+        self.agent_types = Counter()  # agent_type -> count
         
         # Connectivity statistics
         self.node_degrees = defaultdict(int)  # node_id -> degree
@@ -48,6 +53,9 @@ class MetagraphStats:
             },
             'node_categories': dict(self.node_categories.most_common()),
             'edge_predicates': dict(self.edge_predicates.most_common()),
+            'primary_knowledge_sources': dict(self.primary_knowledge_sources.most_common()),
+            'knowledge_levels': dict(self.knowledge_levels.most_common()),
+            'agent_types': dict(self.agent_types.most_common()),
             'category_pairs': {
                 f"{subj}--{obj}": count 
                 for (subj, obj), count in self.category_pairs.most_common()
@@ -101,7 +109,7 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
             # Get categories (default to NamedThing if not found)
             subject_categories = categories_map[subject_id]
             object_categories = categories_map[object_id]
-            
+
             # Update statistics
             stats.edge_predicates[predicate] += 1
             for subj_category in subject_categories:
@@ -110,7 +118,15 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
                     stats.predicate_category_pairs[(predicate, subj_category, obj_category)] += 1
                     # Update category connectivity
                     stats.category_connectivity[subj_category][obj_category] += 1
-            
+
+            # Collect edge metadata
+            if 'primary_knowledge_source' in edge:
+                stats.primary_knowledge_sources[edge['primary_knowledge_source']] += 1
+            if 'knowledge_level' in edge:
+                stats.knowledge_levels[edge['knowledge_level']] += 1
+            if 'agent_type' in edge:
+                stats.agent_types[edge['agent_type']] += 1
+
             # Update node degrees
             stats.node_degrees[subject_id] += 1
             stats.node_degrees[object_id] += 1
@@ -248,6 +264,9 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         f"Unique Edge Predicates: {len(stats.edge_predicates)}",
         f"Unique Category Pairs: {len(stats.category_pairs)}",
         f"Unique Meta-triples: {len(stats.predicate_category_pairs)}",
+        f"Distinct Primary Knowledge Sources: {len(stats.primary_knowledge_sources)}",
+        f"Distinct Knowledge Levels: {len(stats.knowledge_levels)}",
+        f"Distinct Agent Types: {len(stats.agent_types)}",
         "",
         "Top Node Categories:",
     ]
@@ -269,11 +288,39 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         "",
         "Top Category Pairs:",
     ])
-    
+
     for (subj_cat, obj_cat), count in stats.category_pairs.most_common(10):
         percentage = (count / stats.total_edges) * 100
         summary_lines.append(f"  {subj_cat} -> {obj_cat}: {count:,} ({percentage:.1f}%)")
-    
+
+    # Add edge metadata statistics
+    if stats.primary_knowledge_sources:
+        summary_lines.extend([
+            "",
+            "Primary Knowledge Sources:",
+        ])
+        for source, count in stats.primary_knowledge_sources.most_common(10):
+            percentage = (count / stats.total_edges) * 100
+            summary_lines.append(f"  {source}: {count:,} ({percentage:.1f}%)")
+
+    if stats.knowledge_levels:
+        summary_lines.extend([
+            "",
+            "Knowledge Levels:",
+        ])
+        for level, count in stats.knowledge_levels.most_common(10):
+            percentage = (count / stats.total_edges) * 100
+            summary_lines.append(f"  {level}: {count:,} ({percentage:.1f}%)")
+
+    if stats.agent_types:
+        summary_lines.extend([
+            "",
+            "Agent Types:",
+        ])
+        for agent_type, count in stats.agent_types.most_common(10):
+            percentage = (count / stats.total_edges) * 100
+            summary_lines.append(f"  {agent_type}: {count:,} ({percentage:.1f}%)")
+
     return "\n".join(summary_lines)
 
 
