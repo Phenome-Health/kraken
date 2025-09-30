@@ -232,8 +232,8 @@ def load_ukbb_clinicallabs_filtered() -> Tuple[pd.DataFrame, List[str], List[str
     return df, provided_id_cols, assigned_id_cols, delimiters
 
 def load_ukbb_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
-    provided_id_cols = []
-    assigned_id_cols = ['source_chebi_id', 'source_hmdb_id', 'source_pubchem_id']  # TODO: verify these are assigned?
+    provided_id_cols = ['source_chebi_id', 'source_hmdb_id', 'source_pubchem_id']
+    assigned_id_cols = []
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'ukbb' / 'ukbb_metabolites_COMPLETE.tsv'
     df = pd.read_table(input_path, dtype={'source_pubchem_id': str})
@@ -241,8 +241,8 @@ def load_ukbb_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str
     return df, provided_id_cols, assigned_id_cols, delimiters
 
 def load_ukbb_metabolites_biomapper_edited() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
-    provided_id_cols = []
-    assigned_id_cols = ['source_chebi_id', 'source_hmdb_id', 'source_pubchem_id']  # TODO: verify these are assigned?
+    provided_id_cols = ['source_chebi_id', 'source_hmdb_id', 'source_pubchem_id']
+    assigned_id_cols = []
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'ukbb' / 'ukbb_metabolites_COMPLETE_manuallyedited.tsv'
     df = pd.read_table(input_path, dtype={'source_pubchem_id': str})
@@ -268,8 +268,8 @@ def load_israeli10k_lipids_website() -> Tuple[pd.DataFrame, List[str], List[str]
     return df, provided_id_cols, assigned_id_cols, delimiters
 
 def load_israeli10k_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
-    provided_id_cols = []
-    assigned_id_cols = ['original_chebi_id']  # TODO: Verify this is assigned?
+    provided_id_cols = ['original_chebi_id']
+    assigned_id_cols = []
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_metabolites_COMPLETE.tsv'
     df = pd.read_table(input_path)
@@ -277,7 +277,7 @@ def load_israeli10k_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], Li
 
 def load_israeli10k_proteins_biomapper() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
     provided_id_cols = []
-    assigned_id_cols = ['derived_uniprot']
+    assigned_id_cols = ['derived_uniprot'] # Confirmed these are assigned ('was feeding uniprot json into the llm')
     delimiters = [';']
     input_path = MAPPING_INPUT_DIR / 'israeli10k' / 'israeli10k_nightingale_proteins_mapped.tsv'
     # NOTE: I manually collapsed the one derived measure into one in this tsv; has both uniprot ids
