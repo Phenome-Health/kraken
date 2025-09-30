@@ -86,6 +86,8 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     for dataset in datasets:
         if dataset.lower() == 'ukbb':
             datasets_display.append('UKBB')
+        elif dataset.lower() == 'israeli10k':
+            datasets_display.append('HPP')
         else:
             datasets_display.append(dataset.title())
 
@@ -107,6 +109,8 @@ def load_and_process_data(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         # Get dataset display name
         if dataset.lower() == 'ukbb':
             dataset_display = 'UKBB'
+        elif dataset.lower() == 'israeli10k':
+            dataset_display = 'HPP'
         else:
             dataset_display = dataset.title()
 

@@ -93,6 +93,8 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
     for dataset in datasets:
         if dataset.lower() == 'ukbb':
             datasets_display.append('UKBB')
+        elif dataset.lower() == 'israeli10k':
+            datasets_display.append('HPP')
         else:
             datasets_display.append(dataset.title())
 

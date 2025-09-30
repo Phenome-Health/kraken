@@ -126,6 +126,8 @@ def create_delta_barchart(baseline_df: pd.DataFrame, comparison_df: pd.DataFrame
                 # Special formatting for dataset names
                 if dataset.lower() == 'ukbb':
                     dataset_display = 'UKBB'
+                elif dataset.lower() == 'israeli10k':
+                    dataset_display = 'HPP'
                 else:
                     dataset_display = dataset.title()
                 label = f"{dataset_display}"  # Just the dataset name
