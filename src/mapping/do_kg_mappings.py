@@ -83,6 +83,8 @@ def main():
             df['kg_majority_canonical_id'] = df.curies.apply(lambda x: get_majority_canonical_id(x, equivalency_map))
             df['kg_canonical_ids_provided'] = df.curies_provided.apply(lambda x: get_canonical_ids(x, equivalency_map))
             df['kg_canonical_ids_assigned'] = df.curies_assigned.apply(lambda x: get_canonical_ids(x, equivalency_map))
+            df['kg_majority_canonical_id_provided'] = df.curies_provided.apply(lambda x: get_majority_canonical_id(x, equivalency_map))
+            df['kg_majority_canonical_id_assigned'] = df.curies_assigned.apply(lambda x: get_majority_canonical_id(x, equivalency_map))
 
             total_items = len(df)
             has_valid_ids = df.curies.apply(lambda x: len(x) > 0).sum()
@@ -98,7 +100,9 @@ def main():
             mapped_to_kg = df.kg_canonical_ids.apply(lambda x: len(x) > 0).sum()
             mapped_to_kg_provided = df.kg_canonical_ids_provided.apply(lambda x: len(x) > 0).sum()
             mapped_to_kg_assigned = df.kg_canonical_ids_assigned.apply(lambda x: len(x) > 0).sum()
+            mapped_to_kg_provided_and_assigned = df.apply(lambda r: (len(r.kg_canonical_ids_provided) > 0) & (len(r.kg_canonical_ids_assigned) > 0), axis=1).sum()
             assigned_mappings_verified = df.apply(lambda r: len(set(r.kg_canonical_ids_provided) & set(r.kg_canonical_ids_assigned)) > 0, axis=1).sum()
+            assigned_mappings_verified_on_majority = ((df.kg_majority_canonical_id_provided == df.kg_majority_canonical_id_assigned) & df.kg_majority_canonical_id_provided.notna() & df.kg_majority_canonical_id_assigned.notna()).sum()
             has_invalid_ids_and_not_in_kg = ((df.invalid_ids.apply(len) > 0) & (df.kg_canonical_ids.apply(len) == 0)).sum()
             one_to_many_mask = df.kg_canonical_ids.apply(lambda x: len(x) > 1)
             many_to_one_mask = df.kg_majority_canonical_id.notna() & df.kg_majority_canonical_id.duplicated(keep=False)
@@ -120,13 +124,15 @@ def main():
             headers = ['dataset', 'total_items', 'has_valid_ids', 'has_valid_ids_provided', 'has_valid_ids_assigned',
                        'has_only_provided_ids', 'has_only_assigned_ids', 'has_both_provided_and_assigned_ids',
                        'mapped_to_kg', 'one_to_one_mappings', 'multi_mappings', 'one_to_many_mappings', 'many_to_one_mappings',
-                       'mapped_to_kg_provided', 'mapped_to_kg_assigned', 'assigned_mappings_verified',
+                       'mapped_to_kg_provided', 'mapped_to_kg_assigned', 'mapped_to_kg_provided_and_assigned',
+                       'assigned_mappings_verified', 'assigned_mappings_verified_on_majority',
                        'has_invalid_ids', 'has_invalid_ids_provided', 'has_invalid_ids_assigned',
                        'has_no_ids', 'has_invalid_ids_and_not_in_kg']
             row = [file_shortname, total_items, has_valid_ids, has_valid_ids_provided, has_valid_ids_assigned,
                    has_only_provided_ids, has_only_assigned_ids, has_both_provided_and_assigned_ids,
                    mapped_to_kg, one_to_one_mappings, multi_mappings, one_to_many_mappings, many_to_one_mappings,
-                   mapped_to_kg_provided, mapped_to_kg_assigned, assigned_mappings_verified,
+                   mapped_to_kg_provided, mapped_to_kg_assigned, mapped_to_kg_provided_and_assigned,
+                   assigned_mappings_verified, assigned_mappings_verified_on_majority,
                    has_invalid_ids, has_invalid_ids_provided, has_invalid_ids_assigned,
                    has_no_ids, has_invalid_ids_and_not_in_kg]
             stats.append(row)
