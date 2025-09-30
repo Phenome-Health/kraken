@@ -33,6 +33,7 @@ VOCAB_MAP = {
     'PubChem_CID': 'pubchem.compound',
     'Quest LOINC ID': 'loinc',
     'RefMet_ID': 'rm',
+    'selected_hmdb': 'hmdb',
     'SMILES': 'smiles',
     'source_chebi_id': 'chebi',
     'source_hmdb_id': 'hmdb',
@@ -125,6 +126,47 @@ def load_arivale_metabolites_lancerefmet() -> Tuple[pd.DataFrame, List[str], Lis
     df[assigned_id_cols] = df[assigned_id_cols].replace('-', np.nan)
     return df, provided_id_cols, assigned_id_cols, delimiters
 
+def load_arivale_metabolites_biomapper_validation() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM', 'INCHIKEY', 'SMILES']
+    assigned_id_cols = ['selected_hmdb']
+    delimiters = [',', ';']
+    # Need to add back the id cols from regular metadata file
+    source_path = MAPPING_INPUT_DIR / 'arivale' / 'metabolites_ChemicalAnnotation-Table1.tsv'
+    biomapper_path = MAPPING_INPUT_DIR / 'arivale' / 'arivale_metabolites_blind_rag_llm_20250929.tsv'
+    df_source = pd.read_table(source_path)
+    df_biomapper = pd.read_table(biomapper_path)
+    df_biomapper[assigned_id_cols] = df_biomapper[assigned_id_cols].replace('NO_MATCH', np.nan)
+
+    df = pd.merge(df_source, df_biomapper, left_on='CHEM_ID', right_on='metabolite_id', how='left')
+    print(df)
+
+    return df, provided_id_cols, assigned_id_cols, delimiters
+
+def load_arivale_metabolites_all_combined() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = ['CAS', 'KEGG', 'HMDB', 'PUBCHEM', 'INCHIKEY', 'SMILES']
+    assigned_id_cols_refmet = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
+    assigned_id_cols_biomapper = ['selected_hmdb']
+    assigned_id_cols = assigned_id_cols_refmet + assigned_id_cols_biomapper
+    delimiters = [',', ';']
+    source_path = MAPPING_INPUT_DIR / 'arivale' / 'metabolites_ChemicalAnnotation-Table1.tsv'
+    df_main = pd.read_table(source_path)
+    df_main[assigned_id_cols_refmet] = df_main[assigned_id_cols_refmet].replace('-', np.nan)
+
+    # Add in biomapper results only for rows we don't have other ids for already
+    biomapper_path = MAPPING_INPUT_DIR / 'arivale' / 'arivale_metabolites_blind_rag_llm_20250929.tsv'
+    df_biomapper = pd.read_table(biomapper_path)
+    df_biomapper[assigned_id_cols_biomapper] = df_biomapper[assigned_id_cols_biomapper].replace('NO_MATCH', np.nan)
+    df_no_ids = df_main[df_main[provided_id_cols + assigned_id_cols_refmet].isna().all(axis=1)]
+    print(f"FOUND {len(df_no_ids)} rows with no ids #################")
+    to_use_biomapper_results_for = set(df_no_ids['CHEM_ID'].unique())
+    df_biomapper_filtered = df_biomapper[df_biomapper['metabolite_id'].isin(to_use_biomapper_results_for)]
+    print(f"Filtered down to {len(df_biomapper_filtered)} biomapper rows")
+    print(df_biomapper_filtered)
+
+    df = pd.merge(df_main, df_biomapper_filtered, left_on='CHEM_ID', right_on='metabolite_id', how='left')
+
+    return df, provided_id_cols, assigned_id_cols, delimiters
+
 def load_arivale_proteins_original() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
     provided_id_cols = ['uniprot', 'gene_id']
     assigned_id_cols = []
@@ -198,6 +240,15 @@ def load_ukbb_metabolites_biomapper() -> Tuple[pd.DataFrame, List[str], List[str
     df.source_pubchem_id = df.source_pubchem_id.str.removesuffix('.0')
     return df, provided_id_cols, assigned_id_cols, delimiters
 
+def load_ukbb_metabolites_biomapper_edited() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+    provided_id_cols = []
+    assigned_id_cols = ['source_chebi_id', 'source_hmdb_id', 'source_pubchem_id']  # TODO: verify these are assigned?
+    delimiters = [';']
+    input_path = MAPPING_INPUT_DIR / 'ukbb' / 'ukbb_metabolites_COMPLETE_manuallyedited.tsv'
+    df = pd.read_table(input_path, dtype={'source_pubchem_id': str})
+    df.source_pubchem_id = df.source_pubchem_id.str.removesuffix('.0')
+    return df, provided_id_cols, assigned_id_cols, delimiters
+
 def load_israeli10k_lipids_refmet() -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
     provided_id_cols = []
     assigned_id_cols = ['PubChem_CID', 'ChEBI_ID', 'HMDB_ID', 'LM_ID', 'KEGG_ID', 'INCHI_KEY', 'RefMet_ID']
@@ -257,7 +308,9 @@ def main():
             'metabolites': {
                 'v1_original': load_arivale_metabolites_original,
                 'v2_gdprefmet': load_arivale_metabolites_gdprefmet,
-                'v3_lancerefmet': load_arivale_metabolites_lancerefmet
+                'v3_lancerefmet': load_arivale_metabolites_lancerefmet,
+                'v4_biomapperval': load_arivale_metabolites_biomapper_validation,
+                'v5_combined': load_arivale_metabolites_all_combined
             },
             'proteins': {
                 'v1_original': load_arivale_proteins_original
@@ -278,7 +331,8 @@ def main():
                 'v1_filtered': load_ukbb_clinicallabs_filtered
             },
             'metabolites': {
-                'v1_biomapper': load_ukbb_metabolites_biomapper
+                'v1_biomapper': load_ukbb_metabolites_biomapper,
+                'v2_biomapperedited': load_ukbb_metabolites_biomapper_edited
             }
         },
         'israeli10k': {
