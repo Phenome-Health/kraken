@@ -181,7 +181,7 @@ def generate_detailed_breakdown(df):
     return pd.DataFrame(breakdown)
 
 
-def create_accuracy_visualization(stats_df, overall_stats, output_dir):
+def create_accuracy_visualization(stats_df, overall_stats, output_viz_path):
     """Create visualization of accuracy results"""
 
     # Set up the plot
@@ -276,12 +276,11 @@ def create_accuracy_visualization(stats_df, overall_stats, output_dir):
     plt.tight_layout()
 
     # Save the plot
-    output_file = output_dir / 'mapping_accuracy_visualization.png'
-    plt.savefig(output_file, dpi=300, bbox_inches='tight', facecolor='white')
-    print(f"Visualization saved: {output_file}")
+    plt.savefig(output_viz_path, dpi=300, bbox_inches='tight', facecolor='white')
+    print(f"Visualization saved: {output_viz_path}")
 
     # Also save as PDF
-    output_file_pdf = output_dir / 'mapping_accuracy_visualization.pdf'
+    output_file_pdf = output_viz_path.with_suffix('.pdf')
     plt.savefig(output_file_pdf, bbox_inches='tight', facecolor='white')
     print(f"Visualization saved (PDF): {output_file_pdf}")
 
@@ -337,15 +336,17 @@ def main():
                        default='src/mapping/results/kraken/arivale_metabolites_v4_a_full_results.tsv',
                        help='Input TSV file path')
     parser.add_argument('--output',
-                       default='src/mapping/results/kraken/arivale_metabolites_v4_accuracy_analysis.txt',
-                       help='Output file for results')
+                       default='src/mapping/results/kraken/',
+                       help='Output directory for results')
     parser.add_argument('--no-viz', action='store_true',
                        help='Skip generating visualization')
     args = parser.parse_args()
 
     input_file = Path(args.input)
-    output_file = Path(args.output)
-    output_dir = output_file.parent
+    output_dir = Path(args.output)
+
+    output_summary_path = output_dir / f"a_validation_{input_file.name.removesuffix('.tsv')}_summary.txt"
+    output_viz_path = output_dir / f"a_validation_{input_file.name.removesuffix('.tsv')}_chart.png"
 
     if not input_file.exists():
         print(f"Error: Input file {input_file} not found!")
@@ -368,11 +369,11 @@ def main():
     # Create visualization
     if not args.no_viz:
         print("\nCreating visualization...")
-        create_accuracy_visualization(stats_df, overall_stats, output_dir)
+        create_accuracy_visualization(stats_df, overall_stats, output_viz_path)
 
     # Save results to file
-    print(f"\nSaving results to: {output_file}")
-    with open(output_file, 'w') as f:
+    print(f"\nSaving results to: {output_summary_path}")
+    with open(output_summary_path, 'w') as f:
         f.write("MAPPING ACCURACY BY CONFIDENCE CATEGORY\n")
         f.write("="*80 + "\n\n")
 

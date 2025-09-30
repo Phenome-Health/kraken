@@ -172,6 +172,8 @@ def main():
         print(f"Generating visualizations for {graph_name}")
         os.system(f"uv run python {MAPPING_DIR / 'visualize_summary_heatmap.py'} {graph_name.upper()} --input {summary_stats_path} --output {kg_results_dir}")
         os.system(f"uv run python {MAPPING_DIR / 'visualize_stacked_bars_grid.py'} {graph_name.upper()} --input {summary_stats_path} --output {kg_results_dir}")
+        # Generate special validation/accuracy chart for arivale metabolite mappings from biomapper
+        os.system(f"uv run python calculate_mapping_accuracy.py --input {kg_results_dir}/arivale_metabolites_v4_a_full_results.tsv --output {kg_results_dir}")
 
 
     # Generate comparative delta barcharts of percent gained/lost with different KGs
@@ -184,7 +186,6 @@ def main():
     os.system(f"{barchart_run_command} {spoke_summary_path} {kraken_summary_path} --baseline-name SPOKE --comparison-name KRAKEN --output {FINAL_RESULTS_DIR}")
     os.system(f"{barchart_run_command} {kraken_summary_path} {kg2_summary_path} --baseline-name KRAKEN --comparison-name KG2 --output {FINAL_RESULTS_DIR}")
     os.system(f"{barchart_run_command} {kraken_summary_path} {spoke_summary_path} --baseline-name KRAKEN --comparison-name SPOKE --output {FINAL_RESULTS_DIR}")
-
 
 
 
