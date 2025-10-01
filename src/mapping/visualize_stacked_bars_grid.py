@@ -142,6 +142,9 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
 
                 # Bar 1: Total items baseline (always 100%)
                 ax.bar(x_positions[0], 100, bar_width, color='lightgray', alpha=0.7, label='Total Items')
+                # Add total count in the middle of the first bar
+                ax.text(x_positions[0], 50, f'{total_items:,}', ha='center', va='center',
+                       fontsize=7, fontweight='bold', color='black')
 
                 # Bar 2: Valid IDs breakdown with three chunks
                 if has_valid_ids > 0:
@@ -154,14 +157,19 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
                     ax.bar(x_positions[1], only_assigned_pct, bar_width, color='#f4cbd5', alpha=0.8,
                           bottom=only_provided_pct + both_pct)
 
-                    # Add count labels inside the stacked parts
-                    if only_provided_pct > 8:  # Only show if chunk is big enough
+                    # Add count labels only for chunks that are big enough
+                    # Bottom chunk: only provided IDs
+                    if only_provided_pct > 8:
                         ax.text(x_positions[1], only_provided_pct/2, f'{has_only_provided_ids:,}',
                                ha='center', va='center', fontsize=7, fontweight='bold', color='black')
-                    if both_pct > 8:  # Only show if chunk is big enough
+
+                    # Middle chunk: both provided and assigned IDs
+                    if both_pct > 8:
                         ax.text(x_positions[1], only_provided_pct + both_pct/2, f'{has_both_provided_and_assigned_ids:,}',
                                ha='center', va='center', fontsize=7, fontweight='bold', color='black')
-                    if only_assigned_pct > 8:  # Only show if chunk is big enough
+
+                    # Top chunk: only assigned IDs
+                    if only_assigned_pct > 8:
                         ax.text(x_positions[1], only_provided_pct + both_pct + only_assigned_pct/2, f'{has_only_assigned_ids:,}',
                                ha='center', va='center', fontsize=7, fontweight='bold', color='black')
                 else:
@@ -178,18 +186,36 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
                     ax.bar(x_positions[2], multi_portion, bar_width, color='khaki', alpha=0.8,
                           bottom=one_to_one_portion)
 
-                    # Add count labels inside the stacked parts
-                    if one_to_one_portion > 8:  # Only show if chunk is big enough
+                    # Add count labels only for chunks that are big enough
+                    # Bottom chunk: one-to-one mappings
+                    if one_to_one_portion > 8:
                         ax.text(x_positions[2], one_to_one_portion/2, f'{one_to_one:,}',
                                ha='center', va='center', fontsize=7, fontweight='bold', color='black')
-                    if multi_portion > 8:  # Only show if chunk is big enough
+
+                    # Top chunk: multi mappings
+                    if multi_portion > 8:
                         ax.text(x_positions[2], one_to_one_portion + multi_portion/2, f'{multi:,}',
                                ha='center', va='center', fontsize=7, fontweight='bold', color='black')
 
-                # Add count labels below each bar
-                ax.text(x_positions[0], -10, f'{total_items:,}', ha='center', va='top', fontsize=8, rotation=0)
-                ax.text(x_positions[1], -10, f'{has_valid_ids:,}', ha='center', va='top', fontsize=8, rotation=0)
-                ax.text(x_positions[2], -10, f'{mapped_to_kg:,}', ha='center', va='top', fontsize=8, rotation=0)
+                # Add labels below each bar
+                ax.text(x_positions[0], -5, 'Total', ha='center', va='top', fontsize=8)
+                ax.text(x_positions[1], -5, 'Mapped to\nVocab', ha='center', va='top', fontsize=8)
+                ax.text(x_positions[2], -5, 'Mapped to\nKG', ha='center', va='top', fontsize=8)
+
+                # Add count labels above each column
+                ax.text(x_positions[0], 100 + 4, f'{total_items:,}', ha='center', va='bottom', fontsize=6.5, color='grey')
+                ax.text(x_positions[1], valid_ids_pct + 4, f'{has_valid_ids:,}', ha='center', va='bottom', fontsize=6.5, color='grey')
+                ax.text(x_positions[2], mapped_pct + 4, f'{mapped_to_kg:,}', ha='center', va='bottom', fontsize=6.5, color='grey')
+
+                # Add stepdown line tracing the tops of the three columns
+                heights = [100 + 0.8, valid_ids_pct + 0.8, mapped_pct + 0.8]  # Heights of the three bars, slightly elevated
+                # Adjust x positions to align with left edge of bars and extend across third column
+                left_edges = [pos - bar_width/2 for pos in x_positions]
+                # Add right edge of third column to extend the line across it
+                extended_x = left_edges + [x_positions[2] + bar_width/2]
+                extended_heights = heights + [mapped_pct + 0.8]  # Same height for the extension, slightly elevated
+                ax.step(extended_x, extended_heights, 'k:', linewidth=1, alpha=0.7, zorder=10, where='post')
+
 
             else:
                 # No data for this combination
@@ -197,7 +223,7 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
                        transform=ax.transAxes, color='gray')
 
             # Customize each subplot
-            ax.set_ylim(0, 110)
+            ax.set_ylim(0, 120)  # Increased to provide padding for count labels above columns
             ax.set_xlim(0, 1)
             ax.set_xticks([])
             ax.set_yticks([0, 25, 50, 75, 100])
@@ -217,12 +243,11 @@ def create_stacked_bars_grid(data_df: pd.DataFrame, kg_name: str, output_dir: Pa
 
     # Add legend
     legend_elements = [
-        patches.Patch(color='lightgray', alpha=0.7, label='Total Items'),
-        patches.Patch(color='lightblue', alpha=0.8, label='Only Provided IDs'),
+        patches.Patch(color='lightblue', alpha=0.8, label='Provided IDs'),
         patches.Patch(color='#D2C3DA', alpha=0.8, label='Both Provided & Assigned IDs'),
-        patches.Patch(color='#f4cbd5', alpha=0.8, label='Only Assigned IDs'),
-        patches.Patch(color='#a6f1a6', alpha=0.8, label='1:1 KG Mappings'),
-        patches.Patch(color='khaki', alpha=0.8, label='Multi KG Mappings')
+        patches.Patch(color='#f4cbd5', alpha=0.8, label='Assigned IDs'),
+        patches.Patch(color='#a6f1a6', alpha=0.8, label='1:1 Mappings to KG'),
+        patches.Patch(color='khaki', alpha=0.8, label='Multi-Mappings to KG')
     ]
     fig.legend(handles=legend_elements, loc='center', bbox_to_anchor=(0.5, 0.05), ncol=3, fontsize=9)
 
