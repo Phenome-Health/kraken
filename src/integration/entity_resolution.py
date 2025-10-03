@@ -184,6 +184,7 @@ def integrate_edges(unified_edges_path: Path,
 
                 # Handle edge merging as necessary
                 key = create_edge_key(edge)
+                edge['id'] = key  # Save this key (want it in the main kraken dump)
                 if key in merged_edges:
                     if merged_edges[key]:
                         merge_into_existing_edge(edge, merged_edges[key])  # Add to the merged edge

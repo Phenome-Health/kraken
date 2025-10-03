@@ -151,7 +151,7 @@ class IdentifierNorm:
 
     def construct_curie(self, local_id: str, vocab_prefix_lowercase: Union[str, List[str]], stop_on_failure: bool = False) -> Tuple[str, str]:
         # First, if this is a proper curie - remove its prefix
-        local_id = local_id.split(':')[1] if ':' in local_id else local_id
+        local_id = local_id.split(':')[1] if ':' in local_id and not local_id.startswith('http') else local_id
         # Constructs a standardized curie for the given local ID and vocabulary (or list of vocabularies; first valid kept)
         prefixes_lowercase = [vocab_prefix_lowercase] if isinstance(vocab_prefix_lowercase, str) else vocab_prefix_lowercase
         curie = ''

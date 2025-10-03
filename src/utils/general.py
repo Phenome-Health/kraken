@@ -97,8 +97,8 @@ def create_edge_key(edge: dict) -> str:
     aggregator_str = '--' + aggregator_ks if aggregator_ks else ''
     supporting_sources = edge.get(SUPPORTING_SOURCES)
     supporting_str = '--' + '__'.join(sorted(supporting_sources)) if supporting_sources else ''
-    key_raw = f"{subject_id}--{predicate}--{qualifiers_str}{object_id}--{primary_ks}{supporting_sources}{aggregator_str}"
-    return clean_key_for_arango(key_raw)
+    key_raw = f"{subject_id}--{predicate}--{qualifiers_str}{object_id}--{primary_ks}{supporting_str}{aggregator_str}"
+    return key_raw
 
 
 def clean_key_for_arango(key: str) -> str:

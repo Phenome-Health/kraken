@@ -150,7 +150,7 @@ def create_arango_node(node: dict, ancestor_map: defaultdict[str, Set[str]], bmt
 def create_arango_edge(edge: dict, ancestor_map: dict, bmt: Toolkit) -> dict:
     arango_edge = {EDGE_PROP_NAME_OVERRIDES.get(prop_name, prop_name): value
                     for prop_name, value in edge.items()}
-    arango_edge["_key"] = create_edge_key(edge)
+    arango_edge["_key"] = clean_key_for_arango(create_edge_key(edge))
     arango_edge["_from"] = f"nodes/{clean_key_for_arango(edge[SUBJECT])}"
     arango_edge["_to"] = f"nodes/{clean_key_for_arango(edge[OBJECT])}"
 
