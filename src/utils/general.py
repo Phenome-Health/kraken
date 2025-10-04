@@ -82,22 +82,25 @@ def create_edge(subject_id: str,
 
 
 def create_edge_key(edge: dict) -> str:
+    sep = '---'
+    placeholder = '|'
     qualifiers = [
         edge.get(QUALIFIED_PREDICATE, ''),  # e.g., biolink:causes
         edge.get(QUALIFIED_DIRECTION, ''),  # e.g., increased
         edge.get(QUALIFIED_ASPECT, '')  # e.g., activity
     ]
     conglomerate_predicate = '__'.join([qualifier for qualifier in qualifiers if qualifier])
-    qualifiers_str = f'{conglomerate_predicate}--' if conglomerate_predicate else ''
+    qualifiers_str = conglomerate_predicate if conglomerate_predicate else placeholder
     subject_id = edge[SUBJECT]
     object_id = edge[OBJECT]
+    assert sep not in subject_id and sep not in object_id
     predicate = edge[PREDICATE]
     primary_ks = edge[PRIMARY_KS]
     aggregator_ks = edge.get(AGGREGATOR_KS)
-    aggregator_str = '--' + aggregator_ks if aggregator_ks else ''
+    aggregator_str = aggregator_ks if aggregator_ks else placeholder
     supporting_sources = edge.get(SUPPORTING_SOURCES)
-    supporting_str = '--' + '__'.join(sorted(supporting_sources)) if supporting_sources else ''
-    key_raw = f"{subject_id}--{predicate}--{qualifiers_str}{object_id}--{primary_ks}{supporting_str}{aggregator_str}"
+    supporting_str = '__'.join(sorted(supporting_sources)) if supporting_sources else placeholder
+    key_raw = sep.join([subject_id, predicate, object_id, qualifiers_str, primary_ks, supporting_str, aggregator_str])
     return key_raw
 
 
