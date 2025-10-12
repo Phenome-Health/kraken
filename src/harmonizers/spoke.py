@@ -93,7 +93,8 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optiona
                                       equivalent_ids=all_equivalent_ids,
                                       name=properties.get('name'),
                                       synonyms=[properties['name']] if properties.get('name') else None,
-                                      iri=iri)
+                                      iri=iri,
+                                      attributes={SPOKE_INFORES: {'id': node_item['id']}})
 
         return harmonized_node
     else:
@@ -140,7 +141,8 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict, klat_map
                                   supporting_sources=list({normalize_source(s, edge_item) for s in secondary_sources}),
                                   qualified_predicate=qual_predicate,
                                   qualified_direction=qual_direction,
-                                  qualified_aspect=qual_aspect)
+                                  qualified_aspect=qual_aspect,
+                                  attributes={SPOKE_INFORES: {'id': edge_item['id']}})
 
     return harmonized_edge
 
