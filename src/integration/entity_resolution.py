@@ -17,7 +17,7 @@ from ..utils.kg_io import (
     remove_file
 )
 from ..utils.constants import *
-from ..utils.general import create_edge_key
+from ..utils.general import create_edge_key, to_list
 
 
 def integrate_sources(harmonized_source_paths: Dict[str, Dict[str, Path]],
@@ -250,65 +250,32 @@ def merge_into_existing_node(new_node: dict, existing_node: dict, equivalency_in
     canonical_id = existing_node[ID]
     for equiv_id in existing_node[EQUIVALENT_IDS]:
         equivalency_index[equiv_id] = canonical_id
-
-    # Add the new node's name as a synonym for the merged node
-    if new_node.get(NAME):
-        existing_node[SYNONYMS] = list(set(existing_node.get(SYNONYMS, [])) | {new_node[NAME]})
     
+    # Merge all other properties appropriately
+    for property_name, new_value in new_node.items():
+        if property_name != EQUIVALENT_IDS:  # Equiv ids are handled specially, above
+            merge_new_property_into_existing(new_node, existing_node, property_name)
+
     # Remove NamedThing as a category if a more specific category is provided
     if len(existing_node[CATEGORIES]) > 1 and ROOT_CATEGORY in existing_node[CATEGORIES]:
         existing_node[CATEGORIES].remove(ROOT_CATEGORY)
-    
-    # Merge all properties appropriately
-    for property_name, value in new_node.items():
-        if property_name != EQUIVALENT_IDS:  # Equiv ids are handled specially, above
-            if isinstance(value, list):
-                # Merge list properties as appropriate, depending on the types of their contents
-                if any(isinstance(item, dict) for item in value):
-                    existing_node[property_name] = concatenate_two_list_properties(existing_node, new_node, property_name)
-                else:
-                    existing_node[property_name] = merge_two_list_properties(existing_node, new_node, property_name)
-            else:
-                # First come first serve for non-list properties
-                if existing_node.get(property_name) is None:
-                    existing_node[property_name] = value
 
 
 def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
     # NOTE: If edges are being merged, they must match on all properties included in the edge key
 
-    # Merge knowledge_level
-    if new_edge.get(KNOWLEDGE_LEVEL):
-        if not existing_edge.get(KNOWLEDGE_LEVEL) or existing_edge[KNOWLEDGE_LEVEL] == UNKNOWN_KNOWLEDGE_LEVEL:
-            existing_edge[KNOWLEDGE_LEVEL] = new_edge[KNOWLEDGE_LEVEL]
+    # Merge knowledge_level, favoring values that aren't not_provided
+    if existing_edge[KNOWLEDGE_LEVEL] == UNKNOWN_KNOWLEDGE_LEVEL:
+        existing_edge[KNOWLEDGE_LEVEL] = new_edge[KNOWLEDGE_LEVEL]
 
-    # Merge agent_type
-    if new_edge.get(AGENT_TYPE):
-        if not existing_edge.get(AGENT_TYPE) or existing_edge[AGENT_TYPE] == UNKNOWN_AGENT_TYPE:
-            existing_edge[AGENT_TYPE] = new_edge[AGENT_TYPE]
+    # Merge agent_type, favoring values that aren't not_provided
+    if existing_edge[AGENT_TYPE] == UNKNOWN_AGENT_TYPE:
+        existing_edge[AGENT_TYPE] = new_edge[AGENT_TYPE]
 
     # Merge any other properties (all core properties except above 2 are incorporated into key, so must be identical)
     for property_name, value in new_edge.items():
         if property_name not in CORE_EDGE_PROPERTIES:
-            if isinstance(value, list):
-                if any(isinstance(item, dict) for item in value):
-                    existing_edge[property_name] = concatenate_two_list_properties(existing_edge, new_edge, property_name)
-                else:
-                    existing_edge[property_name] = merge_two_list_properties(existing_edge, new_edge, property_name)
-            else:
-                # First come first serve
-                if existing_edge.get(property_name) is None:
-                    existing_edge[property_name] = value
-
-
-def merge_two_list_properties(node_a: dict, node_b: dict, property_name: str) -> List[Any]:
-    # Merges two list properties, retaining distinct values
-    return list(set(node_a.get(property_name, [])) | set(node_b.get(property_name, [])))
-
-
-def concatenate_two_list_properties(node_a: dict, node_b: dict, property_name: str) -> List[Any]:
-    # Concatenates two list properties (does not check for uniqueness of items)
-    return node_a.get(property_name, []) + node_b.get(property_name, [])
+            merge_new_property_into_existing(new_edge, existing_edge, property_name)
 
 
 def resolve_to_canonical(edge: dict, equivalency_index: Dict[str, str]):
@@ -319,3 +286,55 @@ def resolve_to_canonical(edge: dict, equivalency_index: Dict[str, str]):
         edge[OBJECT] = equivalency_index[edge[OBJECT]]
     else:
         logging.warning(f"Skipping orphan edge: Edge between {subj_id} and {obj_id} is missing equivalency mappings")
+
+
+def merge_two_lists(list_a: list, list_b: list) -> List[Any]:
+    # Merges two lists, retaining distinct values if hashable or otherwise just concatenating
+    try:
+        return list(set(list_a) | set(list_b))
+    except Exception:
+        return list_a + list_b
+
+
+def merge_two_values(value_a: Any, value_b: Any, recursion_allowed: bool = True, combine_flat_types: bool = False) -> Any:
+    if value_a is None:
+        return value_b
+    elif value_b is None:
+        return value_a
+    elif isinstance(value_a, dict) and isinstance(value_b, dict) and recursion_allowed:
+        # We recurse only on the top-level entries (no recursing beyond that, even if value is a dict)
+        prop_names = set(value_a.keys()) | set(value_b.keys())
+        merged_value = {prop_name: merge_two_values(value_a.get(prop_name),
+                                                    value_b.get(prop_name),
+                                                    recursion_allowed=False,
+                                                    combine_flat_types=True)
+                        for prop_name in prop_names}
+        return merged_value
+    elif isinstance(value_a, (set, list, dict, tuple)) or isinstance(value_b, (set, list, dict, tuple)) or combine_flat_types:
+        value_a_list = to_list(value_a)
+        value_b_list = to_list(value_b)
+        return merge_two_lists(value_a_list, value_b_list)
+    else:
+        # First-come first-serve
+        return value_a
+
+
+def merge_new_property_into_existing(new_item: dict, existing_item: dict, property_name: str) -> Any:
+    existing_value = existing_item.get(property_name)
+    new_value = new_item.get(property_name)
+
+    # Handle attributes slot specially so we can do nesting at the second level
+    if property_name == 'attributes':
+        existing_attributes = existing_value if existing_value else dict()
+        new_attributes = new_value if new_value else dict()
+        source_slots = set(existing_attributes) | set(new_attributes)
+        merged_value = {source_slot: merge_two_values(existing_attributes.get(source_slot),
+                                                      new_attributes.get(source_slot))
+                        for source_slot in source_slots}
+    else:
+        merged_value = merge_two_values(existing_value, new_value)
+
+    if property_name == ID and isinstance(merged_value, list):
+        raise ValueError(f"uh oh! ids were merged... shouldn't be possible. {existing_value}, {new_value}")
+
+    existing_item[property_name] = merged_value

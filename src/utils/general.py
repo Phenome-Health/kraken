@@ -1,8 +1,10 @@
+import html
 import json
 import logging
 import re
+import unicodedata
 from pathlib import Path
-from typing import Union, List, Set, Optional, Dict, Any
+from typing import Union, List, Set, Optional, Dict, Any, Collection
 
 import requests
 import yaml
@@ -11,26 +13,29 @@ from rdkit import Chem
 from .constants import *
 
 
-ILLEGAL_KEY_PATTERN = r"[^a-zA-Z0-9_\-\.:%\+\*]"
-
-
 def create_node(curie: str,
                 categories: List[str],
                 equivalent_ids: List[str],
                 provided_by: List[str],
                 name: Optional[str] = None,
-                iri: Optional[str] = None,
                 synonyms: Optional[List[str]] = None,
+                description: Optional[str] = None,
+                iri: Optional[str] = None,
                 chemical_formula: Optional[str] = None,
-                exact_mass: Optional[float] = None) -> Dict[str, Any]:
+                exact_mass: Optional[float] = None,
+                attributes: Optional[dict] = None) -> Dict[str, Any]:
     # TODO: switch to pydantic for nodes/edges...
     assert curie and categories and equivalent_ids and provided_by
 
     # Assemble the node, with properties in a specific order (for convenient review)
-    # TODO: add description... (check kg2 for anything else)
     node = {ID: curie}
     if name:
-        node[NAME] = name
+        node[NAME] = clean_text(name)
+        # Make sure node's name is in our synonyms list
+        if synonyms:
+            synonyms = list(set(synonyms) | {name})
+        else:
+            synonyms = [name]
     node[CATEGORIES] = categories
     if iri:
         node[IRI] = iri
@@ -38,11 +43,16 @@ def create_node(curie: str,
         node[CHEMICAL_FORMULA] = chemical_formula
     if exact_mass:
         node[EXACT_MASS] = exact_mass
+    if description:
+        node[DESCRIPTION] = clean_text(description)
 
     node[PROVIDED_BY] = provided_by
     node[EQUIVALENT_IDS] = equivalent_ids
     if synonyms:
-        node[SYNONYMS] = synonyms
+        node[SYNONYMS] = [clean_text(synonym) for synonym in synonyms]
+
+    if attributes:
+        node[ATTRIBUTES] = attributes
 
     return node
 
@@ -57,7 +67,10 @@ def create_edge(subject_id: str,
                 supporting_sources: Optional[List[str]] = None,
                 qualified_predicate: Optional[str] = None,
                 qualified_direction: Optional[str] = None,
-                qualified_aspect: Optional[str] = None) -> Dict[str, Any]:
+                qualified_aspect: Optional[str] = None,
+                publications: Optional[List[str]] = None,
+                publications_info: Optional[Dict[str, Any]] = None,
+                attributes: Optional[dict] = None) -> Dict[str, Any]:
     assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
 
     # Assemble the edge, with properties in a specific order (for convenient review)
@@ -77,6 +90,13 @@ def create_edge(subject_id: str,
         edge[SUPPORTING_SOURCES] = supporting_sources
     if aggregator_ks:
         edge[AGGREGATOR_KS] = aggregator_ks
+
+    if publications:
+        edge[PUBLICATIONS] = publications
+    if publications_info:
+        edge[PUBLICATIONS_INFO] = publications_info
+    if attributes:
+        edge[ATTRIBUTES] = attributes
 
     return edge
 
@@ -104,9 +124,22 @@ def create_edge_key(edge: dict) -> str:
     return key_raw
 
 
-def clean_key_for_arango(key: str) -> str:
-    """Remove disallowed characters to create a valid ArangoDB _key"""
-    return re.sub(ILLEGAL_KEY_PATTERN, '', key)
+def clean_text(text: any) -> str:
+    if not isinstance(text, str):
+        # Handle weird case where some KG2 nodes have a name of True (a bool), or a description that's an int
+        text = str(text)
+    unescaped_text = html.unescape(text)
+    cleaned_text = unicodedata.normalize('NFC', unescaped_text)
+    return cleaned_text
+
+
+def to_list(item: Any) -> List[Any]:
+    if isinstance(item, list):
+        return item
+    elif isinstance(item, (set, tuple)):
+        return list(item)
+    else:
+        return [item]
 
 
 def load_biolink_file(url: str, biolink_version: str) -> dict:

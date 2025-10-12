@@ -94,7 +94,6 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optiona
                                       name=properties.get('name'),
                                       synonyms=[properties['name']] if properties.get('name') else None,
                                       iri=iri)
-        harmonized_node['spoke_nodes'] = [node_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier)
 
         return harmonized_node
     else:
@@ -128,10 +127,6 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict, klat_map
     else:
         logging.warning(f"No normalized IDs available for {subject_id} and/or {object_id}. Skipping this edge.")
         return None
-    
-    # Remove the full start/end node objects (replace with their SPOKE IDs instead - saves a lot of space)
-    edge_item['start'] = subject_id
-    edge_item['end'] = object_id
 
     normalized_primary_ks = normalize_source(primary_source, edge_item)
 
@@ -146,8 +141,7 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict, klat_map
                                   qualified_predicate=qual_predicate,
                                   qualified_direction=qual_direction,
                                   qualified_aspect=qual_aspect)
-    harmonized_edge['spoke_edges'] = [edge_item]  # Make this a list, because we want it merged during entity resolution (e.g., SPOKE maps separate nodes to the same KEGG.REACTION identifier, creating duplicate edges)
-    
+
     return harmonized_edge
 
 

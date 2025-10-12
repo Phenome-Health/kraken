@@ -15,6 +15,7 @@ from ..utils.general import create_node
 def harmonize_refmet(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     logging.info(f"Harmonizing REFMET: {input_file} -> {nodes_output}, {edges_output}")
     id_norm = IdentifierNorm(biolink_version)
+    attribute_prop_names = ['super_class', 'main_class', 'sub_class']
     nodes = dict()
 
     for row in load_csv_to_dict_list(input_file):
@@ -40,20 +41,18 @@ def harmonize_refmet(input_file: Path, nodes_output: Path, edges_output: Path, b
 
         # Put together our node
         name = row['refmet_name']
-        node = create_node(curie=rm_curie,
-                           categories=['biolink:SmallMolecule'],
-                           equivalent_ids=list(equivalent_ids),
-                           provided_by=[REFMET_CURIE],
-                           name=name,
-                           iri=rm_iri,
-                           synonyms=[name],
-                           chemical_formula=row['formula'],
-                           exact_mass=row['exactmass'])
-
-        # Tack on other attributes
-        other_prop_names = ['super_class', 'main_class', 'sub_class']
-        other_props = {other_prop_name: row[other_prop_name] for other_prop_name in other_prop_names}
-        node['refmet_info'] = other_props
+        node = create_node(
+            curie=rm_curie,
+            categories=['biolink:SmallMolecule'],
+            equivalent_ids=list(equivalent_ids),
+            provided_by=[REFMET_CURIE],
+            name=name,
+            iri=rm_iri,
+            synonyms=[name],
+            chemical_formula=row['formula'],
+            exact_mass=row['exactmass'],
+            attributes={REFMET_CURIE: {attr_name: row[attr_name] for attr_name in attribute_prop_names}}
+        )
 
         nodes[node[ID]] = node
 

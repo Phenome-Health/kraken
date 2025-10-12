@@ -1,6 +1,6 @@
 
 
-# Define core node property names
+# Define node property names
 ID = 'id'
 NAME = 'name'
 IRI = 'iri'
@@ -8,15 +8,14 @@ CATEGORIES = 'categories'
 PROVIDED_BY = 'provided_by'
 SYNONYMS = 'synonyms'
 EQUIVALENT_IDS = 'equivalent_ids'
-
-CORE_NODE_PROPERTIES = {ID, NAME, IRI, CATEGORIES, PROVIDED_BY, SYNONYMS, EQUIVALENT_IDS}
-
+DESCRIPTION = 'description'
 CHEMICAL_FORMULA = 'chemical_formula'
 EXACT_MASS = 'exact_mass'
+ATTRIBUTES = 'attributes'
 
 
 
-# Define core edge property names
+# Define edge property names
 SUBJECT = 'subject'
 OBJECT = 'object'
 PREDICATE = 'predicate'
@@ -31,6 +30,9 @@ QUALIFIED_ASPECT = 'qualified_object_aspect'
 
 CORE_EDGE_PROPERTIES = {ID, SUBJECT, OBJECT, PREDICATE, PRIMARY_KS, AGGREGATOR_KS, SUPPORTING_SOURCES,
                         KNOWLEDGE_LEVEL, AGENT_TYPE, QUALIFIED_PREDICATE, QUALIFIED_DIRECTION, QUALIFIED_ASPECT}
+
+PUBLICATIONS = 'publications'
+PUBLICATIONS_INFO = 'publications_info'
 
 
 ROOT_CATEGORY = 'biolink:NamedThing'

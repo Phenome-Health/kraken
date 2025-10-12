@@ -4,17 +4,16 @@ Prepares the unified KG for import into ArangoDB
 """
 import os
 from collections import defaultdict
-import html
 from pathlib import Path
 import re
 import logging
 from typing import Tuple, Set
-import unicodedata
+
 import jsonlines
 
 from ..utils.constants import *
 from ..utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
-from ..utils.general import create_edge_key, clean_key_for_arango
+from ..utils.general import create_edge_key, clean_text
 from bmt import Toolkit
 
 
@@ -62,13 +61,10 @@ def export_for_arango(nodes_path: Path, edges_path: Path, output_dir: Path, aran
     logging.info(f"ArangoDB export complete. Tarball saved to: {tarball_path}")
 
 
-def clean_text(text: any) -> str:
-    if not isinstance(text, str):
-        # Handle weird case where some KG2 nodes have a name of True (a bool)
-        text = str(text)
-    unescaped_text = html.unescape(text)
-    cleaned_text = unicodedata.normalize('NFC', unescaped_text)
-    return cleaned_text
+def clean_key_for_arango(key: str) -> str:
+    illegal_key_pattern = r"[^a-zA-Z0-9_\-\.:%\+\*]"
+    """Remove disallowed characters to create a valid ArangoDB _key"""
+    return re.sub(illegal_key_pattern, '', key)
 
 
 def normalize_text(text: str) -> str:

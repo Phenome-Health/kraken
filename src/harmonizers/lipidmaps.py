@@ -14,7 +14,7 @@ from ..utils.general import create_node, get_canonical_smiles
 def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     logging.info(f"Harmonizing LIPID MAPS: {input_file} -> {nodes_output}, {edges_output}")
     id_norm = IdentifierNorm(biolink_version)
-
+    attribute_prop_names = ['CATEGORY', 'MAIN_CLASS', 'SUB_CLASS', 'CLASS_LEVEL4', 'INCHI']
     nodes = dict()
 
     # Create a supplier object to read the file
@@ -62,21 +62,19 @@ def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path
         synonyms = {synonym.strip() for synonym in (lm_synonyms + other_synonyms) if synonym}
 
         # Put together our node
-        node = create_node(curie=lm_curie,
-                           categories=['biolink:SmallMolecule'],
-                           equivalent_ids=list(equivalent_ids),
-                           provided_by=[LIPIDMAPS_CURIE],
-                           name=name,
-                           iri=lm_iri,
-                           synonyms=list(synonyms),
-                           chemical_formula=properties['FORMULA'],
-                           exact_mass=properties['EXACT_MASS'])
-
-        # Tack on other attributes
-        other_prop_names = ['CATEGORY', 'MAIN_CLASS', 'SUB_CLASS', 'CLASS_LEVEL4', 'INCHI']
-        other_props = {other_prop_name: properties[other_prop_name]
-                       for other_prop_name in other_prop_names if other_prop_name in properties}
-        node['lipidmaps_info'] = other_props
+        node = create_node(
+            curie=lm_curie,
+            categories=['biolink:SmallMolecule'],
+            equivalent_ids=list(equivalent_ids),
+            provided_by=[LIPIDMAPS_CURIE],
+            name=name,
+            iri=lm_iri,
+            synonyms=list(synonyms),
+            chemical_formula=properties['FORMULA'],
+            exact_mass=properties['EXACT_MASS'],
+            attributes={LIPIDMAPS_CURIE: {attr_name: properties[attr_name]
+                                          for attr_name in attribute_prop_names if attr_name in properties}}
+        )
 
         nodes[node[ID]] = node
 
