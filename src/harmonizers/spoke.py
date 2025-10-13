@@ -5,7 +5,7 @@ SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 import json
 from pathlib import Path
 import sys
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Set, Dict, Any
 import jsonlines
 import logging
 
@@ -13,6 +13,10 @@ from ..utils.general import load_biolink_file, create_node, create_edge
 from ..utils.constants import *
 from ..utils.kg_io import stream_mixed_jsonl
 from .spoke_id_utils import SpokeIDNormalizer
+
+EMPTY_VALUES = ['', [], dict(), set(), None]
+EXCLUDE_PROPS = {'identifier', 'mate_version', 'name', 'sources', 'smiles', 'standardized_smiles', 'synonyms',
+                 'description', 'license', 'reverse_degrees', 'forward_degrees', 'source'}
 
 
 def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
@@ -26,6 +30,9 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
     klat_map = {item['id']: {'knowledge_level': item.get('knowledge_level', 'not_provided'),
                              'agent_type': item.get('agent_type', 'not_provided')}
                 for item in infores_info['information_resources']}
+    normalized_id_prop_names = {source_tuple[1] for source_tuple in id_norm.curie_construction_map.keys()}
+    attributes_to_exclude_normalized = normalized_id_prop_names | EXCLUDE_PROPS
+    logging.info(f"Attributes to exclude are: {attributes_to_exclude_normalized}")
     
     # Keep track of normalized node IDs for edge mapping
     spoke_to_normalized_id = {}
@@ -39,7 +46,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
             item_type = item.get('type')
             
             if item_type == 'node':
-                harmonized_node = harmonize_spoke_node(item, id_norm)
+                harmonized_node = harmonize_spoke_node(item, id_norm, attributes_to_exclude_normalized)
 
                 if harmonized_node:  # Occasionally we skip nodes (if invalid identifier, etc...)
                     # Store mapping for edge processing
@@ -49,7 +56,7 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
                     node_count += 1
 
             elif item_type == 'relationship':
-                harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id, klat_map)
+                harmonized_edge = harmonize_spoke_edge(item, spoke_to_normalized_id, klat_map, id_norm, attributes_to_exclude_normalized)
                 if harmonized_edge:
                     edges_writer.write(harmonized_edge)
                     edge_count += 1
@@ -57,7 +64,9 @@ def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, bi
     logging.info(f"SPOKE harmonization complete: {node_count} nodes, {edge_count} edges")
 
 
-def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optional[dict]:
+def harmonize_spoke_node(node_item: dict,
+                         id_norm: SpokeIDNormalizer,
+                         attributes_to_exclude_normalized: Set[str]) -> Optional[dict]:
     """Harmonize a single SPOKE node"""
     properties = node_item.get('properties', {})
     labels = node_item.get('labels', [])
@@ -92,9 +101,10 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optiona
                                       provided_by=[SPOKE_INFORES],
                                       equivalent_ids=all_equivalent_ids,
                                       name=properties.get('name'),
-                                      synonyms=[properties['name']] if properties.get('name') else None,
+                                      synonyms=properties.get('synonyms'),
+                                      description=properties.get('description'),
                                       iri=iri,
-                                      attributes={SPOKE_INFORES: {'id': node_item['id']}})
+                                      attributes=get_attributes(node_item, attributes_to_exclude_normalized, id_norm))
 
         return harmonized_node
     else:
@@ -102,11 +112,16 @@ def harmonize_spoke_node(node_item: dict, id_norm: SpokeIDNormalizer) -> Optiona
         sys.exit(1)
 
 
-def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict, klat_map: dict) -> Optional[dict]:
+def harmonize_spoke_edge(edge_item: dict,
+                         spoke_to_normalized_id: dict,
+                         klat_map: dict,
+                         id_norm: SpokeIDNormalizer,
+                         attributes_to_exclude_normalized: Set[str]) -> Optional[dict]:
     """Harmonize a single SPOKE edge"""
     edge_type = edge_item.get('label')
     if not edge_type:
         raise ValueError(f"SPOKE edge is missing type: {edge_item}")
+    properties = edge_item.get('properties', {})
 
     spoke_subject_id = edge_item['start']['id']
     spoke_object_id = edge_item['end']['id']
@@ -142,7 +157,8 @@ def harmonize_spoke_edge(edge_item: dict, spoke_to_normalized_id: dict, klat_map
                                   qualified_predicate=qual_predicate,
                                   qualified_direction=qual_direction,
                                   qualified_aspect=qual_aspect,
-                                  attributes={SPOKE_INFORES: {'id': edge_item['id']}})
+                                  publications=get_true_publications(properties.get('pubmedIDs', [])),
+                                  attributes=get_attributes(edge_item, attributes_to_exclude_normalized, id_norm))
 
     return harmonized_edge
 
@@ -374,3 +390,25 @@ def get_all_sources(item: dict) -> Tuple[str, List[str]]:
     secondary_sources = sources[1:] if len(sources) > 1 else []
 
     return primary_source, secondary_sources
+
+
+def get_attributes(item: dict, attributes_to_exclude_normalized: Set[str], id_norm: SpokeIDNormalizer) -> Dict[str, Any]:
+    id_attr = {'spoke_id': item['id']}
+    properties = item.get('properties')
+    attributes = {prop_name: value for prop_name, value in properties.items()
+                  if id_norm.clean_name(prop_name) not in attributes_to_exclude_normalized
+                  and value not in EMPTY_VALUES}
+    return id_attr | attributes
+
+
+def get_true_publications(input_list: List[str]) -> List[str]:
+    # TODO: later add to id normalizer? pmid and doi cleaners/validators..
+    publications = set()
+    for entry in input_list:
+        if entry.isdigit():
+            publications.add(f"PMID:{entry}")
+        elif entry.startswith('10.'):
+            publications.add(f"doi:{entry}")
+    return list(publications)
+
+

@@ -112,7 +112,7 @@ class SpokeIDNormalizer:
         # If the identifier was a curie, its prefix should override the source
         source = spoke_prefix if spoke_prefix else source
 
-        source_cleaned = source.lower().replace(' ', '')
+        source_cleaned = self.clean_name(source)
         lookup_key = (node_type, source_cleaned)
 
         if local_id and lookup_key in self.curie_construction_map:
@@ -180,3 +180,7 @@ class SpokeIDNormalizer:
         # NOTE: Skipping xrefs for now; quite complicated to determine correct prefix. 
         
         return [equiv_id for equiv_id in equivalent_ids if equiv_id]  # Filter out ones that were invalid (returned as empty string)
+
+    @staticmethod
+    def clean_name(prop_or_source_name: str) -> str:
+        return prop_or_source_name.lower().replace(' ', '')
