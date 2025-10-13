@@ -16,7 +16,7 @@ from .spoke_id_utils import SpokeIDNormalizer
 
 EMPTY_VALUES = ['', [], dict(), set(), None]
 EXCLUDE_PROPS = {'identifier', 'mate_version', 'name', 'sources', 'smiles', 'standardized_smiles', 'synonyms',
-                 'description', 'license', 'reverse_degrees', 'forward_degrees', 'source'}
+                 'description', 'license', 'reverse_degrees', 'forward_degrees', 'source', 'database'}
 
 
 def harmonize_spoke(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
