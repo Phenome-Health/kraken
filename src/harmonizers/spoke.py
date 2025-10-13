@@ -398,7 +398,7 @@ def get_attributes(item: dict, attributes_to_exclude_normalized: Set[str], id_no
     attributes = {prop_name: value for prop_name, value in properties.items()
                   if id_norm.clean_name(prop_name) not in attributes_to_exclude_normalized
                   and value not in EMPTY_VALUES}
-    return id_attr | attributes
+    return {SPOKE_INFORES: id_attr | attributes}
 
 
 def get_true_publications(input_list: List[str]) -> List[str]:
