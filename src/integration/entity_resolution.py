@@ -254,7 +254,7 @@ def merge_into_existing_node(new_node: dict, existing_node: dict, equivalency_in
     # Merge all other properties appropriately
     for property_name, new_value in new_node.items():
         if property_name != EQUIVALENT_IDS:  # Equiv ids are handled specially, above
-            merge_new_property_into_existing(new_node, existing_node, property_name)
+            merge_property_into_existing(new_node, existing_node, property_name)
 
     # Remove NamedThing as a category if a more specific category is provided
     if len(existing_node[CATEGORIES]) > 1 and ROOT_CATEGORY in existing_node[CATEGORIES]:
@@ -275,7 +275,7 @@ def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
     # Merge any other properties (all core properties except above 2 are incorporated into key, so must be identical)
     for property_name, value in new_edge.items():
         if property_name not in CORE_EDGE_PROPERTIES:
-            merge_new_property_into_existing(new_edge, existing_edge, property_name)
+            merge_property_into_existing(new_edge, existing_edge, property_name)
 
 
 def resolve_to_canonical(edge: dict, equivalency_index: Dict[str, str]):
@@ -315,26 +315,33 @@ def merge_two_values(value_a: Any, value_b: Any, recursion_allowed: bool = True,
         value_b_list = to_list(value_b)
         return merge_two_lists(value_a_list, value_b_list)
     else:
-        # First-come first-serve
+        # First input node wins
         return value_a
 
 
-def merge_new_property_into_existing(new_item: dict, existing_item: dict, property_name: str) -> Any:
-    existing_value = existing_item.get(property_name)
-    new_value = new_item.get(property_name)
+def merge_property_into_existing(new_item: dict, existing_item: dict, property_name: str) -> Any:
+    # Figure out which node/edge should be considered 'dominant' for the purpose of merging singular properties
+    if 'equivalent_ids' in new_item:
+        # Dominant node is the one with more equiv IDs (this isn't perfect due to iterative merging, but should work for most cases)
+        dominant_item, secondary_item = (existing_item, new_item) if len(existing_item['equivalent_ids']) > len(new_item['equivalent_ids']) else (new_item, existing_item)
+    else:
+        # Dominant edge is the pre-existing one (this doesn't really matter for edges currently)
+        dominant_item, secondary_item = existing_item, new_item
+    dominant_value = dominant_item.get(property_name)
+    secondary_value = dominant_item.get(property_name)
 
     # Handle attributes slot specially so we can do nesting at the second level
     if property_name == 'attributes':
-        existing_attributes = existing_value if existing_value else dict()
-        new_attributes = new_value if new_value else dict()
-        source_slots = set(existing_attributes) | set(new_attributes)
-        merged_value = {source_slot: merge_two_values(existing_attributes.get(source_slot),
-                                                      new_attributes.get(source_slot))
+        dominant_attributes = dominant_value if dominant_value else dict()
+        secondary_attributes = secondary_value if secondary_value else dict()
+        source_slots = set(dominant_attributes) | set(secondary_attributes)
+        merged_value = {source_slot: merge_two_values(dominant_attributes.get(source_slot),
+                                                      secondary_attributes.get(source_slot))
                         for source_slot in source_slots}
     else:
-        merged_value = merge_two_values(existing_value, new_value)
+        merged_value = merge_two_values(dominant_value, secondary_value)
 
     if property_name == ID and isinstance(merged_value, list):
-        raise ValueError(f"uh oh! ids were merged... shouldn't be possible. {existing_value}, {new_value}")
+        raise ValueError(f"uh oh! ids were merged... shouldn't be possible. {dominant_value}, {secondary_value}")
 
     existing_item[property_name] = merged_value
