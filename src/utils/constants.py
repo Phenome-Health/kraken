@@ -13,8 +13,6 @@ CHEMICAL_FORMULA = 'chemical_formula'
 EXACT_MASS = 'exact_mass'
 ATTRIBUTES = 'attributes'
 
-
-
 # Define edge property names
 SUBJECT = 'subject'
 OBJECT = 'object'
@@ -41,13 +39,15 @@ ROOT_PREDICATE = 'biolink:related_to'
 UNKNOWN_KNOWLEDGE_LEVEL = 'not_provided'
 UNKNOWN_AGENT_TYPE = 'not_provided'
 
-SPOKE_INFORES: str = 'infores:spoke'
-KG2_INFORES: str = 'infores:kg2'
-UMLS_INFORES: str = 'infores:umls'
-LIPIDMAPS_CURIE: str = 'lipidmaps'
-REFMET_CURIE: str = 'refmet'
-
 BIOLINK_PREFIX = 'biolink'
 INFORES_PREFIX = 'infores'
 
+SPOKE_INFORES: str = f'{INFORES_PREFIX}:spoke'
+KG2_INFORES: str = f'{INFORES_PREFIX}:rtx-kg2'
+UMLS_INFORES: str = f'{INFORES_PREFIX}:umls'
+LIPIDMAPS_CURIE: str = 'lipidmaps'
+REFMET_CURIE: str = 'refmet'
+
 KNOWN_INVALID = 'KNOWN_INVALID'
+
+

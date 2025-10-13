@@ -127,9 +127,10 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
                 canonical_id, new_equiv_ids = find_majority_canonical_id(node, equivalency_index, one_to_many_log)
 
                 if canonical_id in current_canonical_nodes:
-                    # Merge with existing canonical node
+                    # Merge with existing canonical node (where new node cannot override existing)
+                    # TODO: refine this depending on merging power of pre-existing source(s)?
                     existing_canonical_node = current_canonical_nodes[canonical_id]
-                    merge_into_existing_node(node, existing_canonical_node, equivalency_index, new_equiv_ids)
+                    merge_into_existing_node(node, existing_canonical_node, equivalency_index, new_equiv_ids, new_can_dominate=False)
                 else:
                     # First time seeing this canonical entity
                     current_canonical_nodes[node[ID]] = node
@@ -239,7 +240,11 @@ def find_majority_canonical_id(node: dict,
     return canonical_id, new_equiv_ids
 
 
-def merge_into_existing_node(new_node: dict, existing_node: dict, equivalency_index: Dict[str, str], new_equiv_ids: Optional[Set[str]] = None):
+def merge_into_existing_node(new_node: dict,
+                             existing_node: dict,
+                             equivalency_index: Dict[str, str],
+                             new_equiv_ids: Optional[Set[str]] = None,
+                             new_can_dominate: bool = True):
     """Merge data from new node into existing node (edits in place)"""
 
     # Merge any equivalent IDs for this node as appropriate (not necessarily ALL equivalent_ids the source provides,
@@ -250,11 +255,18 @@ def merge_into_existing_node(new_node: dict, existing_node: dict, equivalency_in
     canonical_id = existing_node[ID]
     for equiv_id in existing_node[EQUIVALENT_IDS]:
         equivalency_index[equiv_id] = canonical_id
-    
+
+    # Only merge in new synonyms if this is a 'full' merge
+    if not new_equiv_ids or len(new_equiv_ids) == len(new_node[EQUIVALENT_IDS]):
+        merge_property_into_existing(new_node, existing_node, SYNONYMS)
+
+    # Figure out whether the new node's values for singular properties should override existing node's
+    new_dominates = new_can_dominate and len(new_node[EQUIVALENT_IDS]) > len(existing_node[EQUIVALENT_IDS])
+
     # Merge all other properties appropriately
     for property_name, new_value in new_node.items():
-        if property_name != EQUIVALENT_IDS:  # Equiv ids are handled specially, above
-            merge_property_into_existing(new_node, existing_node, property_name)
+        if property_name not in {EQUIVALENT_IDS, SYNONYMS}:  # These are handled specially, above
+            merge_property_into_existing(new_node, existing_node, property_name, new_dominates)
 
     # Remove NamedThing as a category if a more specific category is provided
     if len(existing_node[CATEGORIES]) > 1 and ROOT_CATEGORY in existing_node[CATEGORIES]:
@@ -319,16 +331,10 @@ def merge_two_values(value_a: Any, value_b: Any, recursion_allowed: bool = True,
         return value_a
 
 
-def merge_property_into_existing(new_item: dict, existing_item: dict, property_name: str) -> Any:
-    # Figure out which node/edge should be considered 'dominant' for the purpose of merging singular properties
-    if 'equivalent_ids' in new_item:
-        # Dominant node is the one with more equiv IDs (this isn't perfect due to iterative merging, but should work for most cases)
-        dominant_item, secondary_item = (existing_item, new_item) if len(existing_item['equivalent_ids']) > len(new_item['equivalent_ids']) else (new_item, existing_item)
-    else:
-        # Dominant edge is the pre-existing one (this doesn't really matter for edges currently)
-        dominant_item, secondary_item = existing_item, new_item
+def merge_property_into_existing(new_item: dict, existing_item: dict, property_name: str, new_dominates: bool = False) -> Any:
+    dominant_item, secondary_item = (new_item, existing_item) if new_dominates else (existing_item, new_item)
     dominant_value = dominant_item.get(property_name)
-    secondary_value = dominant_item.get(property_name)
+    secondary_value = secondary_item.get(property_name)
 
     # Handle attributes slot specially so we can do nesting at the second level
     if property_name == 'attributes':
