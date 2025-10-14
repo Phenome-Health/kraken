@@ -397,6 +397,7 @@ def get_attributes(item: dict, attributes_to_exclude_normalized: Set[str], id_no
     properties = item.get('properties')
     attributes = {prop_name: value for prop_name, value in properties.items()
                   if id_norm.clean_name(prop_name) not in attributes_to_exclude_normalized
+                  and not id_norm.is_trusted_id_property(prop_name)
                   and value not in EMPTY_VALUES}
     return {SPOKE_INFORES: id_attr | attributes}
 

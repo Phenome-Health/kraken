@@ -153,15 +153,11 @@ class SpokeIDNormalizer:
         """Extract equivalent IDs from properties - simplified approach"""
         equivalent_ids = set()
         none_strings = {'null', 'none', 'nan'}
-        equiv_id_sources = {'chembl', 'drugbank', 'chebi', 'pubchem', 'kegg', 'mesh', 'ensembl', 'omim'}
-        exact_fields = {'snomedct', 'icd10', 'icd9', 'accession'}
         
         # Figure out which properties probably contain an identifier
         relevant_properties = set()
         for property_name in properties.keys():
-            prop_name_lower = property_name.lower()
-            first_word = prop_name_lower.split('_')[0]
-            if prop_name_lower in exact_fields or (first_word in equiv_id_sources and ('id' in prop_name_lower or '_list' in prop_name_lower)):
+            if self.is_trusted_id_property(property_name):
                 relevant_properties.add(property_name)
 
         # Construct proper curie(s) for each of those properties
@@ -177,10 +173,21 @@ class SpokeIDNormalizer:
                 elif isinstance(id_prop_value, str) and id_prop_value.strip() and id_prop_value.lower() not in none_strings:
                     equivalent_ids.add(self.normalize_spoke_identifier(node_type, id_prop_name, id_prop_value, properties)[0])
         
-        # NOTE: Skipping xrefs for now; quite complicated to determine correct prefix. 
-        
+        # NOTE: Skipping xrefs field for now; quite complicated to determine correct prefix.
+
         return [equiv_id for equiv_id in equivalent_ids if equiv_id]  # Filter out ones that were invalid (returned as empty string)
 
     @staticmethod
     def clean_name(prop_or_source_name: str) -> str:
         return prop_or_source_name.lower().replace(' ', '')
+
+    @staticmethod
+    def is_trusted_id_property(property_name: str) -> bool:
+        equiv_id_sources = {'chembl', 'drugbank', 'chebi', 'pubchem', 'kegg', 'mesh', 'ensembl', 'omim'}
+        exact_fields = {'snomedct', 'icd10', 'icd9', 'accession'}
+        prop_name_lower = property_name.lower()
+        first_word = prop_name_lower.split('_')[0]
+        if prop_name_lower in exact_fields or (first_word in equiv_id_sources and ('id' in prop_name_lower or '_list' in prop_name_lower)):
+            return True
+        else:
+            return False
