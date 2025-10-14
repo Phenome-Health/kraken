@@ -1,7 +1,7 @@
 """
 Entity resolution and graph integration functions
 """
-
+import copy
 from collections import defaultdict, Counter
 from pathlib import Path
 import sys
@@ -102,26 +102,26 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
                     # We have a one-to-one match; merge this node with its canonical node
                     canonical_id = canonical_ids_list[0]
                     existing_canonical_node = current_canonical_nodes[canonical_id]
-                    merge_into_existing_node(node, existing_canonical_node, equivalency_index)
+                    _ = merge_two_nodes(node, existing_canonical_node, equivalency_index, current_canonical_nodes)
                 else:
                     # We have a one-to-many match; merge all canonical nodes for this new node into the majority canonical node
                     canonical_id_counts = Counter(canonical_ids_list)
                     most_common_canonical_id = canonical_id_counts.most_common(1)[0][0]
                     other_canonical_ids = canonical_ids.difference({most_common_canonical_id})
-                    most_common_canonical_node = current_canonical_nodes[most_common_canonical_id]
 
                     # Log this one-to-many mapping
                     log_item = {'node_id': node_id, 'majority_canonical_id': most_common_canonical_id,
                                 'other_canonical_ids': list(other_canonical_ids), 'node': node}
                     save_to_jsonl([log_item], one_to_many_log, mode='a')
 
-                    # Merge the new node into the majority canonical node
-                    merge_into_existing_node(node, most_common_canonical_node, equivalency_index)
-                    # Then merge the other canonical nodes into the majority canonical node
-                    for other_canonical_id in other_canonical_ids:
-                        other_existing_canonical_node = current_canonical_nodes[other_canonical_id]
-                        merge_into_existing_node(other_existing_canonical_node, most_common_canonical_node, equivalency_index)
-                        del current_canonical_nodes[other_canonical_id]  # Critical to delete the previously canonical, now merged node
+                    most_common_canonical_node = current_canonical_nodes[most_common_canonical_id]
+                    other_canonical_nodes = [current_canonical_nodes[can_id] for can_id in other_canonical_ids]
+
+                    # Merge the new node with the majority canonical node
+                    merged_node = merge_two_nodes(node, most_common_canonical_node, equivalency_index, current_canonical_nodes)
+                    # Then iteratively merge the other canonical nodes into our merged node
+                    for other_existing_canonical_node in other_canonical_nodes:
+                        merged_node = merge_two_nodes(other_existing_canonical_node, merged_node, equivalency_index, current_canonical_nodes)
             else:
                 # Find the 'majority' canonical ID for this node (not allowed to merge pre-existing canonical nodes)
                 canonical_id, new_equiv_ids = find_majority_canonical_id(node, equivalency_index, one_to_many_log)
@@ -130,7 +130,7 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
                     # Merge with existing canonical node (where new node cannot override existing)
                     # TODO: refine this depending on merging power of pre-existing source(s)?
                     existing_canonical_node = current_canonical_nodes[canonical_id]
-                    merge_into_existing_node(node, existing_canonical_node, equivalency_index, new_equiv_ids, new_can_dominate=False)
+                    _ = merge_two_nodes(node, existing_canonical_node, equivalency_index, current_canonical_nodes, new_equiv_ids, new_can_dominate=False)
                 else:
                     # First time seeing this canonical entity
                     current_canonical_nodes[node[ID]] = node
@@ -239,37 +239,49 @@ def find_majority_canonical_id(node: dict,
     return canonical_id, new_equiv_ids
 
 
-def merge_into_existing_node(new_node: dict,
-                             existing_node: dict,
-                             equivalency_index: Dict[str, str],
-                             new_equiv_ids: Optional[Set[str]] = None,
-                             new_can_dominate: bool = True):
+def merge_two_nodes(new_node: dict,
+                    existing_node: dict,
+                    equivalency_index: Dict[str, str],
+                    current_canonical_nodes: Dict[str, dict],
+                    new_equiv_ids: Optional[Set[str]] = None,
+                    new_can_dominate: bool = True) -> Dict[str, Any]:
     """Merge data from new node into existing node (edits in place)"""
-
-    # Merge any equivalent IDs for this node as appropriate (not necessarily ALL equivalent_ids the source provides,
-    #    due to one-to-manys when using majority approach)
-    equiv_ids_to_merge = new_equiv_ids if new_equiv_ids is not None else set(new_node[EQUIVALENT_IDS])
-    existing_node[EQUIVALENT_IDS] = list(set(existing_node[EQUIVALENT_IDS]) | equiv_ids_to_merge)
-    # Make sure our equivalency index is up to date with any new canonical mappings
-    canonical_id = existing_node[ID]
-    for equiv_id in existing_node[EQUIVALENT_IDS]:
-        equivalency_index[equiv_id] = canonical_id
-
-    # Only merge in new synonyms if this is a 'full' merge
-    if SYNONYMS in new_node and (not new_equiv_ids or len(new_equiv_ids) == len(new_node[EQUIVALENT_IDS])):
-        merge_property_into_existing(new_node, existing_node, SYNONYMS)
+    merged_node = copy.deepcopy(existing_node)
 
     # Figure out whether the new node's values for singular properties should override existing node's
     new_dominates = new_can_dominate and len(new_node[EQUIVALENT_IDS]) > len(existing_node[EQUIVALENT_IDS])
 
+    # Merge any equivalent IDs for this node as appropriate (not necessarily ALL equivalent_ids the source provides,
+    #    due to one-to-manys when using majority approach)
+    equiv_ids_to_merge = new_equiv_ids if new_equiv_ids is not None else set(new_node[EQUIVALENT_IDS])
+    merged_node[EQUIVALENT_IDS] = list(set(existing_node[EQUIVALENT_IDS]) | equiv_ids_to_merge)
+
+    # Only merge in new synonyms if this is a 'full' merge
+    if SYNONYMS in new_node and (not new_equiv_ids or len(new_equiv_ids) == len(new_node[EQUIVALENT_IDS])):
+        merge_property_into_existing(new_node, merged_node, SYNONYMS)
+
     # Merge all other properties appropriately
     for property_name, new_value in new_node.items():
         if property_name not in {EQUIVALENT_IDS, SYNONYMS}:  # These are handled specially, above
-            merge_property_into_existing(new_node, existing_node, property_name, new_dominates)
+            merge_property_into_existing(new_node, merged_node, property_name, new_dominates)
 
     # Remove NamedThing as a category if a more specific category is provided
-    if len(existing_node[CATEGORIES]) > 1 and ROOT_CATEGORY in existing_node[CATEGORIES]:
-        existing_node[CATEGORIES].remove(ROOT_CATEGORY)
+    if len(merged_node[CATEGORIES]) > 1 and ROOT_CATEGORY in merged_node[CATEGORIES]:
+        merged_node[CATEGORIES].remove(ROOT_CATEGORY)
+
+    # Make sure our equivalency index is up to date with any new canonical mappings
+    updated_canonical_id = merged_node[ID]
+    for equiv_id in merged_node[EQUIVALENT_IDS]:
+        equivalency_index[equiv_id] = updated_canonical_id
+
+    # Make sure our canonical nodes map is up to date in light of any changes to canonical ids
+    if existing_node[ID] in current_canonical_nodes:
+        del current_canonical_nodes[existing_node[ID]]
+    if new_node[ID] in current_canonical_nodes:
+        del current_canonical_nodes[new_node[ID]]
+    current_canonical_nodes[updated_canonical_id] = merged_node
+
+    return merged_node
 
 
 def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
