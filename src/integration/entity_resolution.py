@@ -256,7 +256,7 @@ def merge_into_existing_node(new_node: dict,
         equivalency_index[equiv_id] = canonical_id
 
     # Only merge in new synonyms if this is a 'full' merge
-    if not new_equiv_ids or len(new_equiv_ids) == len(new_node[EQUIVALENT_IDS]):
+    if SYNONYMS in new_node and (not new_equiv_ids or len(new_equiv_ids) == len(new_node[EQUIVALENT_IDS])):
         merge_property_into_existing(new_node, existing_node, SYNONYMS)
 
     # Figure out whether the new node's values for singular properties should override existing node's
