@@ -1,7 +1,7 @@
 [project]
-name = "phenome-kg"
+name = "kraken"
 version = "0.1.0"
-description = "Build system for Phenome Health's unified KG"
+description = "Build system for Phenome Health's unified knowledge graph, KRAKEN"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

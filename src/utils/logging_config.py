@@ -1,5 +1,5 @@
 """
-Logging configuration for PhenomeKG build
+Logging configuration for KRAKEN build
 """
 
 import logging

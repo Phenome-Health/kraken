@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PhenomeKG Build System
+KRAKEN Build System
 Main entry point for building the unified knowledge graph
 """
 
@@ -20,10 +20,10 @@ def main():
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    logging.info("Starting PhenomeKG build...")
+    logging.info("Starting KRAKEN build...")
     start = time.time()
     final_kg_path = run_kg_build(config)
-    logging.info(f"Build complete! Took {round((time.time() - start) / 60)} minutes. PhenomeKG saved to: {final_kg_path}")
+    logging.info(f"Build complete! Took {round((time.time() - start) / 60)} minutes. KRAKEN saved to: {final_kg_path}")
 
 
 if __name__ == "__main__":

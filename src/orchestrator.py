@@ -1,6 +1,5 @@
 """
-Main orchestration functions for PhenomeKG build
-Streaming approach to workflow management
+Main orchestration functions for KRAKEN build
 """
 
 from pathlib import Path

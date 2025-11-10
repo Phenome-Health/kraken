@@ -487,7 +487,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Phenome-KG Metagraph Viewer - {source_name.title()}</title>
+    <title>KG Metagraph Viewer - {source_name.title()}</title>
     <script src="https://unpkg.com/cytoscape@3.21.0/dist/cytoscape.min.js"></script>
     <style>
         body {{
@@ -602,7 +602,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
 </head>
 <body>
     <div class="header">
-        <h1>Phenome-KG Metagraph Visualization</h1>
+        <h1>KG Metagraph Visualization</h1>
         <p>Interactive network view of knowledge graph structure - {source_name.title()}</p>
     </div>
     
