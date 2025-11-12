@@ -10,9 +10,10 @@ import sys
 from typing import Any, List, Dict, Set, Tuple, Union, Callable, Optional
 
 import requests
+from biomapper2.core.normalizer import Normalizer
+
 from ..utils.constants import *
 from ..utils.general import load_biolink_file
-from ..utils.identifiers import IdentifierNorm
 
 
 class SpokeIDNormalizer:
@@ -20,7 +21,7 @@ class SpokeIDNormalizer:
     
     def __init__(self, biolink_version: str):
         self.biolink_version = biolink_version
-        self.id_norm = IdentifierNorm(biolink_version)
+        self.normalizer = Normalizer(biolink_version=biolink_version)
         self.curie_construction_map = self._load_curie_construction_map()
         self.spoke_underscore_prefixes = {'SNOMED_', 'CLO_', 'ENVO_', 'CHR_', 'HPS_', 'CVCL_', 'BFO_'}
 
@@ -36,7 +37,7 @@ class SpokeIDNormalizer:
             ('CellLine', 'cvcl'): 'cvcl',
             ('CellType', 'cl'): 'cl',
             ('CellularComponent', 'go'): 'go',
-            ('ClinicalLab', 'unknown'): ['loinc', 'umls'],
+            ('ClinicalLab', 'unknown'): ('loinc', 'umls'),
             ('Complex', 'complexportal'): 'complexportal',
             ('Compound', 'chebi'): 'chebi',
             ('Compound', 'chembl_ids'): 'chembl.compound',
@@ -64,9 +65,9 @@ class SpokeIDNormalizer:
             ('Gene', 'chembl_id'): 'chembl.target',
             ('Gene', 'entrezgene'): 'ncbigene',
             ('Gene', 'mirbase'): 'ncbigene',  # Main 'identifier' given for these is ncbigene ID
-            ('Haplotype', 'unknown'): ['pharmvar', 'dbsnp'],
+            ('Haplotype', 'unknown'): ('pharmvar', 'dbsnp'),
             ('Location', 'geonames'): 'geonames',
-            ('Location', 'unitedstateszipcode_database'): ['uszipcode', 'fips.place', 'fips.state'],
+            ('Location', 'unitedstateszipcode_database'): ('uszipcode', 'fips.place', 'fips.state'),
             ('MiRNA', 'accession'): 'mirbase',
             ('MiRNA', 'mirdb'): 'mirdb',
             ('MolecularFunction', 'go'): 'go',
@@ -75,7 +76,7 @@ class SpokeIDNormalizer:
             ('Pathway', 'reactome'): 'react',
             ('Pathway', 'unknown'): 'metacyc.pathway',
             ('Pathway', 'wikipathways'): 'wikipathways',
-            ('PharmacologicClass', 'fdaviadrugcentral'): ['ndfrt', 'mesh'],
+            ('PharmacologicClass', 'fdaviadrugcentral'): ('ndfrt', 'mesh'),
             ('Protein', 'chembl_id'): 'chembl.target',
             ('Protein', 'uniprot'): 'uniprotkb',
             ('ProteinDomain', 'pfam'): 'pfam',
@@ -118,16 +119,17 @@ class SpokeIDNormalizer:
         if local_id and lookup_key in self.curie_construction_map:
             # Grab the curie construction info
             prefix_entry = self.curie_construction_map[lookup_key]
-            curie, iri = self.id_norm.construct_curie(local_id, prefix_entry, stop_on_failure=False)
+            if self.is_known_invalid_id(local_id, prefix_entry):
+                logging.warning(f"Skipping known invalid ID for {prefix_entry}: {local_id}.")
+                return KNOWN_INVALID, ''
+            else:
+                # Actually construct the curie
+                curie_dict, _ = self.normalizer.get_curies({prefix_entry: local_id}, stop_on_invalid_id=False)
+                if curie_dict:
+                    curie, iri = next(iter(curie_dict.items()))  # There can only be one entry in here
+                    return curie, iri
 
-            # Actually construct the curie
-            if curie:
-                return curie, iri
-
-        logging.error(f"Could not determine proper curie for lookup key: {lookup_key}:\n   type: {node_type}, "
-                      f"source: {source_cleaned} ({source}), identifier: {identifier}, local_id: {local_id}"
-                      f"\n   Properties: {properties}")
-        sys.exit(1)
+        return '', ''
 
 
     def get_curie_parts(self, identifier: str) -> Tuple[str, str]:
@@ -168,14 +170,18 @@ class SpokeIDNormalizer:
                 if isinstance(id_prop_value, list):
                     for equiv_id in id_prop_value:
                         if equiv_id and str(equiv_id).strip() and equiv_id.lower() not in none_strings:
-                            equivalent_ids.add(self.normalize_spoke_identifier(node_type, id_prop_name, str(equiv_id), properties)[0])
+                            equiv_curie, iri = self.normalize_spoke_identifier(node_type, id_prop_name, str(equiv_id), properties)
+                            if equiv_curie and equiv_curie != KNOWN_INVALID:
+                                equivalent_ids.add(equiv_curie)
                 # Handle string values
                 elif isinstance(id_prop_value, str) and id_prop_value.strip() and id_prop_value.lower() not in none_strings:
-                    equivalent_ids.add(self.normalize_spoke_identifier(node_type, id_prop_name, id_prop_value, properties)[0])
+                    equiv_curie, iri = self.normalize_spoke_identifier(node_type, id_prop_name, id_prop_value, properties)
+                    if equiv_curie and equiv_curie != KNOWN_INVALID:
+                        equivalent_ids.add(equiv_curie)
         
         # NOTE: Skipping xrefs field for now; quite complicated to determine correct prefix.
 
-        return [equiv_id for equiv_id in equivalent_ids if equiv_id]  # Filter out ones that were invalid (returned as empty string)
+        return list(equivalent_ids)
 
     @staticmethod
     def clean_name(prop_or_source_name: str) -> str:
@@ -188,6 +194,28 @@ class SpokeIDNormalizer:
         prop_name_lower = property_name.lower()
         first_word = prop_name_lower.split('_')[0]
         if prop_name_lower in exact_fields or (first_word in equiv_id_sources and ('id' in prop_name_lower or '_list' in prop_name_lower)):
+            return True
+        else:
+            return False
+
+    def is_known_invalid_id(self, local_id: str, standard_prefix: str | List[str]):
+        standard_prefixes = [standard_prefix] if isinstance(standard_prefix, str) else standard_prefix
+        if local_id.strip() in self.normalizer.dashes:
+            # Some items have an id of just '-', we can ignore these
+            return True
+        elif 'metacyc.pathway' in standard_prefixes and not local_id.isupper():
+            # Meant to catch english names given as identifiers, like Glycan biosynthesis - 2
+            return True
+        elif 'snomedct' in standard_prefixes and 'e+' in local_id:
+            return True
+        elif 'dbsnp' in standard_prefixes and ',' in local_id:
+            # Detect when multiple dbsnp IDs are concatenated into one ID (skip these for now)
+            return True
+        elif ('react' in standard_prefixes or 'chebi' in standard_prefixes) and local_id == 'root':
+            # We don't want weird abstract 'root' nodes that are present in SPOKE
+            return True
+        elif 'clo' in standard_prefixes and local_id.startswith('http://'):
+            # A couple CLO nodes have old URLs as IDs
             return True
         else:
             return False

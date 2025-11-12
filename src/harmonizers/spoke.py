@@ -1,8 +1,6 @@
 """
 SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 """
-
-import json
 from pathlib import Path
 import sys
 from typing import List, Optional, Tuple, Set, Dict, Any

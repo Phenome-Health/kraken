@@ -5,6 +5,7 @@ description = "Build system for Phenome Health's unified knowledge graph, KRAKEN
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "biomapper2",
     "bmt>=1.4.5",
     "jsonlines>=4.0.0",
     "pyyaml>=6.0.2",
@@ -25,3 +26,6 @@ viz = [
     "seaborn>=0.13.2",
     "wordcloud>=1.9.4",
 ]
+
+[tool.uv.sources]
+biomapper2 = { git = "https://github.com/arpanauts/biomapper2.git", rev = "c839abd" }

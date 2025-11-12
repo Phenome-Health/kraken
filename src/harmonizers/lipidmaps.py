@@ -1,19 +1,17 @@
 import logging
-import sys
-from collections import defaultdict
 from pathlib import Path
 
 from rdkit import Chem
+from biomapper2.core.normalizer import Normalizer
 
 from ..utils.constants import *
-from ..utils.identifiers import IdentifierNorm
 from ..utils.kg_io import save_to_jsonl
-from ..utils.general import create_node, get_canonical_smiles
+from ..utils.general import create_node
 
 
 def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     logging.info(f"Harmonizing LIPID MAPS: {input_file} -> {nodes_output}, {edges_output}")
-    id_norm = IdentifierNorm(biolink_version)
+    normalizer = Normalizer(biolink_version=biolink_version)
     attribute_prop_names = ['CATEGORY', 'MAIN_CLASS', 'SUB_CLASS', 'CLASS_LEVEL4', 'INCHI']
     nodes = dict()
 
@@ -28,32 +26,19 @@ def harmonize_lipidmaps(input_file: Path, nodes_output: Path, edges_output: Path
 
         properties = molecule.GetPropsAsDict()
 
-        # Grab all IDs/xrefs and transform into standardized curies
-        lm_curie, lm_iri = id_norm.construct_curie(properties['LM_ID'], 'lm', stop_on_failure=True)
+        # Transform the 'canonical' ID for this node into standard curie form
+        lm_curie_dict, _ = normalizer.get_curies({'LM_ID': properties['LM_ID']}, stop_on_invalid_id=True)
+        lm_curie, lm_iri = next(iter(lm_curie_dict.items()))
+
+        # Grab all xrefs and transform into standardized curies
         equivalent_ids = {lm_curie}
-        prefix_map = {
-            'INCHI_KEY': 'inchikey',
-            'PUBCHEM_CID': 'pubchem.compound',
-            'CHEBI_ID': 'chebi',
-            'KEGG_ID': ['kegg.compound', 'kegg.drug'],  # They give both of these in this field
-            'HMDB_ID': 'hmdb',
-            'SWISSLIPIDS_ID': 'slm',
-            "LIPIDBANK_ID": 'lipidbank',
-            "PLANTFA_ID": 'plantfa',
-            'SMILES': 'smiles',
-        }
-        for prop_name, prefix_entry in prefix_map.items():
-            if prop_name in properties:
-                equiv_id = str(properties[prop_name])
-
-                # If this is a SMILES string, convert it to canonical format
-                if prop_name == 'SMILES':
-                    canonical_smiles = get_canonical_smiles(equiv_id)
-                    equiv_id = canonical_smiles if canonical_smiles else equiv_id  # Just use given if standardization failed
-
-                equiv_curie, _ = id_norm.construct_curie(equiv_id, prefix_entry, stop_on_failure=True)
-                if equiv_curie and equiv_curie != KNOWN_INVALID:
-                    equivalent_ids.add(equiv_curie)
+        equiv_id_properties = ['INCHI_KEY', 'PUBCHEM_CID', 'CHEBI_ID', 'KEGG_ID', 'HMDB_ID', 'SWISSLIPIDS_ID',
+                               'LIPIDBANK_ID', 'PLANTFA_ID', 'SMILES']
+        equiv_curies_dict, _ = normalizer.get_curies({prop_name: properties[prop_name]
+                                                      for prop_name in equiv_id_properties if properties.get(prop_name)},
+                                                     stop_on_invalid_id=False)
+        if equiv_curies_dict:
+            equivalent_ids = equivalent_ids | set(equiv_curies_dict)
 
         # Grab all names/synonyms
         name = properties.get('NAME')
