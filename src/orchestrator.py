@@ -12,9 +12,8 @@ from .harmonizers.refmet import harmonize_refmet
 from .harmonizers.spoke import harmonize_spoke
 from .harmonizers.umls import harmonize_umls
 from .integration.entity_resolution import integrate_sources
-from .post_processing.arango_export import export_for_arango
-from .post_processing.biomapper_export import export_for_biomapper
 from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
+from .post_processing.test_file_generator import create_test_kg_files
 
 
 def run_kg_build(config: dict) -> tuple[Path, Path]:
@@ -126,22 +125,11 @@ def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Pat
 def post_process_unified_kg(unified_nodes_path: Path, unified_edges_path: Path, config: dict, biolink_version: str, kraken_version: str):
     """Run all post-processing steps on the unified KG"""
     logging.info("Starting post-processing...")
-    arango_output_dir = Path(config['arango_export']['output_directory'])
-    arango_nodes_path = arango_output_dir / f"kraken_{kraken_version}_nodes_arango.jsonl"
-    arango_edges_path = arango_output_dir / f"kraken_{kraken_version}_edges_arango.jsonl"
 
-    # Step 1: Prepare ArangoDB version
-    if config['arango_export'].get('enabled', True):
-        logging.info("Preparing ArangoDB export...")
-        export_for_arango(unified_nodes_path, unified_edges_path, arango_output_dir,
-                          arango_nodes_path, arango_edges_path, biolink_version, kraken_version)
-
-    # Step 2: Export for biomapper (off of Arango export files)
-    if 'biomapper_export' in config and config['biomapper_export'].get('enabled', True):
-        biomapper_config = config['biomapper_export']
-        output_dir = Path(biomapper_config['output_directory'])
-        
-        logging.info("Exporting for biomapper...")
-        export_for_biomapper(arango_nodes_path, output_dir, kraken_version)
+    if config.get('test_export'):
+        logging.info("Generating test files for this kraken build..")
+        test_export_config = config['test_export']
+        output_dir = Path(test_export_config['output_directory'])
+        create_test_kg_files(unified_nodes_path, unified_edges_path, output_dir, num_edges=test_export_config['num_edges'])
 
     logging.info("Post-processing complete")

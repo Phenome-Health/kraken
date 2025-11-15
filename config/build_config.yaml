@@ -1,9 +1,9 @@
 biolink_version: 4.2.5
-kraken_version: 1.0.1
+kraken_version: 1.0.3
 steps:
   harmonize: True
   integrate: True
-  metagraph: False
+  metagraph: True
   postprocess: True
 
 sources:
@@ -55,8 +55,6 @@ integration:
   primary_source: "kg2"
 
 post_processing:
-  arango_export:
-    output_directory: "artifacts/export/arango/"
-
-  biomapper_export:
-    output_directory: "artifacts/export/biomapper/"
+  test_export:
+    output_directory: "artifacts/integrated/"
+    num_edges: 10000

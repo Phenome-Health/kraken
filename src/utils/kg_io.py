@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import jsonlines
 import logging
-from typing import Iterator, Dict, Any
+from typing import Iterator, Dict, Any, Iterable
 
 
 def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
@@ -42,7 +42,7 @@ def stream_mixed_jsonl(input_file: Path) -> Iterator[Dict[str, Any]]:
             yield item
 
 
-def save_to_jsonl(items: Iterator[Dict], output_file_path: Path, mode: str = 'w'):
+def save_to_jsonl(items: Iterable[dict], output_file_path: Path, mode: str = 'w'):
     with jsonlines.open(output_file_path, mode=mode) as writer:
         writer.write_all(items)
 
