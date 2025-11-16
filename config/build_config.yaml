@@ -55,7 +55,7 @@ sources:
     harmonized_output:
       nodes: "artifacts/harmonized/acmg/nodes.jsonl"
       edges: "artifacts/harmonized/acmg/edges.jsonl"
-    enabled: true
+    enabled: True
     can_merge_existing_nodes: False
 
 integration:
