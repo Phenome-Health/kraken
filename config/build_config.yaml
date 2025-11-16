@@ -50,6 +50,14 @@ sources:
     enabled: True
     can_merge_existing_nodes: True
 
+  acmg:
+    input_file: "input_data/acmg/acmg_actionability.json"
+    harmonized_output:
+      nodes: "artifacts/harmonized/acmg/nodes.jsonl"
+      edges: "artifacts/harmonized/acmg/edges.jsonl"
+    enabled: true
+    can_merge_existing_nodes: False
+
 integration:
   output_directory: "artifacts/integrated/"
   primary_source: "kg2"

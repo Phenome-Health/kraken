@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List
 import logging
 
+from .harmonizers.acmg import harmonize_acmg
 from .harmonizers.kg2 import harmonize_kg2
 from .harmonizers.lipidmaps import harmonize_lipidmaps
 from .harmonizers.refmet import harmonize_refmet
@@ -74,6 +75,7 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
 
     # Run source-specific harmonizer
     harmonizers = {
+        'acmg': harmonize_acmg,
         'kg2': harmonize_kg2,
         'spoke': harmonize_spoke,
         'umls': harmonize_umls,

@@ -66,6 +66,7 @@ def create_edge(subject_id: str,
                 qualified_predicate: Optional[str] = None,
                 qualified_direction: Optional[str] = None,
                 qualified_aspect: Optional[str] = None,
+                context_qualifier: Optional[str] = None,
                 publications: Optional[List[str]] = None,
                 publications_info: Optional[Dict[str, Any]] = None,
                 attributes: Optional[dict] = None) -> Dict[str, Any]:
@@ -74,21 +75,25 @@ def create_edge(subject_id: str,
     # Assemble the edge, with properties in a specific order (for convenient review)
     edge = {SUBJECT: subject_id,
             OBJECT: object_id,
-            PREDICATE: predicate,
-            PRIMARY_KS: primary_ks,
-            KNOWLEDGE_LEVEL: knowledge_level,
-            AGENT_TYPE: agent_type}
+            PREDICATE: predicate}
+
     if qualified_predicate:
         edge[QUALIFIED_PREDICATE] = qualified_predicate
     if qualified_direction:
         edge[QUALIFIED_DIRECTION] = qualified_direction
     if qualified_aspect:
         edge[QUALIFIED_ASPECT] = qualified_aspect
+    if context_qualifier:
+        edge[CONTEXT_QUALIFIER] = context_qualifier
+
+    edge |= {PRIMARY_KS: primary_ks,
+             KNOWLEDGE_LEVEL: knowledge_level,
+             AGENT_TYPE: agent_type}
+
     if supporting_sources:
         edge[SUPPORTING_SOURCES] = supporting_sources
     if aggregator_ks:
         edge[AGGREGATOR_KS] = aggregator_ks
-
     if publications:
         edge[PUBLICATIONS] = publications
     if publications_info:
@@ -105,10 +110,11 @@ def create_edge_key(edge: dict) -> str:
     qualifiers = [
         edge.get(QUALIFIED_PREDICATE, ''),  # e.g., biolink:causes
         edge.get(QUALIFIED_DIRECTION, ''),  # e.g., increased
-        edge.get(QUALIFIED_ASPECT, '')  # e.g., activity
+        edge.get(QUALIFIED_ASPECT, ''),  # e.g., activity
+        edge.get(CONTEXT_QUALIFIER, '')  # e.g., pediatric
     ]
-    conglomerate_predicate = '__'.join([qualifier for qualifier in qualifiers if qualifier])
-    qualifiers_str = conglomerate_predicate if conglomerate_predicate else placeholder
+    conglomerate_qualifiers = '__'.join([qualifier for qualifier in qualifiers if qualifier])
+    qualifiers_str = conglomerate_qualifiers if conglomerate_qualifiers else placeholder
     subject_id = edge[SUBJECT]
     object_id = edge[OBJECT]
     assert sep not in subject_id and sep not in object_id
