@@ -5,6 +5,7 @@ description = "Build system for Phenome Health's unified knowledge graph, KRAKEN
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "beautifulsoup4>=4.14.3",
     "biomapper2",
     "bmt>=1.4.5",
     "jsonlines>=4.0.0",

@@ -50,11 +50,11 @@ sources:
     enabled: True
     can_merge_existing_nodes: True
 
-  acmg:
-    input_file: "input_data/acmg/acmg_actionability.json"
+  clingen:
+    input_file: "input_data/clingen/acmg_actionability.json"
     harmonized_output:
-      nodes: "artifacts/harmonized/acmg/nodes.jsonl"
-      edges: "artifacts/harmonized/acmg/edges.jsonl"
+      nodes: "artifacts/harmonized/clingen/nodes.jsonl"
+      edges: "artifacts/harmonized/clingen/edges.jsonl"
     enabled: True
     can_merge_existing_nodes: False
 

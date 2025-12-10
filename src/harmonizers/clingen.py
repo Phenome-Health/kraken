@@ -1,23 +1,26 @@
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Dict, Any
 
 import requests
 from biomapper2.core.normalizer import Normalizer
+from bs4 import BeautifulSoup
 
 from ..utils.constants import *
 from ..utils.kg_io import save_to_jsonl
 from ..utils.general import create_node, create_edge, create_edge_key
 
 
-ACMG_API_URL = "https://actionability.clinicalgenome.org/ac/api/summ/brief"
+CLINGEN_ACMG_API_URL = "https://actionability.clinicalgenome.org/ac/api/summ/brief"
+SCRAPED_CACHE = dict()
 
 
-def harmonize_acmg(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
+def harmonize_clingen(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
     """
-    Harmonize ACMG/ClinicalGenome actionability data.
+    Harmonize ClinicalGenome ACMG actionability data.
 
     This harmonizer processes gene-disease and variant-disease associations from the
     ACMG Clinical Genome Resource (ClinGen) Actionability Working Group.
@@ -28,7 +31,7 @@ def harmonize_acmg(input_file: Path, nodes_output: Path, edges_output: Path, bio
         edges_output: Path where the harmonized edges.jsonl will be saved
         biolink_version: Version of Biolink Model to use for normalization
     """
-    logging.info(f"Harmonizing ACMG: {input_file} -> {nodes_output}, {edges_output}")
+    logging.info(f"Harmonizing ClinGen ACMG: {input_file} -> {nodes_output}, {edges_output}")
     normalizer = Normalizer(biolink_version=biolink_version)
 
     nodes = dict()
@@ -36,12 +39,12 @@ def harmonize_acmg(input_file: Path, nodes_output: Path, edges_output: Path, bio
 
     # Load the data (either from pre-downloaded file or fetch from API)
     if input_file.exists():
-        logging.info(f"Loading ACMG data from {input_file}")
+        logging.info(f"Loading ClinGen ACMG data from {input_file}")
         with open(input_file, 'r') as f:
             data = json.load(f)
     else:
-        logging.info(f"Fetching ACMG data from {ACMG_API_URL}")
-        response = requests.get(ACMG_API_URL)
+        logging.info(f"Fetching ClinGen ACMG data from {CLINGEN_ACMG_API_URL}")
+        response = requests.get(CLINGEN_ACMG_API_URL)
         response.raise_for_status()
         data = response.json()
 
@@ -49,7 +52,7 @@ def harmonize_acmg(input_file: Path, nodes_output: Path, edges_output: Path, bio
         input_file.parent.mkdir(parents=True, exist_ok=True)
         with open(input_file, 'w') as f:
             json.dump(data, f, indent=2)
-        logging.info(f"Saved ACMG data to {input_file}")
+        logging.info(f"Saved ClinGen ACMG data to {input_file}")
 
     # Process each record
     for record in data:
@@ -58,10 +61,10 @@ def harmonize_acmg(input_file: Path, nodes_output: Path, edges_output: Path, bio
         curation_type = record.get('curationType', 'Gene-Condition')
         modes_of_inheritance = record.get('modesOfInheritance', [])
         context = record['context']
+        context_type = 'Adult'  # SKIP pediatric for now...
 
-        # Process both Adult and Pediatric contexts
-        for context_type, context_data in context.items():
-            logging.info(f"On context type {context_type}")
+        if context_type in context.keys():
+            context_data = context[context_type]
 
             # Process gene-disease associations
             genes = context_data.get('genes', [])
@@ -94,43 +97,7 @@ def harmonize_acmg(input_file: Path, nodes_output: Path, edges_output: Path, bio
                             edge_key = create_edge_key(edge)
                             edges[edge_key] = edge
 
-            # TODO: Add this in later. Get going with disease-gene associations first.
-            # # Process variant-disease associations
-            # variants = context_data.get('variants', [])
-            # for variant_info in variants:
-            #     variant_desc = variant_info.get('description')
-            #     variant_type = variant_info.get('variantType')
-            #
-            #     if not variant_desc:
-            #         continue
-            #
-            #     # Create variant node
-            #     variant_node = _process_variant(variant_desc, variant_type, normalizer, record)
-            #     if variant_node:
-            #         nodes[variant_node[ID]] = variant_node
-            #
-            #         # Process diseases associated with this variant
-            #         diseases = variant_info.get('diseases', [])
-            #         for disease_info in diseases:
-            #             # Create disease node from omim and preferredMondo identifiers
-            #             disease_node = _process_disease(disease_info, normalizer, record)
-            #             if disease_node:
-            #                 nodes[disease_node[ID]] = disease_node
-            #
-            #                 # Create variant-disease edge
-            #                 edge = _create_variant_disease_edge(
-            #                     variant_node[ID],
-            #                     disease_node[ID],
-            #                     doc_id,
-            #                     context_type,
-            #                     modes_of_inheritance,
-            #                     record
-            #                 )
-            #                 if edge:
-            #                     edge_key = create_edge_key(edge)
-            #                     edges[edge_key] = edge
-
-    logging.info(f"Saving {len(nodes)} ACMG nodes and {len(edges)} edges")
+    logging.info(f"Saving {len(nodes)} ClinGen ACMG nodes and {len(edges)} edges")
     save_to_jsonl(nodes.values(), nodes_output, mode='w')
     save_to_jsonl(edges.values(), edges_output, mode='w')
 
@@ -213,53 +180,28 @@ def _process_gene(gene_symbol: str, gene_omim: str, normalizer: Normalizer,
     return node
 
 
-def _process_variant(variant_desc: str, variant_type: str, normalizer: Normalizer,
-                     record: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Process a variant into a harmonized node.
-    """
-    # Most variants won't have standard identifiers, so we'll use a local ID
-    # Users can refine this later based on their needs
-    variant_curie = f"ACMG:{record.get('docId', 'unknown')}_variant_{variant_desc.replace(' ', '_')}"
-
-    attributes = {
-        CLINGEN_CURIE: {
-            'variant_description': variant_desc,
-            'variant_type': variant_type,
-        }
-    }
-
-    node = create_node(
-        curie=variant_curie,
-        categories=['biolink:SequenceVariant'],
-        equivalent_ids=[variant_curie],
-        provided_by=[CLINGEN_CURIE],
-        name=variant_desc,
-        iri=None,
-        synonyms=[variant_desc],
-        attributes=attributes
-    )
-
-    return node
-
-
 def _create_gene_disease_edge(gene_id: str, disease_id: str, doc_id: str,
                                 context_type: str, modes_of_inheritance: list,
                                 record: Dict[str, Any]) -> Dict[str, Any]:
     """
     Create an edge representing a gene-disease association.
     """
+    source_iri = f"https://actionability.clinicalgenome.org/ac/{context_type}/ui/stg2SummaryRpt?doc={doc_id}"
+    if source_iri in SCRAPED_CACHE:
+        scores = SCRAPED_CACHE[source_iri]
+    else:
+        scores = scrape_actionability_scores(source_iri)
+        SCRAPED_CACHE[source_iri] = scores
+
     attributes = {
         CLINGEN_CURIE: {
             'doc_id': doc_id,
-            'context': context_type,
             'modes_of_inheritance': modes_of_inheritance,
-            'source_iri': f"https://actionability.clinicalgenome.org/ac/{context_type}/ui/stg2SummaryRpt?doc={doc_id}"
+            'scores': scores,
+            'source_iri': source_iri,
+            'source_iri_json': f"https://actionability.clinicalgenome.org/ac/{context_type}/api/sepio/doc/{doc_id}"
         }
     }
-
-    if record.get('iri'):
-        attributes[CLINGEN_CURIE]['source_iri_json'] = f"https://actionability.clinicalgenome.org/ac/{context_type}/api/sepio/doc/{doc_id}"
 
     edge = create_edge(
         subject_id=gene_id,
@@ -275,31 +217,112 @@ def _create_gene_disease_edge(gene_id: str, disease_id: str, doc_id: str,
     return edge
 
 
-def _create_variant_disease_edge(variant_id: str, disease_id: str, doc_id: str,
-                                   context_type: str, modes_of_inheritance: list,
-                                   record: Dict[str, Any]) -> Dict[str, Any]:
+def scrape_actionability_scores(url, debug=False):
     """
-    Create an edge representing a variant-disease association.
+    Scrape actionability scores from a ClinGen HTML page
+
+    Args:
+        url: Full URL to the ClinGen actionability page
+             e.g., "https://actionability.clinicalgenome.org/ac/Adult/ui/stg2SummaryRpt?doc=AC102"
+        debug: If True, print the HTML for inspection
+
+    Returns:
+        dict with scores, or None if scraping fails
     """
-    attributes = {
-        CLINGEN_CURIE: {
-            'doc_id': doc_id,
-            'context': context_type,
-            'modes_of_inheritance': modes_of_inheritance,
+    start_time = time.time()
+
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        scores = {
+            'url': url,
+            'outcome_intervention_pairs': []
         }
-    }
 
-    if record.get('iri'):
-        attributes[CLINGEN_CURIE]['source_iri'] = record['iri']
+        # Find the "Final Consensus Scores" section
+        # It's in a div with class "scrTable"
+        scr_table = soup.find('div', class_='scrTable')
 
-    edge = create_edge(
-        subject_id=variant_id,
-        object_id=disease_id,
-        predicate='biolink:related_to',  # User should refine this
-        primary_ks=CLINGEN_CURIE,
-        knowledge_level='knowledge_assertion',
-        agent_type='manual_agent',
-        attributes=attributes
-    )
+        if debug:
+            print("="*80)
+            print("SCORING TABLE:")
+            print("="*80)
+            if scr_table:
+                print(scr_table.prettify())
+            else:
+                print("No scrTable found!")
+            print("="*80)
 
-    return edge
+        if not scr_table:
+            elapsed_time = time.time() - start_time
+            logger.warning(f"No scoring table found at {url} (took {elapsed_time:.2f}s)")
+            return None
+
+        # Find all data rows (rows with class "data")
+        data_rows = scr_table.find_all('div', class_='data row')
+
+        if debug:
+            print(f"\nFound {len(data_rows)} data rows")
+
+        for row in data_rows:
+            # Extract each piece of scoring data
+            # These divs have multiple classes, so we use lambda to check if class list contains our target
+            oi_pair = row.find('div', class_=lambda x: x and 'oiPair' in x)
+            severity = row.find('div', class_=lambda x: x and 'severity' in x and 'scrData' in x)
+            likelihood = row.find('div', class_=lambda x: x and 'likelihood' in x and 'scrData' in x)
+            # Note: there might not be a separate effectiveness div - check the HTML structure
+            effectiveness_div = row.find_all('div', class_=lambda x: x and 'scrData' in x)
+            # The third scrData div is typically effectiveness
+            effectiveness = effectiveness_div[2] if len(effectiveness_div) > 2 else None
+            noi = row.find('div', class_=lambda x: x and 'noi' in x and 'scrData' in x)
+            total_score = row.find('div', class_=lambda x: x and 'totalScore' in x and 'scrData' in x)
+
+            if debug:
+                print(f"\nProcessing row:")
+                print(f"  oi_pair: {oi_pair.get_text(strip=True) if oi_pair else 'None'}")
+                print(f"  severity: {severity.get_text(strip=True) if severity else 'None'}")
+                print(f"  likelihood: {likelihood.get_text(strip=True) if likelihood else 'None'}")
+                print(f"  effectiveness: {effectiveness.get_text(strip=True) if effectiveness else 'None'}")
+                print(f"  noi: {noi.get_text(strip=True) if noi else 'None'}")
+                print(f"  total: {total_score.get_text(strip=True) if total_score else 'None'}")
+
+            if oi_pair:
+                pair_text = oi_pair.get_text(strip=True)
+
+                # Split by " / " to separate outcome and intervention
+                if ' / ' in pair_text:
+                    parts = pair_text.split(' / ', 1)
+                    outcome = parts[0].strip()
+                    intervention = parts[1].strip()
+
+                    pair = {
+                        'outcome': outcome,
+                        'intervention': intervention,
+                        'scores': {
+                            'severity': severity.get_text(strip=True) if severity else None,
+                            'likelihood': likelihood.get_text(strip=True) if likelihood else None,
+                            'effectiveness': effectiveness.get_text(strip=True) if effectiveness else None,
+                            'nature_of_intervention': noi.get_text(strip=True) if noi else None,
+                            'total': total_score.get_text(strip=True) if total_score else None
+                        }
+                    }
+                    scores['outcome_intervention_pairs'].append(pair)
+
+        elapsed_time = time.time() - start_time
+
+        # If we didn't find any pairs, return None
+        if not scores['outcome_intervention_pairs']:
+            logging.warning(f"No scores found at {url} (took {elapsed_time:.2f}s)")
+            return None
+
+        logging.info(f"Successfully scraped {len(scores['outcome_intervention_pairs'])} pairs from {url} (took {elapsed_time:.2f}s)")
+        logging.info(scores)
+        return scores
+
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        logging.error(f"Error scraping {url} after {elapsed_time:.2f}s: {e}")
+        return None
