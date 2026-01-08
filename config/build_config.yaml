@@ -8,12 +8,20 @@ steps:
 
 sources:
   kg2:
-    # RTX-KG2 has separate nodes and edges files
     nodes_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-nodes.jsonl"
     edges_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-edges.jsonl"
     harmonized_output:
       nodes: "artifacts/harmonized/kg2/nodes.jsonl"
       edges: "artifacts/harmonized/kg2/edges.jsonl"
+    enabled: False
+    can_merge_existing_nodes: True
+
+  robokop:
+    nodes_input: "input_data/robokop/june2025/nodes.jsonl"
+    edges_input: "input_data/robokop/june2025/edges.jsonl"
+    harmonized_output:
+      nodes: "artifacts/harmonized/robokop/nodes.jsonl"
+      edges: "artifacts/harmonized/robokop/edges.jsonl"
     enabled: True
     can_merge_existing_nodes: True
 

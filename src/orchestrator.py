@@ -10,6 +10,7 @@ from .harmonizers.clingen import harmonize_clingen
 from .harmonizers.kg2 import harmonize_kg2
 from .harmonizers.lipidmaps import harmonize_lipidmaps
 from .harmonizers.refmet import harmonize_refmet
+from .harmonizers.robokop import harmonize_robokop
 from .harmonizers.spoke import harmonize_spoke
 from .harmonizers.umls import harmonize_umls
 from .integration.entity_resolution import integrate_sources
@@ -77,6 +78,7 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
     harmonizers = {
         'clingen': harmonize_clingen,
         'kg2': harmonize_kg2,
+        'robokop': harmonize_robokop,
         'spoke': harmonize_spoke,
         'umls': harmonize_umls,
         'lipidmaps': harmonize_lipidmaps,
