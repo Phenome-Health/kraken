@@ -10,17 +10,17 @@ import logging
 import jsonlines
 
 from ..utils.kg_io import (
-    stream_nodes_from_jsonl, 
+    stream_nodes_from_jsonl,
     stream_edges_from_jsonl,
     load_equivalency_mappings,
     save_to_jsonl,
-    remove_file
+    remove_file, get_harmonized_file_paths
 )
 from ..utils.constants import *
 from ..utils.general import create_edge_key, to_list
 
 
-def integrate_sources(harmonized_source_paths: Dict[str, Dict[str, Path]],
+def integrate_sources(source_names: list[str],
                       output_dir: Path,
                       unified_nodes_path: Path,
                       unified_edges_path: Path,
@@ -32,21 +32,21 @@ def integrate_sources(harmonized_source_paths: Dict[str, Dict[str, Path]],
 
     # Phase 1: Build base equivalency mappings from primary source
     primary_source = config['integration']['primary_source']
-    primary_nodes_path = harmonized_source_paths[primary_source]['nodes']
+    primary_nodes_path, _ = get_harmonized_file_paths(primary_source)
     logging.info(f"Loading equivalency mappings from primary source ({primary_source})")
     equivalency_index = load_equivalency_mappings(primary_nodes_path)
     assert equivalency_index
 
     # Phase 2: Integrate all nodes, merging as we go
-    integrate_nodes(harmonized_source_paths, primary_source, equivalency_index, output_dir, unified_nodes_path, config)
+    integrate_nodes(source_names, primary_source, equivalency_index, output_dir, unified_nodes_path, config)
     
     # Phase 3: Process all edges with node ID resolution (merge edges with the same key -- note aggregator is in key)
-    integrate_edges(unified_edges_path, harmonized_source_paths, equivalency_index, output_dir)
+    integrate_edges(unified_edges_path, source_names, equivalency_index, output_dir)
 
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
 
 
-def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
+def integrate_nodes(source_names: list[str],
                     primary_source: str,
                     equivalency_index: Dict[str, str],
                     output_dir: Path,
@@ -54,7 +54,7 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
                     config: dict):
     # Load the primary source as our starting point
     logging.info(f"Loading {primary_source} nodes as starting point")
-    primary_nodes_path = harmonized_source_paths[primary_source]['nodes']
+    primary_nodes_path, _ = get_harmonized_file_paths(primary_source)
     current_canonical_nodes = {node[ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)}  # canonical_id -> merged_node_data
     assert current_canonical_nodes
 
@@ -68,7 +68,7 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
     logging.info(f"Will integrate remaining sources into {primary_source} in this order: {ordered_sources}")
 
     for source_name in ordered_sources:
-        source_files = harmonized_source_paths[source_name]
+        nodes_file, edges_file = get_harmonized_file_paths(source_name)
         source_allowed_to_merge_nodes = sources_config[source_name].get('can_merge_existing_nodes')
 
         # Set up logs for non-one-to-one mappings
@@ -78,7 +78,6 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
         remove_file(one_to_zero_log)
 
         logging.info(f"Integrating nodes from {source_name} (can_merge_existing_nodes={source_allowed_to_merge_nodes})")
-        nodes_file = source_files['nodes']
 
         for node in stream_nodes_from_jsonl(nodes_file):
             node_id = node[ID]
@@ -157,15 +156,15 @@ def integrate_nodes(harmonized_source_paths: Dict[str, Dict[str, Path]],
 
 
 def integrate_edges(unified_edges_path: Path,
-                    harmonized_source_paths: Dict[str, Dict[str, Path]],
+                    source_names: list[str],
                     equivalency_index: Dict[str, str],
                     output_dir: Path):
     assert equivalency_index
     all_merged_edges = []
     with jsonlines.open(unified_edges_path, 'w') as writer:
-        for source_name, source_files in harmonized_source_paths.items():
+        for source_name in source_names:
             logging.info(f"Processing edges from {source_name}")
-            edges_file = source_files['edges']
+            nodes_file, edges_file = get_harmonized_file_paths(source_name)
             mergers_log = output_dir / f"{source_name}_edge_mergers.jsonl"
 
             # First figure out which edges we're going to need to merge (based on keys)

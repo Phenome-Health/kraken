@@ -6,47 +6,40 @@ steps:
   postprocess: True
 options:
   metagraph_creation: True
+  includes_sources: null
 
 sources:
   kg2:
     nodes_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-nodes.jsonl"
     edges_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-edges.jsonl"
-    enabled: True
     can_merge_existing_nodes: True
 
   robokop:
     nodes_input: "input_data/robokop/june2025/nodes.jsonl"
     edges_input: "input_data/robokop/june2025/edges.jsonl"
-    enabled: True
     can_merge_existing_nodes: True
 
-    enabled: True
     can_merge_existing_nodes: True
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
     input_file: "input_data/spoke/v6/spokeV6_human.jsonl"
-    enabled: True
     can_merge_existing_nodes: False
 
   umls:
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
-    enabled: True
     can_merge_existing_nodes: True
 
   lipidmaps:
     input_file: "input_data/lipidmaps/structures.sdf"
-    enabled: True
     can_merge_existing_nodes: True
 
   refmet:
     input_file: "input_data/refmet/refmet.csv"
-    enabled: True
     can_merge_existing_nodes: True
 
   clingen:
     input_file: "input_data/clingen/acmg_actionability.json"
-    enabled: True
     can_merge_existing_nodes: False
 
 integration:

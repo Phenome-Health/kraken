@@ -10,6 +10,14 @@ import jsonlines
 import logging
 from typing import Iterator, Dict, Any, Iterable
 
+PROJECT_ROOT = Path(__file__).parents[2]
+
+
+def get_harmonized_file_paths(source_name: str) -> tuple[Path, Path]:
+    nodes_path = PROJECT_ROOT / "artifacts" / "harmonized" / source_name / "nodes.jsonl"
+    edges_path = PROJECT_ROOT / "artifacts" / "harmonized" / source_name / "edges.jsonl"
+    return nodes_path, edges_path
+
 
 def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream nodes from JSONL file without loading into memory"""

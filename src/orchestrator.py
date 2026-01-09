@@ -14,9 +14,9 @@ from .harmonizers.robokop import harmonize_robokop
 from .harmonizers.spoke import harmonize_spoke
 from .harmonizers.umls import harmonize_umls
 from .integration.entity_resolution import integrate_sources
-from .utils.kg_io import unzip_files, zip_files
+from .utils.kg_io import unzip_files, zip_files, get_harmonized_file_paths, PROJECT_ROOT
 from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
-from .utils.constants import PROJECT_ROOT
+from .utils.general import to_list
 from .post_processing.test_file_generator import create_test_kg_files
 
 
@@ -30,24 +30,25 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     unified_dir_path = Path(config['integration']['output_directory'])
     unified_nodes_path = unified_dir_path / f"kraken_nodes_{kraken_version}.jsonl"
     unified_edges_path = unified_dir_path / f"kraken_edges_{kraken_version}.jsonl"
-    harmonized_source_paths = {source_name: {'nodes': Path(source_config['harmonized_output']['nodes']),
-                                             'edges': Path(source_config['harmonized_output']['edges'])}
-                                for source_name, source_config in config['sources'].items()}
+    user_specified_sources = to_list(config["options"].get("include_sources"))
+    sources_to_use = user_specified_sources if user_specified_sources else list(config["sources"].keys())
+    logging.info(f"Will include {len(sources_to_use)} sources: {sources_to_use}")
+
     create_metagraphs = True if config['options'].get('metagraph_creation') else False
 
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
     if config['steps'].get('harmonize'):
         logging.info(f"-------------------------- HARMONIZING SOURCES -----------------------------------------------")
-        harmonize_all_sources(config['sources'], biolink_version, build_metagraph=create_metagraphs)
+        harmonize_sources(config['sources'], biolink_version, build_metagraph=create_metagraphs)
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config['steps'].get('integrate'):
         logging.info(f"-------------------------- INTEGRATING SOURCES -----------------------------------------------")
-        integrate_sources(harmonized_source_paths, unified_dir_path, unified_nodes_path, unified_edges_path, config)
+        integrate_sources(sources_to_use, unified_dir_path, unified_nodes_path, unified_edges_path, config)
 
         if create_metagraphs:
             logging.info(f"---------------------- GENERATING UNIFIED METAGRAPH ------------------------------------------")
-            generate_unified_metagraph(unified_nodes_path, unified_edges_path, harmonized_source_paths)
+            generate_unified_metagraph(unified_nodes_path, unified_edges_path, sources_to_use)
 
     # Phase 3: Post-processing steps
     if config['steps'].get('postprocess'):
@@ -58,12 +59,11 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     return unified_nodes_path, unified_edges_path
 
 
-def harmonize_all_sources(sources_config: dict, biolink_version: str, build_metagraph: bool):
+def harmonize_sources(sources_config: dict, biolink_version: str, build_metagraph: bool):
     """Harmonize each source that needs it"""
     for source_name, source_config in sources_config.items():
-        if source_config.get('enabled'):
-            # NOTE: for now, always re-harmonize with every build
-            harmonize_source(source_name, source_config, biolink_version, build_metagraph)
+        # NOTE: for now, always re-harmonize with every build
+        harmonize_source(source_name, source_config, biolink_version, build_metagraph)
 
 
 def harmonize_source(source_name: str, config: dict, biolink_version: str, build_metagraph: bool):
@@ -71,8 +71,7 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
     logging.info(f"Harmonizing {source_name}...")
 
     # Get output paths
-    nodes_output = PROJECT_ROOT / "artifacts" / "harmonized" / source_name / "nodes.jsonl"
-    edges_output = PROJECT_ROOT / "artifacts" / "harmonized" / source_name / "edges.jsonl"
+    nodes_output, edges_output = get_harmonized_file_paths(source_name)
 
     # Create output directory if it doesn't exist
     nodes_output.parent.mkdir(parents=True, exist_ok=True)
@@ -107,14 +106,14 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
 
     if build_metagraph:
         # Generate metagraph for harmonized output, stored in artifacts/metagraphs/harmonized/<source_name>/
-        artifacts_root = Path("artifacts")
+        artifacts_root = PROJECT_ROOT / "artifacts"
         metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / source_name
         generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, source_name)
 
 
-def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Path, harmonized_source_paths: dict):
+def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Path, source_names: list[str]):
     # Store unified metagraphs in artifacts/metagraphs/unified/
-    artifacts_root = Path("artifacts")
+    artifacts_root = PROJECT_ROOT / "artifacts"
     metagraph_dir = artifacts_root / "metagraphs" / "unified"
     
     unified_metagraph_files = generate_metagraph_for_source(unified_nodes_path, unified_edges_path, metagraph_dir, "unified")
@@ -122,7 +121,7 @@ def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Pat
     
     # Compare with source metagraphs if they exist
     source_metagraphs = []
-    for source_name in harmonized_source_paths.keys():
+    for source_name in source_names:
         source_metagraph = artifacts_root / "metagraphs" / "harmonized" / source_name / f"{source_name}_metagraph.json"
         if source_metagraph.exists():
             source_metagraphs.append(source_metagraph)
