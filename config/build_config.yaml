@@ -3,8 +3,9 @@ kraken_version: 1.0.3
 steps:
   harmonize: True
   integrate: True
-  metagraph: True
   postprocess: True
+options:
+  metagraph_creation: True
 
 sources:
   kg2:

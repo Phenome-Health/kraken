@@ -33,24 +33,23 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     harmonized_source_paths = {source_name: {'nodes': Path(source_config['harmonized_output']['nodes']),
                                              'edges': Path(source_config['harmonized_output']['edges'])}
                                 for source_name, source_config in config['sources'].items()}
-
+    create_metagraphs = True if config['options'].get('metagraph_creation') else False
 
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
     if config['steps'].get('harmonize'):
         logging.info(f"-------------------------- HARMONIZING SOURCES -----------------------------------------------")
-        harmonize_all_sources(config['sources'], biolink_version, build_metagraph=config['steps']['metagraph'])
+        harmonize_all_sources(config['sources'], biolink_version, build_metagraph=create_metagraphs)
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config['steps'].get('integrate'):
         logging.info(f"-------------------------- INTEGRATING SOURCES -----------------------------------------------")
         integrate_sources(harmonized_source_paths, unified_dir_path, unified_nodes_path, unified_edges_path, config)
 
-    # Phase 3: Generate metagraph for unified result
-    if config['steps'].get('metagraph'):
-        logging.info(f"---------------------- GENERATING UNIFIED METAGRAPH ------------------------------------------")
-        generate_unified_metagraph(unified_nodes_path, unified_edges_path, harmonized_source_paths)
+        if create_metagraphs:
+            logging.info(f"---------------------- GENERATING UNIFIED METAGRAPH ------------------------------------------")
+            generate_unified_metagraph(unified_nodes_path, unified_edges_path, harmonized_source_paths)
 
-    # Phase 4: Post-processing steps
+    # Phase 3: Post-processing steps
     if config['steps'].get('postprocess'):
         logging.info(f"------------------------------ POST-PROCESSING -----------------------------------------------")
         post_process_unified_kg(unified_nodes_path, unified_edges_path, config['post_processing'], biolink_version, kraken_version)
