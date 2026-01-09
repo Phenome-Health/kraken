@@ -20,9 +20,6 @@ from .utils.general import to_list
 from .post_processing.test_file_generator import create_test_kg_files
 
 
-
-
-
 def run_kg_build(config: dict) -> tuple[Path, Path]:
     """Main orchestration function for building the KRAKEN"""
     biolink_version = config['biolink_version']
@@ -30,16 +27,22 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     unified_dir_path = Path(config['integration']['output_directory'])
     unified_nodes_path = unified_dir_path / f"kraken_nodes_{kraken_version}.jsonl"
     unified_edges_path = unified_dir_path / f"kraken_edges_{kraken_version}.jsonl"
-    user_specified_sources = to_list(config["options"].get("include_sources"))
-    sources_to_use = user_specified_sources if user_specified_sources else list(config["sources"].keys())
+
+    specified_source_subset = to_list(config["options"].get("include_sources"))
+    logging.info(f"Source subset specified in build_config.yaml is: {specified_source_subset}")
+    if not set(specified_source_subset).issubset(set(config["sources"])):
+        raise ValueError(f"In build_config.yaml, source names specified in the options.include_sources slot must "
+                         f"exist under the 'sources' slot, which currently includes only these: {list(config['sources'])}")
+    sources_to_use = specified_source_subset if specified_source_subset else list(config["sources"].keys())
     logging.info(f"Will include {len(sources_to_use)} sources: {sources_to_use}")
 
     create_metagraphs = True if config['options'].get('metagraph_creation') else False
 
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
+    source_configs = {source: config["sources"][source] for source in sources_to_use}
     if config['steps'].get('harmonize'):
         logging.info(f"-------------------------- HARMONIZING SOURCES -----------------------------------------------")
-        harmonize_sources(config['sources'], biolink_version, build_metagraph=create_metagraphs)
+        harmonize_sources(source_configs, biolink_version, build_metagraph=create_metagraphs)
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config['steps'].get('integrate'):
@@ -55,7 +58,6 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
         logging.info(f"------------------------------ POST-PROCESSING -----------------------------------------------")
         post_process_unified_kg(unified_nodes_path, unified_edges_path, config['post_processing'], biolink_version, kraken_version)
 
-    logging.info(f"Build complete: {unified_nodes_path}, {unified_edges_path}")
     return unified_nodes_path, unified_edges_path
 
 

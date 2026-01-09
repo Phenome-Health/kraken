@@ -22,8 +22,8 @@ def main():
 
     logging.info("Starting KRAKEN build...")
     start = time.time()
-    final_kg_path = run_kg_build(config)
-    logging.info(f"Build complete! Took {round((time.time() - start) / 60)} minutes. KRAKEN saved to: {final_kg_path}")
+    _ = run_kg_build(config)
+    logging.info(f"Build complete! Took {round((time.time() - start) / 60)} minutes.")
 
 
 if __name__ == "__main__":

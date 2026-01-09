@@ -6,7 +6,7 @@ steps:
   postprocess: True
 options:
   metagraph_creation: True
-  includes_sources: null
+  include_sources: null
 
 sources:
   kg2:

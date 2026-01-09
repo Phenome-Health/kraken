@@ -123,6 +123,7 @@ def ensure_unzipped(filepath: Path) -> Path:
         Path to the unzipped file
     """
     filepath = Path(filepath)
+    logging.info(f"Unzipping {filepath} (if not already)..")
 
     # Normalize paths for both versions
     if filepath.suffix == '.gz':
@@ -157,6 +158,7 @@ def ensure_gzipped(filepath: Path, remove_original: bool = True) -> Path:
         Path to the gzipped file
     """
     filepath = Path(filepath)
+    logging.info(f"Zipping {filepath} (if not already)..")
 
     # Normalize paths for both versions
     if filepath.suffix == '.gz':

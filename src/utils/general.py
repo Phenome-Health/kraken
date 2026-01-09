@@ -142,6 +142,8 @@ def to_list(item: Any) -> List[Any]:
         return item
     elif isinstance(item, (set, tuple)):
         return list(item)
+    elif item is None:
+        return []
     else:
         return [item]
 
