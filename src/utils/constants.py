@@ -45,10 +45,10 @@ INFORES_PREFIX = 'infores'
 
 SPOKE_INFORES: str = f'{INFORES_PREFIX}:spoke'
 KG2_INFORES: str = f'{INFORES_PREFIX}:rtx-kg2'
-ROBOKOP_INFORES: str = f"{INFORES_PREFIX}:robokop"
+ROBOKOP_INFORES: str = f"{INFORES_PREFIX}:robokop-kg"
 UMLS_INFORES: str = f'{INFORES_PREFIX}:umls'
 LIPIDMAPS_CURIE: str = 'lipidmaps'
-REFMET_CURIE: str = 'refmet'
+REFMET_CURIE: str = f'{INFORES_PREFIX}:refmet'
 CLINGEN_CURIE = f'{INFORES_PREFIX}:clingen'
 
 KNOWN_INVALID = 'KNOWN_INVALID'
