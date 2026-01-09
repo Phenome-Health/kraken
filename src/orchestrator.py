@@ -14,8 +14,13 @@ from .harmonizers.robokop import harmonize_robokop
 from .harmonizers.spoke import harmonize_spoke
 from .harmonizers.umls import harmonize_umls
 from .integration.entity_resolution import integrate_sources
+from .utils.kg_io import unzip_files, zip_files
 from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
+from .utils.constants import PROJECT_ROOT
 from .post_processing.test_file_generator import create_test_kg_files
+
+
+
 
 
 def run_kg_build(config: dict) -> tuple[Path, Path]:
@@ -67,8 +72,8 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
     logging.info(f"Harmonizing {source_name}...")
 
     # Get output paths
-    nodes_output = Path(config['harmonized_output']['nodes'])
-    edges_output = Path(config['harmonized_output']['edges'])
+    nodes_output = PROJECT_ROOT / "artifacts" / "harmonized" / source_name / "nodes.jsonl"
+    edges_output = PROJECT_ROOT / "artifacts" / "harmonized" / source_name / "edges.jsonl"
 
     # Create output directory if it doesn't exist
     nodes_output.parent.mkdir(parents=True, exist_ok=True)
@@ -85,14 +90,21 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
         'refmet': harmonize_refmet
     }
     harmonizer = harmonizers[source_name]
+    possible_input_file_fields = ['input_file', 'input_nodes', 'input_edges']
+    input_file_paths = [config.get(field) for field in possible_input_file_fields]
+
+    unzip_files(input_file_paths)
+
     if config.get('input_file'):
-        harmonizer(Path(config['input_file']), nodes_output, edges_output, biolink_version)
+        harmonizer(config['input_file'], nodes_output, edges_output, biolink_version)
     elif config.get('nodes_input') and config.get('edges_input'):
-        harmonizer(Path(config['nodes_input']), Path(config['edges_input']), nodes_output, edges_output, biolink_version)
+        harmonizer(config['nodes_input'], config['edges_input'], nodes_output, edges_output, biolink_version)
     else:
         raise ValueError(f"Unknown source type: {source_name}")
 
     logging.info(f"Harmonized {source_name} -> {nodes_output}, {edges_output}")
+
+    zip_files(input_file_paths)
 
     if build_metagraph:
         # Generate metagraph for harmonized output, stored in artifacts/metagraphs/harmonized/<source_name>/

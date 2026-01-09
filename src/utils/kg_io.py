@@ -2,7 +2,9 @@
 Knowledge graph I/O utilities
 """
 import csv
+import gzip
 import os
+import shutil
 from pathlib import Path
 import jsonlines
 import logging
@@ -91,3 +93,85 @@ def load_csv_to_dict_list(filename: Path):
             records.append(dict(row))
 
     return records
+
+def unzip_files(file_paths: list[str | Path]):
+    for file_path in file_paths:
+        if file_path:
+            ensure_unzipped(Path(file_path))
+
+def zip_files(file_paths: list[str | Path]):
+    for file_path in file_paths:
+        if file_path:
+            ensure_gzipped(Path(file_path))
+
+
+def ensure_unzipped(filepath: Path) -> Path:
+    """Ensure an unzipped version of the file exists.
+
+    Args:
+        filepath: Path to the file (with or without .gz extension)
+
+    Returns:
+        Path to the unzipped file
+    """
+    filepath = Path(filepath)
+
+    # Normalize paths for both versions
+    if filepath.suffix == '.gz':
+        gz_path = filepath
+        unzipped_path = filepath.with_suffix('')
+    else:
+        unzipped_path = filepath
+        gz_path = Path(str(filepath) + '.gz')
+
+    # If unzipped exists, we're done
+    if unzipped_path.exists():
+        return unzipped_path
+
+    # Otherwise, need to unzip from gz
+    if not gz_path.exists():
+        raise FileNotFoundError(f"Neither {unzipped_path} nor {gz_path} exists")
+
+    with gzip.open(gz_path, 'rb') as f_in, open(unzipped_path, 'wb') as f_out:
+        shutil.copyfileobj(f_in, f_out)
+
+    return unzipped_path
+
+
+def ensure_gzipped(filepath: Path, remove_original: bool = True) -> Path:
+    """Ensure a gzipped version of the file exists.
+
+    Args:
+        filepath: Path to the file (with or without .gz extension)
+        remove_original: If True, delete the uncompressed file after gzipping
+
+    Returns:
+        Path to the gzipped file
+    """
+    filepath = Path(filepath)
+
+    # Normalize paths for both versions
+    if filepath.suffix == '.gz':
+        gz_path = filepath
+        unzipped_path = filepath.with_suffix('')
+    else:
+        unzipped_path = filepath
+        gz_path = Path(str(filepath) + '.gz')
+
+    # If gzipped exists, we're done (but maybe clean up original)
+    if gz_path.exists():
+        if remove_original and unzipped_path.exists():
+            unzipped_path.unlink()
+        return gz_path
+
+    # Otherwise, need to zip from unzipped
+    if not unzipped_path.exists():
+        raise FileNotFoundError(f"Neither {unzipped_path} nor {gz_path} exists")
+
+    with open(unzipped_path, 'rb') as f_in, gzip.open(gz_path, 'wb') as f_out:
+        shutil.copyfileobj(f_in, f_out)
+
+    if remove_original:
+        unzipped_path.unlink()
+
+    return gz_path

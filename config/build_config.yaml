@@ -10,59 +10,41 @@ sources:
   kg2:
     nodes_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-nodes.jsonl"
     edges_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-edges.jsonl"
-    harmonized_output:
-      nodes: "artifacts/harmonized/kg2/nodes.jsonl"
-      edges: "artifacts/harmonized/kg2/edges.jsonl"
-    enabled: False
+    enabled: True
     can_merge_existing_nodes: True
 
   robokop:
     nodes_input: "input_data/robokop/june2025/nodes.jsonl"
     edges_input: "input_data/robokop/june2025/edges.jsonl"
-    harmonized_output:
-      nodes: "artifacts/harmonized/robokop/nodes.jsonl"
-      edges: "artifacts/harmonized/robokop/edges.jsonl"
+    enabled: True
+    can_merge_existing_nodes: True
+
     enabled: True
     can_merge_existing_nodes: True
 
   spoke:
     # SPOKE has mixed nodes and edges in one file
     input_file: "input_data/spoke/v6/spokeV6_human.jsonl"
-    harmonized_output:
-      nodes: "artifacts/harmonized/spoke/nodes.jsonl"
-      edges: "artifacts/harmonized/spoke/edges.jsonl"
     enabled: True
     can_merge_existing_nodes: False
 
   umls:
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
-    harmonized_output:
-      nodes: "artifacts/harmonized/umls/nodes.jsonl"
-      edges: "artifacts/harmonized/umls/edges.jsonl"
     enabled: True
     can_merge_existing_nodes: True
 
   lipidmaps:
     input_file: "input_data/lipidmaps/structures.sdf"
-    harmonized_output:
-      nodes: "artifacts/harmonized/lipidmaps/nodes.jsonl"
-      edges: "artifacts/harmonized/lipidmaps/edges.jsonl"
     enabled: True
     can_merge_existing_nodes: True
 
   refmet:
     input_file: "input_data/refmet/refmet.csv"
-    harmonized_output:
-      nodes: "artifacts/harmonized/refmet/nodes.jsonl"
-      edges: "artifacts/harmonized/refmet/edges.jsonl"
     enabled: True
     can_merge_existing_nodes: True
 
   clingen:
     input_file: "input_data/clingen/acmg_actionability.json"
-    harmonized_output:
-      nodes: "artifacts/harmonized/clingen/nodes.jsonl"
-      edges: "artifacts/harmonized/clingen/edges.jsonl"
     enabled: True
     can_merge_existing_nodes: False
 
