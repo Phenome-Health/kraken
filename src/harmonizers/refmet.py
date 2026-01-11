@@ -1,52 +1,80 @@
+# refmet.py
 import logging
 from pathlib import Path
+from typing import Any, Dict
 
 from biomapper2.core.normalizer import Normalizer
 
-from ..utils.constants import *
+from ..utils.constants import REFMET_INFORES
 from ..utils.kg_io import save_to_jsonl, load_csv_to_dict_list
-from ..utils.general import create_node
+from ..utils.biolink_client import BiolinkClient
+from .base import BaseHarmonizer
 
 
-def harmonize_refmet(input_file: Path, nodes_output: Path, edges_output: Path, biolink_version: str):
-    logging.info(f"Harmonizing REFMET: {input_file} -> {nodes_output}, {edges_output}")
-    normalizer = Normalizer(biolink_version=biolink_version)
-    attribute_prop_names = ['super_class', 'main_class', 'sub_class']
-    nodes = dict()
+class RefMetHarmonizer:
+    """Harmonizer for RefMet CSV files - doesn't use base class due to unique format"""
 
-    for row in load_csv_to_dict_list(input_file):
+    source_name = "refmet"
+    source_infores = REFMET_INFORES
 
-        # Transform the 'canonical' ID for this node into standard curie form
-        rm_curie_dict, _ = normalizer.get_curies({'refmet': row[' refmet_id']}, stop_on_invalid_id=True)
+    attribute_props = {'super_class', 'main_class', 'sub_class'}
+    equiv_id_props = {'pubchem_cid', 'chebi_id', 'hmdb_id', 'lipidmaps_id', 'kegg_id', 'inchi_key'}
+
+    def __init__(self, biolink_client: BiolinkClient):
+        self.biolink = biolink_client
+        self.normalizer = Normalizer(biolink_version=biolink_client.version)
+
+    def harmonize(
+            self,
+            input_file: Path,
+            nodes_output: Path,
+            edges_output: Path,
+    ):
+        logging.info(f"Harmonizing {self.source_name}: {input_file} -> {nodes_output}, {edges_output}")
+
+        nodes = {}
+
+        for row in load_csv_to_dict_list(input_file):
+            node = self._harmonize_row(row)
+            if node:
+                nodes[node['id']] = node
+
+        logging.info(f"Saving {len(nodes)} RefMet nodes")
+        save_to_jsonl(nodes.values(), nodes_output, mode='w')
+        save_to_jsonl([], edges_output, mode='w')  # Empty edges file
+
+        logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, 0 edges")
+
+    def _harmonize_row(self, row: Dict[str, Any]) -> Dict[str, Any] | None:
+        # Transform the 'canonical' ID into standard curie form
+        # Note: original has ' refmet_id' with leading space
+        rm_curie_dict, _ = self.normalizer.get_curies(
+            {'refmet': row[' refmet_id']},
+            stop_on_invalid_id=True
+        )
         rm_curie, rm_iri = next(iter(rm_curie_dict.items()))
 
         # Grab all xrefs and transform into standardized curies
         equivalent_ids = {rm_curie}
-        equiv_id_properties = ['pubchem_cid', 'chebi_id', 'hmdb_id', 'lipidmaps_id', 'kegg_id', 'inchi_key']
-        equiv_curies_dict, _ = normalizer.get_curies({prop_name: row[prop_name]
-                                                      for prop_name in equiv_id_properties if row.get(prop_name)},
-                                                     stop_on_invalid_id=False)
+        equiv_curies_dict, _ = self.normalizer.get_curies(
+            {prop: row[prop] for prop in self.equiv_id_props if row.get(prop)},
+            stop_on_invalid_id=False
+        )
         if equiv_curies_dict:
-            equivalent_ids = equivalent_ids | set(equiv_curies_dict)
+            equivalent_ids |= set(equiv_curies_dict)
 
         # Put together our node
         name = row['refmet_name']
-        node = create_node(
+        attributes = {k: row[k] for k in self.attribute_props}
+
+        return BaseHarmonizer.create_node(
             curie=rm_curie,
             categories=['biolink:SmallMolecule'],
             equivalent_ids=list(equivalent_ids),
-            provided_by=[REFMET_CURIE],
+            provided_by=self.source_infores,
             name=name,
-            iri=rm_iri,
-            synonyms=[name],
+            urls=rm_iri,
             chemical_formula=row['formula'],
             exact_mass=row['exactmass'],
-            attributes={REFMET_CURIE: {attr_name: row[attr_name] for attr_name in attribute_prop_names}}
+            attributes={self.source_infores: attributes}
         )
-
-        nodes[node[ID]] = node
-
-    logging.info(f"Saving {len(nodes)} refmet nodes")
-    save_to_jsonl(nodes.values(), nodes_output, mode='w')
-    save_to_jsonl([], edges_output, mode='w')  # Just create an empty edges file..
-

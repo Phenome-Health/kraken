@@ -19,6 +19,9 @@ sources:
     edges_input: "input_data/robokop/june2025/edges.jsonl"
     can_merge_existing_nodes: True
 
+  molepro:
+    nodes_input: "input_data/molepro/jan2026/nodes.tsv"
+    edges_input: "input_data/molepro/jan2026/edges.tsv"
     can_merge_existing_nodes: True
 
   spoke:

@@ -6,12 +6,17 @@ from pathlib import Path
 from typing import Dict, List
 import logging
 
+from .harmonizers.clingen import ClinGenHarmonizer
 from .harmonizers.molepro import MoleProHarmonizer
+from .harmonizers.refmet import RefMetHarmonizer
 from .harmonizers.robokop import RobokopHarmonizer
 from .harmonizers.kg2 import KG2Harmonizer
-
+from .harmonizers.lipidmaps import LipidMapsHarmonizer
+from .harmonizers.spoke import SpokeHarmonizer
+from .harmonizers.umls import UMLSHarmonizer
 
 from .integration.entity_resolution import integrate_sources
+from .utils.biolink_client import BiolinkClient
 from .utils.kg_io import unzip_files, zip_files, get_harmonized_file_paths, PROJECT_ROOT
 from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
 from .utils.general import to_list
@@ -61,12 +66,13 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
 
 def harmonize_sources(sources_config: dict, biolink_version: str, build_metagraph: bool):
     """Harmonize each source that needs it"""
+    biolink_client = BiolinkClient(biolink_version)
     for source_name, source_config in sources_config.items():
         # NOTE: for now, always re-harmonize with every build
-        harmonize_source(source_name, source_config, biolink_version, build_metagraph)
+        harmonize_source(source_name, source_config, biolink_client, build_metagraph)
 
 
-def harmonize_source(source_name: str, config: dict, biolink_version: str, build_metagraph: bool):
+def harmonize_source(source_name: str, config: dict, biolink_client: BiolinkClient, build_metagraph: bool):
     """Harmonize a single source to Biolink schema"""
     logging.info(f"Harmonizing {source_name}...")
 
@@ -79,18 +85,18 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
 
     # Run source-specific harmonizer
     harmonizers = {
-        'clingen': harmonize_clingen,
+        'clingen': ClinGenHarmonizer,
         'kg2': KG2Harmonizer,
         'robokop': RobokopHarmonizer,
         'molepro': MoleProHarmonizer,
-        'spoke': harmonize_spoke,
-        'umls': harmonize_umls,
-        'lipidmaps': harmonize_lipidmaps,
-        'refmet': harmonize_refmet
+        'spoke': SpokeHarmonizer,
+        'umls': UMLSHarmonizer,
+        'lipidmaps': LipidMapsHarmonizer,
+        'refmet': RefMetHarmonizer
     }
 
     # Instantiate our harmonizer
-    harmonizer = harmonizers[source_name](biolink_version)
+    harmonizer = harmonizers[source_name](biolink_client)
 
     # Unzip input files as needed
     possible_input_file_fields = ['input_file', 'input_nodes', 'input_edges']
@@ -99,9 +105,11 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
 
     # Harmonize input files
     if config.get('input_file'):
-        harmonizer.harmonize(config['input_file'], nodes_output, edges_output, biolink_version)
+        # Note: These are not compatible with the BaseHarmonizer - have separate harmonize() implementations
+        harmonizer.harmonize(config['input_file'], nodes_output, edges_output)
     elif config.get('nodes_input') and config.get('edges_input'):
-        harmonizer.harmonize(config['nodes_input'], config['edges_input'], nodes_output, edges_output, biolink_version)
+        # Note: These (with split nodes/edges files) use the BaseHarmonizer
+        harmonizer.harmonize(config['nodes_input'], config['edges_input'], nodes_output, edges_output)
     else:
         raise ValueError(f"Unknown source type: {source_name}")
 

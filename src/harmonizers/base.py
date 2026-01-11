@@ -71,7 +71,7 @@ class BaseHarmonizer(ABC):
             edges_input: Path,
             nodes_output: Path,
             edges_output: Path,
-    ) -> tuple[int, int]:
+    ):
         """Run full harmonization pipeline"""
         logging.info(
             f"Harmonizing {self.source_name}: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}"
@@ -81,7 +81,6 @@ class BaseHarmonizer(ABC):
         edge_count = self._harmonize_edges(edges_input, edges_output)
 
         logging.info(f"{self.source_name} harmonization complete: {node_count} nodes, {edge_count} edges")
-        return node_count, edge_count
 
     def _harmonize_nodes(self, input_path: Path, output_path: Path) -> int:
         count = 0
