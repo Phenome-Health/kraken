@@ -11,106 +11,13 @@ import yaml
 from .constants import *
 
 
-def create_node(curie: str,
-                categories: List[str],
-                equivalent_ids: List[str],
-                provided_by: str | List[str],
-                name: Optional[str] = None,
-                synonyms: Optional[List[str]] = None,
-                description: Optional[str] = None,
-                iri: Optional[str] = None,
-                chemical_formula: Optional[str] = None,
-                exact_mass: Optional[float] = None,
-                attributes: Optional[dict] = None) -> Dict[str, Any]:
-    # TODO: switch to pydantic for nodes/edges...
-    assert curie and categories and equivalent_ids and provided_by
-
-    # Assemble the node, with properties in a specific order (for convenient review)
-    node = {ID: curie}
-    if name:
-        node[NAME] = clean_text(name)
-        # Make sure node's name is in our synonyms list
-        if synonyms:
-            synonyms = list(set(synonyms) | {name})
-        else:
-            synonyms = [name]
-    node[CATEGORIES] = categories
-    if iri:
-        node[IRI] = iri
-    if chemical_formula:
-        node[CHEMICAL_FORMULA] = chemical_formula
-    if exact_mass:
-        node[EXACT_MASS] = exact_mass
-    if description:
-        node[DESCRIPTION] = clean_text(description)
-
-    node[PROVIDED_BY] = to_list(provided_by)
-    node[EQUIVALENT_IDS] = equivalent_ids
-    if synonyms:
-        node[SYNONYMS] = [clean_text(synonym) for synonym in synonyms]
-
-    if attributes:
-        node[ATTRIBUTES] = attributes
-
-    return node
-
-
-def create_edge(subject_id: str,
-                object_id: str,
-                predicate: str,
-                primary_ks: str,
-                knowledge_level: str,
-                agent_type: str,
-                aggregator_ks: Optional[str] = None,
-                supporting_sources: Optional[List[str]] = None,
-                qualified_predicate: Optional[str] = None,
-                qualified_direction: Optional[str] = None,
-                qualified_aspect: Optional[str] = None,
-                context_qualifier: Optional[str] = None,
-                publications: Optional[List[str]] = None,
-                publications_info: Optional[Dict[str, Any]] = None,
-                attributes: Optional[dict] = None) -> Dict[str, Any]:
-    assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
-
-    # Assemble the edge, with properties in a specific order (for convenient review)
-    edge = {SUBJECT: subject_id,
-            OBJECT: object_id,
-            PREDICATE: predicate}
-
-    if qualified_predicate:
-        edge[QUALIFIED_PREDICATE] = qualified_predicate
-    if qualified_direction:
-        edge[QUALIFIED_DIRECTION] = qualified_direction
-    if qualified_aspect:
-        edge[QUALIFIED_ASPECT] = qualified_aspect
-    if context_qualifier:
-        edge[CONTEXT_QUALIFIER] = context_qualifier
-
-    edge |= {PRIMARY_KS: primary_ks,
-             KNOWLEDGE_LEVEL: knowledge_level,
-             AGENT_TYPE: agent_type}
-
-    if supporting_sources:
-        edge[SUPPORTING_SOURCES] = supporting_sources
-    if aggregator_ks:
-        edge[AGGREGATOR_KS] = to_list(aggregator_ks)
-    if publications:
-        edge[PUBLICATIONS] = publications
-    if publications_info:
-        edge[PUBLICATIONS_INFO] = publications_info
-    if attributes:
-        edge[ATTRIBUTES] = attributes
-
-    return edge
-
-
 def create_edge_key(edge: dict) -> str:
     sep = '---'
     placeholder = '|'
     qualifiers = [
         edge.get(QUALIFIED_PREDICATE, ''),  # e.g., biolink:causes
-        edge.get(QUALIFIED_DIRECTION, ''),  # e.g., increased
-        edge.get(QUALIFIED_ASPECT, ''),  # e.g., activity
+        edge.get(OBJ_DIRECTION_QUALIFIER, ''),  # e.g., increased
+        edge.get(OBJ_ASPECT_QUALIFIER, ''),  # e.g., activity
         edge.get(CONTEXT_QUALIFIER, '')  # e.g., pediatric
     ]
     conglomerate_qualifiers = '__'.join([qualifier for qualifier in qualifiers if qualifier])

@@ -6,13 +6,11 @@ from pathlib import Path
 from typing import Dict, List
 import logging
 
-from .harmonizers.clingen import harmonize_clingen
-from .harmonizers.kg2 import harmonize_kg2
-from .harmonizers.lipidmaps import harmonize_lipidmaps
-from .harmonizers.refmet import harmonize_refmet
-from .harmonizers.robokop import harmonize_robokop
-from .harmonizers.spoke import harmonize_spoke
-from .harmonizers.umls import harmonize_umls
+from .harmonizers.molepro import MoleProHarmonizer
+from .harmonizers.robokop import RobokopHarmonizer
+from .harmonizers.kg2 import KG2Harmonizer
+
+
 from .integration.entity_resolution import integrate_sources
 from .utils.kg_io import unzip_files, zip_files, get_harmonized_file_paths, PROJECT_ROOT
 from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
@@ -82,28 +80,32 @@ def harmonize_source(source_name: str, config: dict, biolink_version: str, build
     # Run source-specific harmonizer
     harmonizers = {
         'clingen': harmonize_clingen,
-        'kg2': harmonize_kg2,
-        'robokop': harmonize_robokop,
+        'kg2': KG2Harmonizer,
+        'robokop': RobokopHarmonizer,
+        'molepro': MoleProHarmonizer,
         'spoke': harmonize_spoke,
         'umls': harmonize_umls,
         'lipidmaps': harmonize_lipidmaps,
         'refmet': harmonize_refmet
     }
-    harmonizer = harmonizers[source_name]
+
+    # Instantiate our harmonizer
+    harmonizer = harmonizers[source_name](biolink_version)
+
+    # Unzip input files as needed
     possible_input_file_fields = ['input_file', 'input_nodes', 'input_edges']
     input_file_paths = [config.get(field) for field in possible_input_file_fields]
-
     unzip_files(input_file_paths)
 
+    # Harmonize input files
     if config.get('input_file'):
-        harmonizer(config['input_file'], nodes_output, edges_output, biolink_version)
+        harmonizer.harmonize(config['input_file'], nodes_output, edges_output, biolink_version)
     elif config.get('nodes_input') and config.get('edges_input'):
-        harmonizer(config['nodes_input'], config['edges_input'], nodes_output, edges_output, biolink_version)
+        harmonizer.harmonize(config['nodes_input'], config['edges_input'], nodes_output, edges_output, biolink_version)
     else:
         raise ValueError(f"Unknown source type: {source_name}")
 
-    logging.info(f"Harmonized {source_name} -> {nodes_output}, {edges_output}")
-
+    # Zip input files back up
     zip_files(input_file_paths)
 
     if build_metagraph:

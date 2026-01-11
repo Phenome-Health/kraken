@@ -3,7 +3,7 @@ from pathlib import Path
 # Define node property names
 ID = 'id'
 NAME = 'name'
-IRI = 'iri'
+URLS = 'urls'
 CATEGORIES = 'categories'
 PROVIDED_BY = 'provided_by'
 SYNONYMS = 'synonyms'
@@ -12,6 +12,9 @@ DESCRIPTION = 'description'
 CHEMICAL_FORMULA = 'chemical_formula'
 EXACT_MASS = 'exact_mass'
 ATTRIBUTES = 'attributes'
+
+CORE_NODE_PROPERTIES = {ID, NAME, URLS, CATEGORIES, PROVIDED_BY, SYNONYMS, EQUIVALENT_IDS,
+                        DESCRIPTION, CHEMICAL_FORMULA, EXACT_MASS}
 
 # Define edge property names
 SUBJECT = 'subject'
@@ -23,12 +26,12 @@ SUPPORTING_SOURCES = 'supporting_data_sources'
 KNOWLEDGE_LEVEL = 'knowledge_level'
 AGENT_TYPE = 'agent_type'
 QUALIFIED_PREDICATE = 'qualified_predicate'
-QUALIFIED_DIRECTION = 'qualified_object_direction'
-QUALIFIED_ASPECT = 'qualified_object_aspect'
+OBJ_DIRECTION_QUALIFIER = 'object_direction_qualifier'
+OBJ_ASPECT_QUALIFIER = 'object_aspect_qualifier'
 CONTEXT_QUALIFIER = 'context_qualifier'
 
 CORE_EDGE_PROPERTIES = {ID, SUBJECT, OBJECT, PREDICATE, PRIMARY_KS, AGGREGATOR_KS, SUPPORTING_SOURCES,
-                        KNOWLEDGE_LEVEL, AGENT_TYPE, QUALIFIED_PREDICATE, QUALIFIED_DIRECTION, QUALIFIED_ASPECT}
+                        KNOWLEDGE_LEVEL, AGENT_TYPE, QUALIFIED_PREDICATE, OBJ_DIRECTION_QUALIFIER, OBJ_ASPECT_QUALIFIER}
 
 PUBLICATIONS = 'publications'
 PUBLICATIONS_INFO = 'publications_info'
@@ -46,11 +49,14 @@ INFORES_PREFIX = 'infores'
 SPOKE_INFORES: str = f'{INFORES_PREFIX}:spoke'
 KG2_INFORES: str = f'{INFORES_PREFIX}:rtx-kg2'
 ROBOKOP_INFORES: str = f"{INFORES_PREFIX}:robokop-kg"
+MOLEPRO_INFORES: str = f"{INFORES_PREFIX}:molepro"
 UMLS_INFORES: str = f'{INFORES_PREFIX}:umls'
 LIPIDMAPS_CURIE: str = 'lipidmaps'
 REFMET_CURIE: str = f'{INFORES_PREFIX}:refmet'
 CLINGEN_CURIE = f'{INFORES_PREFIX}:clingen'
 
 KNOWN_INVALID = 'KNOWN_INVALID'
+
+NOT_PROVIDED = 'not_provided'
 
 

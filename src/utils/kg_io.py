@@ -19,25 +19,74 @@ def get_harmonized_file_paths(source_name: str) -> tuple[Path, Path]:
     return nodes_path, edges_path
 
 
+def _strip_key_prefixes(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip common prefixes like 'biolink:' from dict keys"""
+    return {k.removeprefix("biolink:"): v for k, v in d.items()}
+
+
 def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream nodes from JSONL file without loading into memory"""
     logging.debug(f"Streaming nodes from {nodes_file}")
-    
+
     with jsonlines.open(nodes_file, 'r') as reader:
         for line_num, node in enumerate(reader, 1):
             if line_num % 1000000 == 0:
                 logging.info(f"    at {line_num} nodes")
-            yield node
+            yield _strip_key_prefixes(node)
 
 
 def stream_edges_from_jsonl(edges_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream edges from JSONL file without loading into memory"""
     logging.debug(f"Streaming edges from {edges_file}")
-    
+
     with jsonlines.open(edges_file, 'r') as reader:
         for line_num, edge in enumerate(reader, 1):
             if line_num % 5000000 == 0:
                 logging.info(f"    at {line_num} edges")
+            yield _strip_key_prefixes(edge)
+
+
+def stream_nodes_from_tsv(
+        nodes_file: Path,
+        list_delimiter: str = "|"
+) -> Iterator[Dict[str, Any]]:
+    """Stream nodes from TSV file without loading into memory"""
+    logging.debug(f"Streaming nodes from {nodes_file}")
+
+    with open(nodes_file, 'r', newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        for line_num, node in enumerate(reader, 1):
+            if line_num % 1000000 == 0:
+                logging.info(f"    at {line_num} nodes")
+
+            node = _strip_key_prefixes(node)
+
+            for key, value in node.items():
+                if value and list_delimiter in value:
+                    node[key] = value.split(list_delimiter)
+
+            yield node
+
+
+def stream_edges_from_tsv(
+        edges_file: Path,
+        list_delimiter: str = "|"
+) -> Iterator[Dict[str, Any]]:
+    """Stream edges from TSV file without loading into memory"""
+    logging.debug(f"Streaming edges from {edges_file}")
+
+    with open(edges_file, 'r', newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        for line_num, edge in enumerate(reader, 1):
+            if line_num % 5000000 == 0:
+                logging.info(f"    at {line_num} edges")
+
+            edge = _strip_key_prefixes(edge)
+
+            for key, value in edge.items():
+                if value and list_delimiter in value:
+                    edge[key] = value.split(list_delimiter)
+
             yield edge
 
 

@@ -226,9 +226,9 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
         'MAPS': {predicate: 'is_sequence_variant_of'},  # SPOKE only uses for SequenceVariant-->Gene edges
         'TARGETS': {predicate: 'regulates'},  # SPOKE only uses for MiRNA-->Gene edges
         'EXPRESSES': {predicate: 'expressed_in', flip: True},  # SPOKE only uses for Anatomy-->Gene edges
-        'DOWNREGULATES': {predicate: 'regulates', QUALIFIED_DIRECTION: 'downregulated'},  # Anatomy-->Gene, Compound-->Gene, Gene-->Gene, Variant-->Gene
+        'DOWNREGULATES': {predicate: 'regulates', OBJ_DIRECTION_QUALIFIER: 'downregulated'},  # Anatomy-->Gene, Compound-->Gene, Gene-->Gene, Variant-->Gene
         'BINDS': {predicate: 'binds'},  # Compound-->Protein/ProteinDomain
-        'UPREGULATES': {predicate: 'regulates', QUALIFIED_DIRECTION: 'upregulated'},  # Protein-->Gene
+        'UPREGULATES': {predicate: 'regulates', OBJ_DIRECTION_QUALIFIER: 'upregulated'},  # Protein-->Gene
         'REGULATES': {predicate: 'regulates'},
         'EXPRESSEDIN': {predicate: 'expressed_in'},  # Gene/Protein-->CellType
         'EXPRESSEDIN_GeiD': {predicate: 'gene_associated_with_condition'},  # Gene-->Disease
@@ -268,9 +268,9 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
         'MEMBEROF': {predicate: 'has_member', flip: True},  # ProteinDomain-->ProteinFamily
         'INCLUDES': {predicate: 'has_member'},  # PharmacologicClass-->Compound
         'AFFECT': {predicate: 'affects_response_to'},  # Variant-->Compound
-        'TRANSPORTS': {predicate: 'affects', QUALIFIED_ASPECT: 'transport'},  # Protein-->Compound
+        'TRANSPORTS': {predicate: 'affects', OBJ_ASPECT_QUALIFIER: 'transport'},  # Protein-->Compound
         'DERIVES_FROM': {predicate: 'derives_from'},  # CellLine-->Disease
-        'CLEAVESTO': {predicate: 'affects', QUALIFIED_ASPECT: 'cleavage'},  # Protein-->Protein
+        'CLEAVESTO': {predicate: 'affects', OBJ_ASPECT_QUALIFIER: 'cleavage'},  # Protein-->Protein
         'RESPONSE_TO': {predicate: 'affects_response_to'},  # Gene-->Compound
         'SAME': {predicate: 'same_as'},  # CellLine-->CellLine TODO: maybe check this one.. (look at example edges)
         'RESISTANT_TO': {predicate: 'associated_with_resistance_to'},  # Gene-->Compound
@@ -283,7 +283,7 @@ def map_spoke_edge_type_to_biolink(edge_type: str,
     object_id = original_subject_id if type_mapping.get(flip) else original_object_id
     
     return (f"{BIOLINK_PREFIX}:{type_mapping[predicate]}", subject_id, object_id,
-            type_mapping.get(QUALIFIED_PREDICATE), type_mapping.get(QUALIFIED_DIRECTION), type_mapping.get(QUALIFIED_ASPECT))
+            type_mapping.get(QUALIFIED_PREDICATE), type_mapping.get(OBJ_DIRECTION_QUALIFIER), type_mapping.get(OBJ_ASPECT_QUALIFIER))
 
 
 def normalize_source(spoke_source: str, spoke_edge: dict) -> str:
