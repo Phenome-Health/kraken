@@ -14,7 +14,7 @@ from .constants import *
 def create_node(curie: str,
                 categories: List[str],
                 equivalent_ids: List[str],
-                provided_by: List[str],
+                provided_by: str | List[str],
                 name: Optional[str] = None,
                 synonyms: Optional[List[str]] = None,
                 description: Optional[str] = None,
@@ -44,7 +44,7 @@ def create_node(curie: str,
     if description:
         node[DESCRIPTION] = clean_text(description)
 
-    node[PROVIDED_BY] = provided_by
+    node[PROVIDED_BY] = to_list(provided_by)
     node[EQUIVALENT_IDS] = equivalent_ids
     if synonyms:
         node[SYNONYMS] = [clean_text(synonym) for synonym in synonyms]
@@ -93,7 +93,7 @@ def create_edge(subject_id: str,
     if supporting_sources:
         edge[SUPPORTING_SOURCES] = supporting_sources
     if aggregator_ks:
-        edge[AGGREGATOR_KS] = aggregator_ks
+        edge[AGGREGATOR_KS] = to_list(aggregator_ks)
     if publications:
         edge[PUBLICATIONS] = publications
     if publications_info:
@@ -120,11 +120,9 @@ def create_edge_key(edge: dict) -> str:
     assert sep not in subject_id and sep not in object_id
     predicate = edge[PREDICATE]
     primary_ks = edge[PRIMARY_KS]
-    aggregator_ks = edge.get(AGGREGATOR_KS)
-    aggregator_str = aggregator_ks if aggregator_ks else placeholder
     supporting_sources = edge.get(SUPPORTING_SOURCES)
     supporting_str = '__'.join(sorted(supporting_sources)) if supporting_sources else placeholder
-    key_raw = sep.join([subject_id, predicate, object_id, qualifiers_str, primary_ks, supporting_str, aggregator_str])
+    key_raw = sep.join([subject_id, predicate, object_id, qualifiers_str, primary_ks, supporting_str])
     return key_raw
 
 
