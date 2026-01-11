@@ -64,6 +64,9 @@ class BaseHarmonizer(ABC):
                                 self.object_aspect_qualifier_prop, self.context_qualifier_prop,
                                 self.supporting_sources_prop,
                                 self.publications_prop, self.publications_info_prop}
+        self.could_be_lists = {self.category_prop, self.equivalent_ids_prop,
+                               self.supporting_sources_prop, self.publications_prop,
+                               self.publications_info_prop}.union(self.synonyms_props)
 
     def harmonize(
             self,
@@ -89,6 +92,7 @@ class BaseHarmonizer(ABC):
                 harmonized = self.harmonize_node(node)
                 writer.write(harmonized)
                 count += 1
+        logging.info(f"Finished harmonizing nodes")
         return count
 
     def _harmonize_edges(self, input_path: Path, output_path: Path) -> int:
@@ -98,6 +102,7 @@ class BaseHarmonizer(ABC):
                 harmonized = self.harmonize_edge(edge)
                 writer.write(harmonized)
                 count += 1
+        logging.info(f"Finished harmonizing edges")
         return count
 
     def collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any] | None:
@@ -154,25 +159,25 @@ class BaseHarmonizer(ABC):
             object_direction_qualifier=edge.get(self.object_direction_qualifier_prop),
             object_aspect_qualifier=edge.get(self.object_aspect_qualifier_prop),
             context_qualifier=edge.get(self.context_qualifier_prop),
-            supporting_sources=edge.get(self.supporting_sources_prop),
-            publications=edge.get(self.publications_prop),
+            supporting_sources=to_list(edge.get(self.supporting_sources_prop)),
+            publications=to_list(edge.get(self.publications_prop, [])),
             publications_info=edge.get(self.publications_info_prop),
             attributes=self.collect_edge_attributes(edge)
         )
 
-    def _stream_nodes(self, input_path: Path):
-        suffix = input_path.suffix.lower()
+    def _stream_nodes(self, input_path: Path | str):
+        suffix = Path(input_path).suffix.lower()
         if suffix == '.tsv':
-            return stream_nodes_from_tsv(input_path, list_delimiter=self.list_delimiter)
+            return stream_nodes_from_tsv(input_path, list_delimiter=self.list_delimiter, could_be_list=self.could_be_lists)
         elif suffix in ('.jsonl', '.jsonlines'):
             return stream_nodes_from_jsonl(input_path)
         else:
             raise ValueError(f"Unknown file format: {suffix}")
 
-    def _stream_edges(self, input_path: Path):
-        suffix = input_path.suffix.lower()
+    def _stream_edges(self, input_path: Path | str):
+        suffix = Path(input_path).suffix.lower()
         if suffix == '.tsv':
-            return stream_edges_from_tsv(input_path, list_delimiter=self.list_delimiter)
+            return stream_edges_from_tsv(input_path, list_delimiter=self.list_delimiter, could_be_list=self.could_be_lists)
         elif suffix in ('.jsonl', '.jsonlines'):
             return stream_edges_from_jsonl(input_path)
         else:
@@ -182,8 +187,8 @@ class BaseHarmonizer(ABC):
     @staticmethod
     def create_node(curie: str,
                     categories: list[str],
-                    equivalent_ids: list[str],
                     provided_by: str | list[str],
+                    equivalent_ids: str | list[str] | None = None,
                     name: str | None = None,
                     synonyms: list[str] | set[str] | None = None,
                     description: str | None = None,
@@ -191,7 +196,9 @@ class BaseHarmonizer(ABC):
                     chemical_formula: str | None = None,
                     exact_mass: float | None = None,
                     attributes: dict[str, Any] | None = None) -> dict[str, Any]:
-        assert curie and categories and equivalent_ids and provided_by
+        if not (curie and categories and provided_by):
+            raise ValueError(f"Node is missing required field(s): curie={curie}, "
+                             f"categories={categories}, provided_by={provided_by}")
 
         # Assemble the node, with properties in a specific order (for convenient review)
         node = {ID: curie}
@@ -213,7 +220,7 @@ class BaseHarmonizer(ABC):
             node[DESCRIPTION] = clean_text(description)
 
         node[PROVIDED_BY] = to_list(provided_by)  # Convert to list so these will merge
-        node[EQUIVALENT_IDS] = equivalent_ids
+        node[EQUIVALENT_IDS] = list(set(to_list(equivalent_ids) + [curie]))
         if synonyms:
             node[SYNONYMS] = [clean_text(synonym) for synonym in synonyms]
 

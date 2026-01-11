@@ -5,10 +5,14 @@ import csv
 import gzip
 import os
 import shutil
+import sys
 from pathlib import Path
 import jsonlines
 import logging
 from typing import Iterator, Dict, Any, Iterable
+
+# Increase CSV field size limit for large fields (e.g., long lists of synonyms/xrefs)
+csv.field_size_limit(sys.maxsize)
 
 PROJECT_ROOT = Path(__file__).parents[2]
 
@@ -48,7 +52,8 @@ def stream_edges_from_jsonl(edges_file: Path) -> Iterator[Dict[str, Any]]:
 
 def stream_nodes_from_tsv(
         nodes_file: Path,
-        list_delimiter: str = "|"
+        list_delimiter: str,
+        could_be_list: set[str],
 ) -> Iterator[Dict[str, Any]]:
     """Stream nodes from TSV file without loading into memory"""
     logging.debug(f"Streaming nodes from {nodes_file}")
@@ -59,10 +64,14 @@ def stream_nodes_from_tsv(
             if line_num % 1000000 == 0:
                 logging.info(f"    at {line_num} nodes")
 
+            # Skip blank rows
+            if not any(node.values()):
+                continue
+
             node = _strip_key_prefixes(node)
 
             for key, value in node.items():
-                if value and list_delimiter in value:
+                if value and key in could_be_list and list_delimiter in value:
                     node[key] = value.split(list_delimiter)
 
             yield node
@@ -70,7 +79,8 @@ def stream_nodes_from_tsv(
 
 def stream_edges_from_tsv(
         edges_file: Path,
-        list_delimiter: str = "|"
+        list_delimiter: str,
+        could_be_list: set[str]
 ) -> Iterator[Dict[str, Any]]:
     """Stream edges from TSV file without loading into memory"""
     logging.debug(f"Streaming edges from {edges_file}")
@@ -81,10 +91,14 @@ def stream_edges_from_tsv(
             if line_num % 5000000 == 0:
                 logging.info(f"    at {line_num} edges")
 
+            # Skip blank rows
+            if not any(edge.values()):
+                continue
+
             edge = _strip_key_prefixes(edge)
 
             for key, value in edge.items():
-                if value and list_delimiter in value:
+                if value and key in could_be_list and list_delimiter in value:
                     edge[key] = value.split(list_delimiter)
 
             yield edge
