@@ -1,5 +1,5 @@
 from src.harmonizers.base import BaseHarmonizer
-from ..utils.constants import MOLEPRO_INFORES
+from ..utils.constants import MOLEPRO_INFORES, AGGREGATOR_KS
 
 
 class MoleProHarmonizer(BaseHarmonizer):
@@ -15,4 +15,4 @@ class MoleProHarmonizer(BaseHarmonizer):
     ignore_node_props = {"attributes"}
 
     # Edge property config
-    ignore_edge_props = {"attributes"}
+    ignore_edge_props = {"attributes", AGGREGATOR_KS}

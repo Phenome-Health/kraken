@@ -52,6 +52,8 @@ class BaseHarmonizer(ABC):
     rename_node_attrs: dict[str, str] = {}
     rename_edge_attrs: dict[str, str] = {}
 
+    empty_values: list[str] = ["", None, []]
+
     def __init__(self, biolink_client: BiolinkClient):
         self.biolink = biolink_client
 
@@ -108,7 +110,7 @@ class BaseHarmonizer(ABC):
     def collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any] | None:
         attributes = {}
         for k, v in node.items():
-            if k in self.core_node_props or k in self.ignore_node_props:
+            if k in self.core_node_props or k in self.ignore_node_props or v in self.empty_values:
                 continue
             key = self.rename_node_attrs.get(k, k)
             attributes[key] = v
@@ -117,7 +119,7 @@ class BaseHarmonizer(ABC):
     def collect_edge_attributes(self, edge: dict[str, Any]) -> dict[str, Any] | None:
         attributes = {}
         for k, v in edge.items():
-            if k in self.core_edge_props or k in self.ignore_edge_props:
+            if k in self.core_edge_props or k in self.ignore_edge_props or v in self.empty_values:
                 continue
             key = self.rename_edge_attrs.get(k, k)
             attributes[key] = v
@@ -221,8 +223,10 @@ class BaseHarmonizer(ABC):
 
         node[PROVIDED_BY] = to_list(provided_by)  # Convert to list so these will merge
         node[EQUIVALENT_IDS] = list(set(to_list(equivalent_ids) + [curie]))
+
         if synonyms:
-            node[SYNONYMS] = [clean_text(synonym) for synonym in synonyms]
+            cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if synonym]
+            node[SYNONYMS] = [s for s in cleaned_synonyms if s]
 
         if attributes:
             node[ATTRIBUTES] = attributes

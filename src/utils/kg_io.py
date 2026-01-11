@@ -30,7 +30,7 @@ def _strip_key_prefixes(d: Dict[str, Any]) -> Dict[str, Any]:
 
 def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream nodes from JSONL file without loading into memory"""
-    logging.debug(f"Streaming nodes from {nodes_file}")
+    logging.info(f"Streaming nodes from {nodes_file}")
 
     with jsonlines.open(nodes_file, 'r') as reader:
         for line_num, node in enumerate(reader, 1):
@@ -41,7 +41,7 @@ def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
 
 def stream_edges_from_jsonl(edges_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream edges from JSONL file without loading into memory"""
-    logging.debug(f"Streaming edges from {edges_file}")
+    logging.info(f"Streaming edges from {edges_file}")
 
     with jsonlines.open(edges_file, 'r') as reader:
         for line_num, edge in enumerate(reader, 1):
@@ -56,7 +56,7 @@ def stream_nodes_from_tsv(
         could_be_list: set[str],
 ) -> Iterator[Dict[str, Any]]:
     """Stream nodes from TSV file without loading into memory"""
-    logging.debug(f"Streaming nodes from {nodes_file}")
+    logging.info(f"Streaming nodes from {nodes_file}")
 
     with open(nodes_file, 'r', newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f, delimiter='\t')
@@ -83,7 +83,7 @@ def stream_edges_from_tsv(
         could_be_list: set[str]
 ) -> Iterator[Dict[str, Any]]:
     """Stream edges from TSV file without loading into memory"""
-    logging.debug(f"Streaming edges from {edges_file}")
+    logging.info(f"Streaming edges from {edges_file}")
 
     with open(edges_file, 'r', newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f, delimiter='\t')
@@ -106,7 +106,7 @@ def stream_edges_from_tsv(
 
 def stream_mixed_jsonl(input_file: Path) -> Iterator[Dict[str, Any]]:
     """Stream items from mixed JSONL file (nodes and edges together)"""
-    logging.debug(f"Streaming mixed JSONL from {input_file}")
+    logging.info(f"Streaming mixed JSONL from {input_file}")
     
     with jsonlines.open(input_file, 'r') as reader:
         for line_num, item in enumerate(reader, 1):

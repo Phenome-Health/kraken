@@ -47,7 +47,7 @@ def to_list(item: Any) -> List[Any]:
         return item
     elif isinstance(item, (set, tuple)):
         return list(item)
-    elif item is None:
+    elif item is None or item == "":
         return []
     else:
         return [item]
