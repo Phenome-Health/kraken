@@ -42,6 +42,11 @@ def harmonize_robokop(nodes_input: Path, edges_input: Path, nodes_output: Path, 
                 all_proper_ancestors |= proper_ancestors
             leaf_categories = categories.difference(all_proper_ancestors)
 
+            # Round up all the non-standard properties into the catch-all attributes dict
+            attributes = {
+                prop_name: value for prop_name, value in node.items() if prop_name not in core_robokop_node_props
+            }
+
             harmonized_node = create_node(
                 curie=node['id'],
                 categories=list(leaf_categories),
@@ -49,10 +54,9 @@ def harmonize_robokop(nodes_input: Path, edges_input: Path, nodes_output: Path, 
                 equivalent_ids=node['equivalent_identifiers'] if node.get('equivalent_identifiers') else [node['id']],
                 name=node.get('name'),
                 description=node.get('description'),
-                attributes={ROBOKOP_INFORES: {
-                    prop_name: value for prop_name, value in node.items() if prop_name not in core_robokop_node_props
-                }}
+                attributes={ROBOKOP_INFORES: attributes} if attributes else None
             )
+
             writer.write(harmonized_node)
             node_count += 1
 
