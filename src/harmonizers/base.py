@@ -217,8 +217,8 @@ class BaseHarmonizer(ABC):
             # Handle case where multiple chemical formulas are given (could be diff nomenclatures, etc.)
             if isinstance(chemical_formula, list):
                 if len(chemical_formula) > 1:
-                    other_chemical_formulas = chemical_formula[1:]
-                    attributes["other_chemical_formulas"] = other_chemical_formulas
+                    additional_chemical_formulas = chemical_formula[1:]
+                    attributes["additional_chemical_formulas"] = additional_chemical_formulas
                 chemical_formula = chemical_formula[0]
             node[CHEMICAL_FORMULA] = chemical_formula
 
@@ -280,8 +280,8 @@ class BaseHarmonizer(ABC):
         # Handle case where multiple agent types are given (just take first, throw others in attributes)
         if isinstance(agent_type, list):
             if len(agent_type) > 1:
-                other_agent_types = agent_type[1:]
-                attributes["additional_agent_types"] = other_agent_types
+                additional_agent_types = agent_type[1:]
+                attributes["additional_agent_types"] = additional_agent_types
             agent_type = agent_type[0]
 
         # Handle improper KLAT
