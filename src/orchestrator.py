@@ -31,12 +31,19 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     unified_nodes_path = unified_dir_path / f"kraken_nodes_{kraken_version}.jsonl"
     unified_edges_path = unified_dir_path / f"kraken_edges_{kraken_version}.jsonl"
 
-    specified_source_subset = to_list(config["options"].get("include_sources"))
-    logging.info(f"Source subset specified in build_config.yaml is: {specified_source_subset}")
-    if not set(specified_source_subset).issubset(set(config["sources"])):
-        raise ValueError(f"In build_config.yaml, source names specified in the options.include_sources slot must "
-                         f"exist under the 'sources' slot, which currently includes only these: {list(config['sources'])}")
-    sources_to_use = specified_source_subset if specified_source_subset else list(config["sources"].keys())
+    # Figure out which sources to use based on the build config settings
+    all_sources = set(config["sources"])
+    include_sources = set(to_list(config["options"].get("include_sources")))
+    exclude_sources = set(to_list(config["options"].get("exclude_sources")))
+    if not include_sources.issubset(all_sources) or not exclude_sources.issubset(all_sources):
+        raise ValueError(f"In build_config.yaml, source names specified in 'include_sources' and "
+                         f"'exclude_sources' must exist under the 'sources' slot, "
+                         f"which currently includes only these: {all_sources}")
+    overlap = include_sources.intersection(exclude_sources)
+    if overlap:
+        raise ValueError(f"Sources cannot be both included and excluded in build_config.yaml: {overlap}")
+    source_pool = include_sources if include_sources else all_sources
+    sources_to_use = source_pool - exclude_sources
     logging.info(f"Will include {len(sources_to_use)} sources: {sources_to_use}")
 
     create_metagraphs = True if config['options'].get('metagraph_creation') else False
@@ -86,14 +93,14 @@ def harmonize_source(source_name: str, config: dict, biolink_client: BiolinkClie
 
     # Run source-specific harmonizer
     harmonizers = {
-        'clingen': ClinGenHarmonizer,
         'kg2': KG2Harmonizer,
         'robokop': RobokopHarmonizer,
         'molepro': MoleProHarmonizer,
         'spoke': SpokeHarmonizer,
         'umls': UMLSHarmonizer,
         'lipidmaps': LipidMapsHarmonizer,
-        'refmet': RefMetHarmonizer
+        'refmet': RefMetHarmonizer,
+        'clingen': ClinGenHarmonizer,
     }
 
     # Instantiate our harmonizer
@@ -125,7 +132,7 @@ def harmonize_source(source_name: str, config: dict, biolink_client: BiolinkClie
         generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, source_name)
 
 
-def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Path, source_names: list[str]):
+def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Path, source_names: set[str]):
     # Store unified metagraphs in artifacts/metagraphs/unified/
     artifacts_root = PROJECT_ROOT / "artifacts"
     metagraph_dir = artifacts_root / "metagraphs" / "unified"

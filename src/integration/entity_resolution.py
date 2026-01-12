@@ -20,7 +20,7 @@ from ..utils.constants import *
 from ..utils.general import create_edge_key, to_list
 
 
-def integrate_sources(source_names: list[str],
+def integrate_sources(source_names: set[str],
                       output_dir: Path,
                       unified_nodes_path: Path,
                       unified_edges_path: Path,
@@ -46,7 +46,7 @@ def integrate_sources(source_names: list[str],
     logging.info(f"Integration complete! Unified KG saved to {output_dir}")
 
 
-def integrate_nodes(source_names: list[str],
+def integrate_nodes(source_names: set[str],
                     primary_source: str,
                     equivalency_index: Dict[str, str],
                     output_dir: Path,
@@ -60,10 +60,10 @@ def integrate_nodes(source_names: list[str],
 
     # Figure out what order to integrate sources in (save ones not allowed to merge entities for last)
     sources_config = config['sources']
-    allowed_to_merge_existing = [source_name for source_name, source_config in sources_config.items()
-                                 if source_config.get('can_merge_existing_nodes') and source_name != primary_source]
-    not_allowed_to_merge = [source_name for source_name, source_config in sources_config.items()
-                            if not source_config.get('can_merge_existing_nodes') and source_name != primary_source]
+    allowed_to_merge_existing = [source_name for source_name in source_names
+                                 if sources_config[source_name].get('can_merge_existing_nodes') and source_name != primary_source]
+    not_allowed_to_merge = [source_name for source_name in source_names
+                            if not sources_config[source_name].get('can_merge_existing_nodes') and source_name != primary_source]
     ordered_sources = allowed_to_merge_existing + not_allowed_to_merge
     logging.info(f"Will integrate remaining sources into {primary_source} in this order: {ordered_sources}")
 
@@ -156,7 +156,7 @@ def integrate_nodes(source_names: list[str],
 
 
 def integrate_edges(unified_edges_path: Path,
-                    source_names: list[str],
+                    source_names: set[str],
                     equivalency_index: Dict[str, str],
                     output_dir: Path):
     assert equivalency_index

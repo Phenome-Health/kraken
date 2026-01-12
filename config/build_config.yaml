@@ -2,11 +2,22 @@ biolink_version: 4.2.5
 kraken_version: 1.0.3
 steps:
   harmonize: True
-  integrate: True
-  postprocess: True
+  integrate: False
+  postprocess: False
 options:
   metagraph_creation: True
-  include_sources: null
+  include_sources: ["robokop"]
+  exclude_sources: []
+  zip_inputs_after: True
+
+integration:
+  output_directory: "artifacts/integrated/"
+  primary_source: "kg2"
+
+post_processing:
+  test_export:
+    output_directory: "artifacts/integrated/"
+    num_edges: 10000
 
 sources:
   kg2:
@@ -44,12 +55,3 @@ sources:
   clingen:
     input_file: "input_data/clingen/acmg_actionability.json"
     can_merge_existing_nodes: False
-
-integration:
-  output_directory: "artifacts/integrated/"
-  primary_source: "kg2"
-
-post_processing:
-  test_export:
-    output_directory: "artifacts/integrated/"
-    num_edges: 10000
