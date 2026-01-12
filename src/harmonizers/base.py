@@ -228,7 +228,16 @@ class BaseHarmonizer(ABC):
             node[DESCRIPTION] = clean_text(description)
 
         node[PROVIDED_BY] = to_list(provided_by)  # Convert to list so these will merge
-        node[EQUIVALENT_IDS] = list(set(to_list(equivalent_ids) + [curie]))
+
+        # Clean up equivalent IDs (remove INCHI, uppercase UNIIs - Molepro has some lowercase)
+        cleaned_equiv_ids = set()
+        for equiv_id in set(to_list(equivalent_ids) + [curie]):
+            equiv_id_upper = equiv_id.upper()
+            if not equiv_id_upper.startswith("INCHI:"):
+                if equiv_id_upper.startswith("UNII:"):
+                    equiv_id = equiv_id_upper
+                cleaned_equiv_ids.add(equiv_id)
+        node[EQUIVALENT_IDS] = list(cleaned_equiv_ids)
 
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
