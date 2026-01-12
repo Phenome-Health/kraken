@@ -186,7 +186,8 @@ class BaseHarmonizer(ABC):
             raise ValueError(f"Unknown file format: {suffix}")
 
 
-    def create_node(self,
+    @staticmethod
+    def create_node(source_infores: str,
                     curie: str,
                     categories: list[str],
                     provided_by: str | list[str],
@@ -249,11 +250,12 @@ class BaseHarmonizer(ABC):
         if publications:
             node[PUBLICATIONS] = publications
         if attributes:
-            node[ATTRIBUTES] = {self.source_infores: attributes}
+            node[ATTRIBUTES] = {source_infores: attributes}
 
         return node
 
-    def create_edge(self,
+    @staticmethod
+    def create_edge(source_infores: str,
                     subject_id: str,
                     object_id: str,
                     predicate: str,
@@ -317,6 +319,6 @@ class BaseHarmonizer(ABC):
         if publications_info:
             edge[PUBLICATIONS_INFO] = publications_info
         if attributes:
-            edge[ATTRIBUTES] = {self.source_infores: attributes}
+            edge[ATTRIBUTES] = {source_infores: attributes}
 
         return edge

@@ -122,6 +122,7 @@ class SpokeHarmonizer:
             all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
 
             harmonized_node = BaseHarmonizer.create_node(
+                source_infores=self.source_infores,
                 curie=normalized_id,
                 categories=self._map_spoke_labels_to_biolink(labels, primary_source, normalized_id),
                 provided_by=self.source_infores,
@@ -171,6 +172,7 @@ class SpokeHarmonizer:
         normalized_primary_ks = self._normalize_source(primary_source, edge_item)
 
         harmonized_edge = BaseHarmonizer.create_edge(
+            source_infores=self.source_infores,
             subject_id=normalized_subject_id,
             object_id=normalized_object_id,
             predicate=predicate,
