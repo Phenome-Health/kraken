@@ -8,6 +8,7 @@ import logging
 
 from .harmonizers.clingen import ClinGenHarmonizer
 from .harmonizers.molepro import MoleProHarmonizer
+from .harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
 from .harmonizers.refmet import RefMetHarmonizer
 from .harmonizers.robokop import RobokopHarmonizer
 from .harmonizers.kg2 import KG2Harmonizer
@@ -96,6 +97,7 @@ def harmonize_source(source_name: str, config: dict, biolink_client: BiolinkClie
         'kg2': KG2Harmonizer,
         'robokop': RobokopHarmonizer,
         'molepro': MoleProHarmonizer,
+        'microbiome-kg': MicrobiomeKGHarmonizer,
         'spoke': SpokeHarmonizer,
         'umls': UMLSHarmonizer,
         'lipidmaps': LipidMapsHarmonizer,

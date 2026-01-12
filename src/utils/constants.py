@@ -50,6 +50,7 @@ SPOKE_INFORES: str = f'{INFORES_PREFIX}:spoke'
 KG2_INFORES: str = f'{INFORES_PREFIX}:rtx-kg2'
 ROBOKOP_INFORES: str = f"{INFORES_PREFIX}:robokop-kg"
 MOLEPRO_INFORES: str = f"{INFORES_PREFIX}:molepro"
+MICROBIOME_KG_INFORES: str = f"{INFORES_PREFIX}:multiomics-microbiome"
 UMLS_INFORES: str = f'{INFORES_PREFIX}:umls'
 REFMET_INFORES: str = f'{INFORES_PREFIX}:refmet'
 CLINGEN_INFORES = f'{INFORES_PREFIX}:clingen'
@@ -60,6 +61,6 @@ KNOWN_INVALID = 'KNOWN_INVALID'
 
 NOT_PROVIDED = 'not_provided'
 
-NONE_STRINGS = {"none", "null", "-"}
+NONE_STRINGS = {"none", "null", "-", "na", "n/a"}
 
 

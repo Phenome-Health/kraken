@@ -54,7 +54,7 @@ def stream_edges_from_jsonl(edges_file: Path) -> Iterator[Dict[str, Any]]:
 
 def stream_nodes_from_tsv(
         nodes_file: Path,
-        list_delimiter: str,
+        list_delimiter: str | None,
         exclude_from_list_parsing: set[str],
 ) -> Iterator[Dict[str, Any]]:
     """Stream nodes from TSV file without loading into memory"""
@@ -73,7 +73,7 @@ def stream_nodes_from_tsv(
             node = _strip_key_prefixes(node)
 
             for key, value in node.items():
-                if not is_empty(value) and key not in exclude_from_list_parsing and list_delimiter in value:
+                if list_delimiter and not is_empty(value) and key not in exclude_from_list_parsing and list_delimiter in value:
                     node[key] = value.split(list_delimiter)
 
             yield node
@@ -81,7 +81,7 @@ def stream_nodes_from_tsv(
 
 def stream_edges_from_tsv(
         edges_file: Path,
-        list_delimiter: str,
+        list_delimiter: str | None,
         exclude_from_list_parsing: set[str]
 ) -> Iterator[Dict[str, Any]]:
     """Stream edges from TSV file without loading into memory"""
@@ -100,7 +100,7 @@ def stream_edges_from_tsv(
             edge = _strip_key_prefixes(edge)
 
             for key, value in edge.items():
-                if not is_empty(value) and key not in exclude_from_list_parsing and list_delimiter in value:
+                if list_delimiter and not is_empty(value) and key not in exclude_from_list_parsing and list_delimiter in value:
                     edge[key] = value.split(list_delimiter)
 
             yield edge

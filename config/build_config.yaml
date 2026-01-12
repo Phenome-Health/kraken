@@ -1,5 +1,5 @@
 biolink_version: 4.2.5
-kraken_version: 1.0.3
+kraken_version: 2.0.0
 steps:
   harmonize: True
   integrate: False
@@ -33,6 +33,11 @@ sources:
   molepro:
     nodes_input: "input_data/molepro/jan2026/nodes.tsv"
     edges_input: "input_data/molepro/jan2026/edges.tsv"
+    can_merge_existing_nodes: True
+
+  microbiome-kg:
+    nodes_input: "input_data/microbiome-kg/Microbiome_KG_nodes_v2.1.0.tsv"
+    edges_input: "input_data/microbiome-kg/Microbiome_KG_edges_p2.1.0.tsv"
     can_merge_existing_nodes: True
 
   spoke:

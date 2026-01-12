@@ -16,7 +16,7 @@ class BaseHarmonizer(ABC):
     source_name: str
     source_infores: str
 
-    list_delimiter: str = "|"
+    list_delimiter: str | None = None
 
     # Node property name mappings - override when source uses different names
     id_prop: str = ID
@@ -51,6 +51,10 @@ class BaseHarmonizer(ABC):
     # Rename properties when storing in attributes
     rename_node_attrs: dict[str, str] = {}
     rename_edge_attrs: dict[str, str] = {}
+
+    # Knowledge source overrides
+    primary_ks_default_value: str | None = None
+    supporting_sources_default_value: str | None = None
 
     # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
     exclude_from_list_parsing: set[str] = set()
@@ -133,6 +137,7 @@ class BaseHarmonizer(ABC):
                 synonyms |= set(new_synonyms)
 
         return self.create_node(
+            source_infores=self.source_infores,
             curie=node[self.id_prop],
             categories=self.biolink.filter_to_leaf_categories(node[self.category_prop]),
             provided_by=self.source_infores,
@@ -149,11 +154,14 @@ class BaseHarmonizer(ABC):
 
     def harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single edge. Override for source-specific logic."""
+        primary_ks = edge[self.primary_ks_prop] if edge.get(self.primary_ks_prop) else self.primary_ks_default_value
+        supporting_sources = edge[self.supporting_sources_prop] if edge.get(self.supporting_sources_prop) else self.supporting_sources_default_value
         return self.create_edge(
+            source_infores=self.source_infores,
             subject_id=edge[self.subject_prop],
             object_id=edge[self.object_prop],
             predicate=edge[self.predicate_prop],
-            primary_ks=edge[self.primary_ks_prop],
+            primary_ks=primary_ks,
             knowledge_level=edge.get(self.knowledge_level_prop, NOT_PROVIDED),
             agent_type=edge.get(self.agent_type_prop, NOT_PROVIDED),
             aggregator_ks=self.source_infores,
@@ -161,7 +169,7 @@ class BaseHarmonizer(ABC):
             object_direction_qualifier=edge.get(self.object_direction_qualifier_prop),
             object_aspect_qualifier=edge.get(self.object_aspect_qualifier_prop),
             context_qualifier=edge.get(self.context_qualifier_prop),
-            supporting_sources=to_list(edge.get(self.supporting_sources_prop)),
+            supporting_sources=to_list(supporting_sources),
             publications=to_list(edge.get(self.publications_prop, [])),
             publications_info=edge.get(self.publications_info_prop),
             attributes=self.collect_edge_attributes(edge)
@@ -198,7 +206,7 @@ class BaseHarmonizer(ABC):
                     urls: str | list[str] | None = None,
                     chemical_formula: str | list[str] | None = None,
                     exact_mass: float | None = None,
-                    publications: list[str] = None,
+                    publications: str | list[str] = None,
                     attributes: dict[str, Any] | None = None) -> dict[str, Any]:
         if not (curie and categories and provided_by):
             raise ValueError(f"Node is missing required field(s): curie={curie}, "
@@ -248,7 +256,7 @@ class BaseHarmonizer(ABC):
             node[SYNONYMS] = [s for s in cleaned_synonyms if s]
 
         if publications:
-            node[PUBLICATIONS] = publications
+            node[PUBLICATIONS] = to_list(publications)
         if attributes:
             node[ATTRIBUTES] = {source_infores: attributes}
 
@@ -268,7 +276,7 @@ class BaseHarmonizer(ABC):
                     object_direction_qualifier: str | None = None,
                     object_aspect_qualifier: str | None = None,
                     context_qualifier: str | None = None,
-                    publications: list[str] | None = None,
+                    publications: str | list[str] | None = None,
                     publications_info: dict[str, Any] | None = None,
                     attributes: dict[str, Any] | None = None) -> dict[str, Any]:
         assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
@@ -315,7 +323,7 @@ class BaseHarmonizer(ABC):
         if aggregator_ks:
             edge[AGGREGATOR_KS] = to_list(aggregator_ks)  # Convert to list so these will merge
         if publications:
-            edge[PUBLICATIONS] = publications
+            edge[PUBLICATIONS] = to_list(publications)
         if publications_info:
             edge[PUBLICATIONS_INFO] = publications_info
         if attributes:

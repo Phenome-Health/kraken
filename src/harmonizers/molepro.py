@@ -5,6 +5,7 @@ from ..utils.constants import MOLEPRO_INFORES, AGGREGATOR_KS
 class MoleProHarmonizer(BaseHarmonizer):
     source_name = "molepro"
     source_infores = MOLEPRO_INFORES
+    list_delimiter = "|"
 
     # Node property config
     category_prop = "category"
