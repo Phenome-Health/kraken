@@ -40,6 +40,11 @@ sources:
     edges_input: "input_data/microbiome-kg/Microbiome_KG_edges_p2.1.0.tsv"
     can_merge_existing_nodes: True
 
+  multiomics-kg:
+    nodes_input: "input_data/multiomics-kg/Multiomics_KG_nodes_v2.1.0.tsv"
+    edges_input: "input_data/multiomics-kg/Multiomics_KG_edges_p2.1.0.tsv"
+    can_merge_existing_nodes: True
+
   spoke:
     # SPOKE has mixed nodes and edges in one file
     input_file: "input_data/spoke/v6/spokeV6_human.jsonl"

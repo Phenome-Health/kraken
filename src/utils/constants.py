@@ -51,6 +51,7 @@ KG2_INFORES: str = f'{INFORES_PREFIX}:rtx-kg2'
 ROBOKOP_INFORES: str = f"{INFORES_PREFIX}:robokop-kg"
 MOLEPRO_INFORES: str = f"{INFORES_PREFIX}:molepro"
 MICROBIOME_KG_INFORES: str = f"{INFORES_PREFIX}:multiomics-microbiome"
+MULTIOMICS_KG_INFORES: str = f"{INFORES_PREFIX}:multiomics-multiomics"
 UMLS_INFORES: str = f'{INFORES_PREFIX}:umls'
 REFMET_INFORES: str = f'{INFORES_PREFIX}:refmet'
 CLINGEN_INFORES = f'{INFORES_PREFIX}:clingen'
