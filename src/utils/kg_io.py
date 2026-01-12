@@ -188,7 +188,7 @@ def ensure_unzipped(filepath: Path) -> Path:
         Path to the unzipped file
     """
     filepath = Path(filepath)
-    logging.info(f"Unzipping {filepath} (if not already)..")
+    logging.info(f"Ensuring {filepath} is unzipped..")
 
     # Normalize paths for both versions
     if filepath.suffix == '.gz':
@@ -200,12 +200,14 @@ def ensure_unzipped(filepath: Path) -> Path:
 
     # If unzipped exists, we're done
     if unzipped_path.exists():
+        logging.info(f"File is already unzipped")
         return unzipped_path
 
     # Otherwise, need to unzip from gz
     if not gz_path.exists():
         raise FileNotFoundError(f"Neither {unzipped_path} nor {gz_path} exists")
 
+    logging.info(f"File is zipped - unzipping..")
     with gzip.open(gz_path, 'rb') as f_in, open(unzipped_path, 'wb') as f_out:
         shutil.copyfileobj(f_in, f_out)
 
@@ -223,7 +225,7 @@ def ensure_gzipped(filepath: Path, remove_original: bool = True) -> Path:
         Path to the gzipped file
     """
     filepath = Path(filepath)
-    logging.info(f"Zipping {filepath} (if not already)..")
+    logging.info(f"Ensuring {filepath} is zipped..")
 
     # Normalize paths for both versions
     if filepath.suffix == '.gz':
@@ -235,6 +237,7 @@ def ensure_gzipped(filepath: Path, remove_original: bool = True) -> Path:
 
     # If gzipped exists, we're done (but maybe clean up original)
     if gz_path.exists():
+        logging.info(f"File is already zipped {' - removing unzipped form' if remove_original else ''}")
         if remove_original and unzipped_path.exists():
             unzipped_path.unlink()
         return gz_path
@@ -243,6 +246,7 @@ def ensure_gzipped(filepath: Path, remove_original: bool = True) -> Path:
     if not unzipped_path.exists():
         raise FileNotFoundError(f"Neither {unzipped_path} nor {gz_path} exists")
 
+    logging.info(f"File is unzipped - zipping..")
     with open(unzipped_path, 'rb') as f_in, gzip.open(gz_path, 'wb') as f_out:
         shutil.copyfileobj(f_in, f_out)
 

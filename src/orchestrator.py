@@ -99,7 +99,7 @@ def harmonize_source(source_name: str, config: dict, biolink_client: BiolinkClie
     harmonizer = harmonizers[source_name](biolink_client)
 
     # Unzip input files as needed
-    possible_input_file_fields = ['input_file', 'input_nodes', 'input_edges']
+    possible_input_file_fields = ['input_file', 'nodes_input', 'edges_input']
     input_file_paths = [config.get(field) for field in possible_input_file_fields]
     unzip_files(input_file_paths)
 
