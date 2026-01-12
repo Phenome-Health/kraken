@@ -184,6 +184,7 @@ class ClinGenHarmonizer:
             sys.exit(1)
 
         return BaseHarmonizer.create_node(
+            source_infores=self.source_infores,
             curie=disease_curie,
             categories=['biolink:Disease'],
             equivalent_ids=equivalent_ids,
@@ -274,6 +275,7 @@ class ClinGenHarmonizer:
             attributes[self.source_infores]['outcome_intervention_pairs'] = outcome_intervention_pairs
 
         return BaseHarmonizer.create_edge(
+            source_infores=self.source_infores,
             subject_id=gene_id,
             object_id=disease_id,
             predicate='biolink:contributes_to',
