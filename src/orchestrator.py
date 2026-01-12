@@ -40,12 +40,13 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     logging.info(f"Will include {len(sources_to_use)} sources: {sources_to_use}")
 
     create_metagraphs = True if config['options'].get('metagraph_creation') else False
+    zip_inputs_after = True if config['options'].get('zip_inputs_after') else False
 
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
     source_configs = {source: config["sources"][source] for source in sources_to_use}
     if config['steps'].get('harmonize'):
         logging.info(f"-------------------------- HARMONIZING SOURCES -----------------------------------------------")
-        harmonize_sources(source_configs, biolink_version, build_metagraph=create_metagraphs)
+        harmonize_sources(source_configs, biolink_version, create_metagraphs, zip_inputs_after)
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config['steps'].get('integrate'):
@@ -64,15 +65,15 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     return unified_nodes_path, unified_edges_path
 
 
-def harmonize_sources(sources_config: dict, biolink_version: str, build_metagraph: bool):
+def harmonize_sources(sources_config: dict, biolink_version: str, build_metagraph: bool, zip_inputs_after: bool):
     """Harmonize each source that needs it"""
     biolink_client = BiolinkClient(biolink_version)
     for source_name, source_config in sources_config.items():
         # NOTE: for now, always re-harmonize with every build
-        harmonize_source(source_name, source_config, biolink_client, build_metagraph)
+        harmonize_source(source_name, source_config, biolink_client, build_metagraph, zip_inputs_after)
 
 
-def harmonize_source(source_name: str, config: dict, biolink_client: BiolinkClient, build_metagraph: bool):
+def harmonize_source(source_name: str, config: dict, biolink_client: BiolinkClient, build_metagraph: bool, zip_inputs_after: bool):
     """Harmonize a single source to Biolink schema"""
     logging.info(f"Harmonizing {source_name}...")
 
@@ -113,8 +114,9 @@ def harmonize_source(source_name: str, config: dict, biolink_client: BiolinkClie
     else:
         raise ValueError(f"Unknown source type: {source_name}")
 
-    # Zip input files back up
-    zip_files(input_file_paths)
+    if zip_inputs_after:
+        # Zip input files back up
+        zip_files(input_file_paths)
 
     if build_metagraph:
         # Generate metagraph for harmonized output, stored in artifacts/metagraphs/harmonized/<source_name>/
