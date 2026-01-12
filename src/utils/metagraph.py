@@ -79,8 +79,10 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
         for category in categories:
             stats.node_categories[category] += 1
 
-        prefix = node_id.split(":")[0]
-        stats.node_prefixes[prefix] += 1
+        for equiv_id in node[EQUIVALENT_IDS]:
+            prefix = equiv_id.split(":")[0]
+            stats.node_prefixes[prefix] += 1
+
         stats.total_nodes += 1
     
     logging.info(f"Found {len(stats.node_categories)} unique node categories")
