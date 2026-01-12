@@ -31,7 +31,7 @@ class MetagraphStats:
         self.total_edges = 0
 
         # Edge metadata statistics
-        self.primary_knowledge_sources = Counter()  # primary_knowledge_source -> count
+        self.knowledge_sources = Counter()  # primary_knowledge_source + supporting sources -> count
         self.knowledge_levels = Counter()  # knowledge_level -> count
         self.agent_types = Counter()  # agent_type -> count
         
@@ -53,7 +53,7 @@ class MetagraphStats:
             },
             'node_categories': dict(self.node_categories.most_common()),
             'edge_predicates': dict(self.edge_predicates.most_common()),
-            'primary_knowledge_sources': dict(self.primary_knowledge_sources.most_common()),
+            'knowledge_sources': dict(self.knowledge_sources.most_common()),
             'knowledge_levels': dict(self.knowledge_levels.most_common()),
             'agent_types': dict(self.agent_types.most_common()),
             'category_pairs': {
@@ -120,12 +120,15 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
                     stats.category_connectivity[subj_category][obj_category] += 1
 
             # Collect edge metadata
-            if 'primary_knowledge_source' in edge:
-                stats.primary_knowledge_sources[edge['primary_knowledge_source']] += 1
-            if 'knowledge_level' in edge:
-                stats.knowledge_levels[edge['knowledge_level']] += 1
-            if 'agent_type' in edge:
-                stats.agent_types[edge['agent_type']] += 1
+            if PRIMARY_KS in edge:
+                stats.knowledge_sources[edge[PRIMARY_KS]] += 1
+            if SUPPORTING_SOURCES in edge:
+                for supporting_source in edge[SUPPORTING_SOURCES]:
+                    stats.knowledge_sources[supporting_source] += 1
+            if KNOWLEDGE_LEVEL in edge:
+                stats.knowledge_levels[edge[KNOWLEDGE_LEVEL]] += 1
+            if AGENT_TYPE in edge:
+                stats.agent_types[edge[AGENT_TYPE]] += 1
 
             # Update node degrees
             stats.node_degrees[subject_id] += 1
@@ -264,7 +267,7 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         f"Unique Edge Predicates: {len(stats.edge_predicates)}",
         f"Unique Category Pairs: {len(stats.category_pairs)}",
         f"Unique Meta-triples: {len(stats.predicate_category_pairs)}",
-        f"Distinct Primary Knowledge Sources: {len(stats.primary_knowledge_sources)}",
+        f"Distinct Primary Knowledge Sources: {len(stats.knowledge_sources)}",
         f"Distinct Knowledge Levels: {len(stats.knowledge_levels)}",
         f"Distinct Agent Types: {len(stats.agent_types)}",
         "",
@@ -294,12 +297,12 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         summary_lines.append(f"  {subj_cat} -> {obj_cat}: {count:,} ({percentage:.1f}%)")
 
     # Add edge metadata statistics
-    if stats.primary_knowledge_sources:
+    if stats.knowledge_sources:
         summary_lines.extend([
             "",
-            "Primary Knowledge Sources:",
+            "Knowledge Sources:",
         ])
-        for source, count in stats.primary_knowledge_sources.most_common(10):
+        for source, count in stats.knowledge_sources.most_common(10):
             percentage = (count / stats.total_edges) * 100
             summary_lines.append(f"  {source}: {count:,} ({percentage:.1f}%)")
 
