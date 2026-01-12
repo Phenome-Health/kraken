@@ -284,6 +284,12 @@ class BaseHarmonizer(ABC):
                 attributes["additional_agent_types"] = other_agent_types
             agent_type = agent_type[0]
 
+        # Handle improper KLAT
+        if knowledge_level == "unspecified":
+            knowledge_level = NOT_PROVIDED
+        if agent_type == "unspecified":
+            agent_type = NOT_PROVIDED
+
         edge |= {PRIMARY_KS: primary_ks,
                  KNOWLEDGE_LEVEL: knowledge_level,
                  AGENT_TYPE: agent_type}
