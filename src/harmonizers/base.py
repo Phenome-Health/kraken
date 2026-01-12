@@ -6,7 +6,7 @@ import logging
 
 from ..utils.constants import *
 from ..utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, stream_nodes_from_tsv, stream_edges_from_tsv
-from ..utils.general import to_list, clean_text
+from ..utils.general import to_list, clean_text, is_empty
 from ..utils.biolink_client import BiolinkClient
 
 
@@ -52,7 +52,8 @@ class BaseHarmonizer(ABC):
     rename_node_attrs: dict[str, str] = {}
     rename_edge_attrs: dict[str, str] = {}
 
-    empty_values: list[str] = ["", None, []]
+    # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
+    exclude_from_list_parsing: set[str] = set()
 
     def __init__(self, biolink_client: BiolinkClient):
         self.biolink = biolink_client
@@ -66,9 +67,6 @@ class BaseHarmonizer(ABC):
                                 self.object_aspect_qualifier_prop, self.context_qualifier_prop,
                                 self.supporting_sources_prop,
                                 self.publications_prop, self.publications_info_prop}
-        self.could_be_lists = {self.category_prop, self.equivalent_ids_prop,
-                               self.supporting_sources_prop, self.publications_prop,
-                               self.publications_info_prop}.union(self.synonyms_props)
 
     def harmonize(
             self,
@@ -107,23 +105,23 @@ class BaseHarmonizer(ABC):
         logging.info(f"Finished harmonizing edges")
         return count
 
-    def collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any] | None:
+    def collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any]:
         attributes = {}
         for k, v in node.items():
-            if k in self.core_node_props or k in self.ignore_node_props or v in self.empty_values:
+            if k in self.core_node_props or k in self.ignore_node_props or is_empty(v):
                 continue
             key = self.rename_node_attrs.get(k, k)
             attributes[key] = v
-        return {self.source_infores: attributes} if attributes else None
+        return attributes
 
-    def collect_edge_attributes(self, edge: dict[str, Any]) -> dict[str, Any] | None:
+    def collect_edge_attributes(self, edge: dict[str, Any]) -> dict[str, Any]:
         attributes = {}
         for k, v in edge.items():
-            if k in self.core_edge_props or k in self.ignore_edge_props or v in self.empty_values:
+            if k in self.core_edge_props or k in self.ignore_edge_props or is_empty(v):
                 continue
             key = self.rename_edge_attrs.get(k, k)
             attributes[key] = v
-        return {self.source_infores: attributes} if attributes else None
+        return attributes
 
     def harmonize_node(self, node: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single node. Override for source-specific logic."""
@@ -170,7 +168,7 @@ class BaseHarmonizer(ABC):
     def _stream_nodes(self, input_path: Path | str):
         suffix = Path(input_path).suffix.lower()
         if suffix == '.tsv':
-            return stream_nodes_from_tsv(input_path, list_delimiter=self.list_delimiter, could_be_list=self.could_be_lists)
+            return stream_nodes_from_tsv(input_path, self.list_delimiter, self.exclude_from_list_parsing)
         elif suffix in ('.jsonl', '.jsonlines'):
             return stream_nodes_from_jsonl(input_path)
         else:
@@ -179,15 +177,15 @@ class BaseHarmonizer(ABC):
     def _stream_edges(self, input_path: Path | str):
         suffix = Path(input_path).suffix.lower()
         if suffix == '.tsv':
-            return stream_edges_from_tsv(input_path, list_delimiter=self.list_delimiter, could_be_list=self.could_be_lists)
+            return stream_edges_from_tsv(input_path, self.list_delimiter, self.exclude_from_list_parsing)
         elif suffix in ('.jsonl', '.jsonlines'):
             return stream_edges_from_jsonl(input_path)
         else:
             raise ValueError(f"Unknown file format: {suffix}")
 
 
-    @staticmethod
-    def create_node(curie: str,
+    def create_node(self,
+                    curie: str,
                     categories: list[str],
                     provided_by: str | list[str],
                     equivalent_ids: str | list[str] | None = None,
@@ -195,7 +193,7 @@ class BaseHarmonizer(ABC):
                     synonyms: list[str] | set[str] | None = None,
                     description: str | None = None,
                     urls: str | list[str] | None = None,
-                    chemical_formula: str | None = None,
+                    chemical_formula: str | list[str] | None = None,
                     exact_mass: float | None = None,
                     attributes: dict[str, Any] | None = None) -> dict[str, Any]:
         if not (curie and categories and provided_by):
@@ -214,8 +212,16 @@ class BaseHarmonizer(ABC):
         node[CATEGORIES] = categories
         if urls:
             node[URLS] = to_list(urls)
+
         if chemical_formula:
+            # Handle case where multiple chemical formulas are given (could be diff nomenclatures, etc.)
+            if isinstance(chemical_formula, list):
+                if len(chemical_formula) > 1:
+                    other_chemical_formulas = chemical_formula[1:]
+                    attributes["other_chemical_formulas"] = other_chemical_formulas
+                chemical_formula = chemical_formula[0]
             node[CHEMICAL_FORMULA] = chemical_formula
+
         if exact_mass:
             node[EXACT_MASS] = exact_mass
         if description:
@@ -225,21 +231,21 @@ class BaseHarmonizer(ABC):
         node[EQUIVALENT_IDS] = list(set(to_list(equivalent_ids) + [curie]))
 
         if synonyms:
-            cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if synonym]
+            cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
             node[SYNONYMS] = [s for s in cleaned_synonyms if s]
 
         if attributes:
-            node[ATTRIBUTES] = attributes
+            node[ATTRIBUTES] = {self.source_infores: attributes}
 
         return node
 
-    @staticmethod
-    def create_edge(subject_id: str,
+    def create_edge(self,
+                    subject_id: str,
                     object_id: str,
                     predicate: str,
-                    primary_ks: str,
+                    primary_ks: str | list[str],
                     knowledge_level: str,
-                    agent_type: str,
+                    agent_type: str | list[str],
                     aggregator_ks: str | None = None,
                     supporting_sources: list[str] | None = None,
                     qualified_predicate: str | None = None,
@@ -265,6 +271,19 @@ class BaseHarmonizer(ABC):
         if context_qualifier:
             edge[CONTEXT_QUALIFIER] = context_qualifier
 
+        # Handle case where multiple primary knowledge sources are given (move others to supporting)
+        if isinstance(primary_ks, list):
+            if len(primary_ks) > 1:
+                supporting_sources = list(set(to_list(supporting_sources) + primary_ks[1:]))
+            primary_ks = primary_ks[0]
+
+        # Handle case where multiple agent types are given (just take first, throw others in attributes)
+        if isinstance(agent_type, list):
+            if len(agent_type) > 1:
+                other_agent_types = agent_type[1:]
+                attributes["additional_agent_types"] = other_agent_types
+            agent_type = agent_type[0]
+
         edge |= {PRIMARY_KS: primary_ks,
                  KNOWLEDGE_LEVEL: knowledge_level,
                  AGENT_TYPE: agent_type}
@@ -278,6 +297,6 @@ class BaseHarmonizer(ABC):
         if publications_info:
             edge[PUBLICATIONS_INFO] = publications_info
         if attributes:
-            edge[ATTRIBUTES] = attributes
+            edge[ATTRIBUTES] = {self.source_infores: attributes}
 
         return edge

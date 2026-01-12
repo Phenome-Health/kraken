@@ -16,3 +16,6 @@ class MoleProHarmonizer(BaseHarmonizer):
 
     # Edge property config
     ignore_edge_props = {"attributes", AGGREGATOR_KS}
+
+    # Note: Some of MolePro's names have pipes, but aren't meant to be delimited; TODO: check with them
+    exclude_from_list_parsing = {"name"}

@@ -60,4 +60,6 @@ KNOWN_INVALID = 'KNOWN_INVALID'
 
 NOT_PROVIDED = 'not_provided'
 
+NONE_STRINGS = {"none", "null", "-"}
+
 

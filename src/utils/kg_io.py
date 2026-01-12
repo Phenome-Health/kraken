@@ -11,6 +11,8 @@ import jsonlines
 import logging
 from typing import Iterator, Dict, Any, Iterable
 
+from .general import is_empty
+
 # Increase CSV field size limit for large fields (e.g., long lists of synonyms/xrefs)
 csv.field_size_limit(sys.maxsize)
 
@@ -53,7 +55,7 @@ def stream_edges_from_jsonl(edges_file: Path) -> Iterator[Dict[str, Any]]:
 def stream_nodes_from_tsv(
         nodes_file: Path,
         list_delimiter: str,
-        could_be_list: set[str],
+        exclude_from_list_parsing: set[str],
 ) -> Iterator[Dict[str, Any]]:
     """Stream nodes from TSV file without loading into memory"""
     logging.info(f"Streaming nodes from {nodes_file}")
@@ -71,7 +73,7 @@ def stream_nodes_from_tsv(
             node = _strip_key_prefixes(node)
 
             for key, value in node.items():
-                if value and key in could_be_list and list_delimiter in value:
+                if not is_empty(value) and key not in exclude_from_list_parsing and list_delimiter in value:
                     node[key] = value.split(list_delimiter)
 
             yield node
@@ -80,7 +82,7 @@ def stream_nodes_from_tsv(
 def stream_edges_from_tsv(
         edges_file: Path,
         list_delimiter: str,
-        could_be_list: set[str]
+        exclude_from_list_parsing: set[str]
 ) -> Iterator[Dict[str, Any]]:
     """Stream edges from TSV file without loading into memory"""
     logging.info(f"Streaming edges from {edges_file}")
@@ -98,7 +100,7 @@ def stream_edges_from_tsv(
             edge = _strip_key_prefixes(edge)
 
             for key, value in edge.items():
-                if value and key in could_be_list and list_delimiter in value:
+                if not is_empty(value) and key not in exclude_from_list_parsing and list_delimiter in value:
                     edge[key] = value.split(list_delimiter)
 
             yield edge

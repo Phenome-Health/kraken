@@ -1,7 +1,9 @@
 import html
 import json
 import logging
+import math
 import unicodedata
+from numbers import Number
 from pathlib import Path
 from typing import Union, List, Set, Optional, Dict, Any, Collection
 
@@ -51,6 +53,15 @@ def to_list(item: Any) -> List[Any]:
         return []
     else:
         return [item]
+
+
+def is_empty(value: Any) -> bool:
+    if isinstance(value, str) and value.lower() in NONE_STRINGS:
+        return True
+    elif value or isinstance(value, Number):
+        return False
+    else:
+        return True
 
 
 def load_biolink_file(url: str, biolink_version: str) -> dict:
