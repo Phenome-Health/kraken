@@ -41,7 +41,7 @@ class BaseHarmonizer(ABC):
     object_aspect_qualifier_prop: str = OBJ_ASPECT_QUALIFIER
     context_qualifier_prop: str = CONTEXT_QUALIFIER
     supporting_sources_prop: str = SUPPORTING_SOURCES
-    publications_prop: str = PUBLICATIONS
+    publications_prop: str = PUBLICATIONS                 # NOTE: this one is also a node prop
     publications_info_prop: str = PUBLICATIONS_INFO
 
     # Properties to ignore (won't be stored in attributes)
@@ -60,7 +60,8 @@ class BaseHarmonizer(ABC):
 
         self.core_node_props = {self.id_prop, self.category_prop, self.equivalent_ids_prop,
                                 self.name_prop, self.description_prop, self.url_prop,
-                                self.chemical_formula_prop, self.exact_mass_prop}.union(self.synonyms_props)
+                                self.chemical_formula_prop, self.exact_mass_prop,
+                                self.publications_prop}.union(self.synonyms_props)
         self.core_edge_props = {self.subject_prop, self.object_prop, self.predicate_prop,
                                 self.primary_ks_prop, self.knowledge_level_prop, self.agent_type_prop,
                                 self.qualified_predicate_prop, self.object_direction_qualifier_prop,
@@ -142,6 +143,7 @@ class BaseHarmonizer(ABC):
             description=node.get(self.description_prop),
             chemical_formula=node.get(self.chemical_formula_prop),
             exact_mass=node.get(self.exact_mass_prop),
+            publications=node.get(self.publications_prop),
             attributes=self.collect_node_attributes(node)
         )
 
@@ -195,6 +197,7 @@ class BaseHarmonizer(ABC):
                     urls: str | list[str] | None = None,
                     chemical_formula: str | list[str] | None = None,
                     exact_mass: float | None = None,
+                    publications: list[str] = None,
                     attributes: dict[str, Any] | None = None) -> dict[str, Any]:
         if not (curie and categories and provided_by):
             raise ValueError(f"Node is missing required field(s): curie={curie}, "
@@ -243,6 +246,8 @@ class BaseHarmonizer(ABC):
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
             node[SYNONYMS] = [s for s in cleaned_synonyms if s]
 
+        if publications:
+            node[PUBLICATIONS] = publications
         if attributes:
             node[ATTRIBUTES] = {self.source_infores: attributes}
 
