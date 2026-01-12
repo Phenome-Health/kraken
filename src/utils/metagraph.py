@@ -19,26 +19,21 @@ class MetagraphStats:
     
     def __init__(self, source_name: str = "unknown"):
         self.source_name = source_name
-        
-        # Node statistics
+
         self.node_categories = Counter()  # category -> count
+        self.node_prefixes = Counter()  # prefix --> count
         self.total_nodes = 0
         
-        # Edge statistics
-        self.edge_predicates = Counter()  # predicate -> count
-        self.category_pairs = Counter()  # (subject_category, object_category) -> count
-        self.predicate_category_pairs = Counter()  # (predicate, subject_cat, object_cat) -> count
         self.total_edges = 0
-
-        # Edge metadata statistics
+        self.edge_predicates = Counter()  # predicate -> count
         self.knowledge_sources = Counter()  # primary_knowledge_source + supporting sources -> count
         self.knowledge_levels = Counter()  # knowledge_level -> count
         self.agent_types = Counter()  # agent_type -> count
-        
-        # Connectivity statistics
-        self.node_degrees = defaultdict(int)  # node_id -> degree
-        self.category_connectivity = defaultdict(lambda: defaultdict(int))  # subj_cat -> obj_cat -> count
-        
+
+        self.meta_doubles = Counter()  # (subject_category, object_category) -> count
+        self.meta_triples = Counter()  # (subject_cat, predicate, object_cat) -> count
+
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert stats to dictionary for JSON serialization"""
         return {
@@ -47,27 +42,19 @@ class MetagraphStats:
                 'total_nodes': self.total_nodes,
                 'total_edges': self.total_edges,
                 'unique_node_categories': len(self.node_categories),
+                'unique_node_prefixes': len(self.node_prefixes),
                 'unique_edge_predicates': len(self.edge_predicates),
-                'unique_category_pairs': len(self.category_pairs),
-                'unique_meta_triples': len(self.predicate_category_pairs)
+                'unique_meta_doubles': len(self.meta_doubles),
+                'unique_meta_triples': len(self.meta_triples)
             },
             'node_categories': dict(self.node_categories.most_common()),
+            'node_prefixes': dict(self.node_prefixes.most_common()),
             'edge_predicates': dict(self.edge_predicates.most_common()),
             'knowledge_sources': dict(self.knowledge_sources.most_common()),
             'knowledge_levels': dict(self.knowledge_levels.most_common()),
             'agent_types': dict(self.agent_types.most_common()),
-            'category_pairs': {
-                f"{subj}--{obj}": count 
-                for (subj, obj), count in self.category_pairs.most_common()
-            },
-            'predicate_category_distribution': {
-                predicate: {
-                    f"{subj}--{obj}": count
-                    for (pred, subj, obj), count in self.predicate_category_pairs.items()
-                    if pred == predicate
-                }
-                for predicate in self.edge_predicates.keys()
-            }
+            'meta_doubles': {"__".join(double): count for double, count in self.meta_doubles.most_common()},
+            'meta_triples': {"__".join(triple): count for triple, count in self.meta_triples.most_common()},
         }
 
 
@@ -91,6 +78,9 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
         categories_map[node_id] = categories
         for category in categories:
             stats.node_categories[category] += 1
+
+        prefix = node_id.split(":")[0]
+        stats.node_prefixes[prefix] += 1
         stats.total_nodes += 1
     
     logging.info(f"Found {len(stats.node_categories)} unique node categories")
@@ -106,18 +96,6 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
         object_id = edge[OBJECT]
         predicate = edge[PREDICATE]
         if subject_id in categories_map and object_id in categories_map:
-            # Get categories (default to NamedThing if not found)
-            subject_categories = categories_map[subject_id]
-            object_categories = categories_map[object_id]
-
-            # Update statistics
-            stats.edge_predicates[predicate] += 1
-            for subj_category in subject_categories:
-                for obj_category in object_categories:
-                    stats.category_pairs[(subj_category, obj_category)] += 1
-                    stats.predicate_category_pairs[(predicate, subj_category, obj_category)] += 1
-                    # Update category connectivity
-                    stats.category_connectivity[subj_category][obj_category] += 1
 
             # Collect edge metadata
             if PRIMARY_KS in edge:
@@ -130,9 +108,14 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
             if AGENT_TYPE in edge:
                 stats.agent_types[edge[AGENT_TYPE]] += 1
 
-            # Update node degrees
-            stats.node_degrees[subject_id] += 1
-            stats.node_degrees[object_id] += 1
+            # Update meta-triple related statistics
+            subject_categories = categories_map[subject_id]
+            object_categories = categories_map[object_id]
+            stats.edge_predicates[predicate] += 1
+            for subj_category in subject_categories:
+                for obj_category in object_categories:
+                    stats.meta_doubles[(subj_category, obj_category)] += 1
+                    stats.meta_triples[(subj_category, predicate, obj_category)] += 1
 
             stats.total_edges += 1
         else:
@@ -265,8 +248,9 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         f"Total Edges: {stats.total_edges:,}",
         f"Unique Node Categories: {len(stats.node_categories)}",
         f"Unique Edge Predicates: {len(stats.edge_predicates)}",
-        f"Unique Category Pairs: {len(stats.category_pairs)}",
-        f"Unique Meta-triples: {len(stats.predicate_category_pairs)}",
+        f"Unique Category Pairs: {len(stats.meta_doubles)}",
+        f"Unique Meta-triples: {len(stats.meta_triples)}",
+        f"Distinct Node Prefixes: {len(stats.node_prefixes)}",
         f"Distinct Primary Knowledge Sources: {len(stats.knowledge_sources)}",
         f"Distinct Knowledge Levels: {len(stats.knowledge_levels)}",
         f"Distinct Agent Types: {len(stats.agent_types)}",
@@ -292,7 +276,7 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         "Top Category Pairs:",
     ])
 
-    for (subj_cat, obj_cat), count in stats.category_pairs.most_common(10):
+    for (subj_cat, obj_cat), count in stats.meta_doubles.most_common(10):
         percentage = (count / stats.total_edges) * 100
         summary_lines.append(f"  {subj_cat} -> {obj_cat}: {count:,} ({percentage:.1f}%)")
 
@@ -346,7 +330,7 @@ def create_cytoscape_metagraph(stats: MetagraphStats, output_file: Path, min_edg
     # Create edges (category relationships)
     edges = []
     edge_id = 0
-    for (source_cat, target_cat), count in stats.category_pairs.items():
+    for (source_cat, target_cat), count in stats.meta_doubles.items():
         if count >= min_edge_count:
             edges.append({
                 'data': {
