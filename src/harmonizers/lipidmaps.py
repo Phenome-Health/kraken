@@ -91,5 +91,5 @@ class LipidMapsHarmonizer:
             synonyms=list(synonyms),
             chemical_formula=properties.get('FORMULA'),
             exact_mass=properties.get('EXACT_MASS'),
-            attributes={self.source_infores: attributes} if attributes else None
+            attributes=attributes
         )

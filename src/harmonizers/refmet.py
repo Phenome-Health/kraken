@@ -65,7 +65,6 @@ class RefMetHarmonizer:
 
         # Put together our node
         name = row['refmet_name']
-        attributes = {k: row[k] for k in self.attribute_props}
 
         return BaseHarmonizer.create_node(
             source_infores=self.source_infores,
@@ -77,5 +76,5 @@ class RefMetHarmonizer:
             urls=rm_iri,
             chemical_formula=row['formula'],
             exact_mass=row['exactmass'],
-            attributes={self.source_infores: attributes}
+            attributes={k: row[k] for k in self.attribute_props}
         )

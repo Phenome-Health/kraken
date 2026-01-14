@@ -258,21 +258,19 @@ class ClinGenHarmonizer:
 
         # Build attributes
         attributes = {
-            self.source_infores: {
-                'doc_id': doc_id,
-                'modes_of_inheritance': modes_of_inheritance,
-                'source_iri': source_iri,
-                'source_iri_json': f"https://actionability.clinicalgenome.org/ac/{context_type}/api/sepio/doc/{doc_id}"
-            }
+            'doc_id': doc_id,
+            'modes_of_inheritance': modes_of_inheritance,
+            'source_iri': source_iri,
+            'source_iri_json': f"https://actionability.clinicalgenome.org/ac/{context_type}/api/sepio/doc/{doc_id}"
         }
 
         # Add gene-condition specific assertion if found
         if matching_assertion:
-            attributes[self.source_infores]['gene_condition_assertion'] = matching_assertion
+            attributes['gene_condition_assertion'] = matching_assertion
 
         # Add outcome-intervention pairs (same for all edges from this record)
         if outcome_intervention_pairs:
-            attributes[self.source_infores]['outcome_intervention_pairs'] = outcome_intervention_pairs
+            attributes['outcome_intervention_pairs'] = outcome_intervention_pairs
 
         return BaseHarmonizer.create_edge(
             source_infores=self.source_infores,

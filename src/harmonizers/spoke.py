@@ -427,7 +427,7 @@ class SpokeHarmonizer:
                and not self.id_norm.is_trusted_id_property(prop_name)
                and value not in EMPTY_VALUES
         }
-        return {self.source_infores: id_attr | attributes}
+        return id_attr | attributes
 
     def _get_true_publications(self, input_list: List[str]) -> List[str]:
         # TODO: later add to id normalizer? pmid and doi cleaners/validators..
