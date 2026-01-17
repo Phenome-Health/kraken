@@ -2,6 +2,7 @@
 Metagraph generation utilities for Biolink knowledge graphs
 Analyzes node categories, edge predicates, and connectivity patterns
 """
+
 import itertools
 from pathlib import Path
 from collections import defaultdict, Counter
@@ -10,20 +11,20 @@ from typing import Dict, Set, Tuple, Any, Iterator
 import json
 import logging
 
-from .kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
-from .constants import *
+from kraken.utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
+from kraken.utils.constants import *
 
 
 class MetagraphStats:
     """Container for metagraph statistics"""
-    
+
     def __init__(self, source_name: str = "unknown"):
         self.source_name = source_name
 
         self.node_categories = Counter()  # category -> count
         self.node_prefixes = Counter()  # prefix --> count
         self.total_nodes = 0
-        
+
         self.total_edges = 0
         self.edge_predicates = Counter()  # predicate -> count
         self.knowledge_sources = Counter()  # primary_knowledge_source + supporting sources -> count
@@ -33,44 +34,43 @@ class MetagraphStats:
         self.meta_doubles = Counter()  # (subject_category, object_category) -> count
         self.meta_triples = Counter()  # (subject_cat, predicate, object_cat) -> count
 
-
     def to_dict(self) -> Dict[str, Any]:
         """Convert stats to dictionary for JSON serialization"""
         return {
-            'source': self.source_name,
-            'summary': {
-                'total_nodes': self.total_nodes,
-                'total_edges': self.total_edges,
-                'unique_node_categories': len(self.node_categories),
-                'unique_node_prefixes': len(self.node_prefixes),
-                'unique_edge_predicates': len(self.edge_predicates),
-                'unique_meta_doubles': len(self.meta_doubles),
-                'unique_meta_triples': len(self.meta_triples)
+            "source": self.source_name,
+            "summary": {
+                "total_nodes": self.total_nodes,
+                "total_edges": self.total_edges,
+                "unique_node_categories": len(self.node_categories),
+                "unique_node_prefixes": len(self.node_prefixes),
+                "unique_edge_predicates": len(self.edge_predicates),
+                "unique_meta_doubles": len(self.meta_doubles),
+                "unique_meta_triples": len(self.meta_triples),
             },
-            'node_categories': dict(self.node_categories.most_common()),
-            'node_prefixes': dict(self.node_prefixes.most_common()),
-            'edge_predicates': dict(self.edge_predicates.most_common()),
-            'knowledge_sources': dict(self.knowledge_sources.most_common()),
-            'knowledge_levels': dict(self.knowledge_levels.most_common()),
-            'agent_types': dict(self.agent_types.most_common()),
-            'meta_doubles': {"__".join(double): count for double, count in self.meta_doubles.most_common()},
-            'meta_triples': {"__".join(triple): count for triple, count in self.meta_triples.most_common()},
+            "node_categories": dict(self.node_categories.most_common()),
+            "node_prefixes": dict(self.node_prefixes.most_common()),
+            "edge_predicates": dict(self.edge_predicates.most_common()),
+            "knowledge_sources": dict(self.knowledge_sources.most_common()),
+            "knowledge_levels": dict(self.knowledge_levels.most_common()),
+            "agent_types": dict(self.agent_types.most_common()),
+            "meta_doubles": {"__".join(double): count for double, count in self.meta_doubles.most_common()},
+            "meta_triples": {"__".join(triple): count for triple, count in self.meta_triples.most_common()},
         }
 
 
 def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name: str = None) -> MetagraphStats:
     """Generate metagraph statistics from JSONL files using streaming"""
-    
+
     if source_name is None:
         source_name = nodes_file.parent.name
-    
+
     logging.info(f"Generating metagraph for {source_name}")
-    
+
     stats = MetagraphStats(source_name)
-    
+
     # Phase 1: Analyze nodes and build category mapping
     categories_map = {}  # node_id -> categories
-    
+
     logging.info("Analyzing nodes...")
     for node in stream_nodes_from_jsonl(nodes_file):
         node_id = node[ID]
@@ -84,13 +84,13 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
             stats.node_prefixes[prefix] += 1
 
         stats.total_nodes += 1
-    
+
     logging.info(f"Found {len(stats.node_categories)} unique node categories")
 
     if not categories_map:
         logging.error(f"Categories map is empty.")
         sys.exit(1)
-    
+
     # Phase 2: Analyze edges
     logging.info("Analyzing edges...")
     for edge in stream_edges_from_jsonl(edges_file):
@@ -122,7 +122,7 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
             stats.total_edges += 1
         else:
             logging.warning(f"Orphan edge: Edge between {subject_id} and {object_id} is missing from categories map")
-    
+
     logging.info(f"Metagraph analysis complete: {stats.total_nodes} nodes, {stats.total_edges} edges")
     return stats
 
@@ -130,10 +130,10 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
 def save_metagraph(stats: MetagraphStats, output_file: Path):
     """Save metagraph statistics to JSON file"""
     logging.info(f"Saving metagraph to {output_file}")
-    
-    with open(output_file, 'w') as f:
+
+    with open(output_file, "w") as f:
         json.dump(stats.to_dict(), f, indent=2)
-    
+
     logging.info(f"Metagraph saved: {stats.total_nodes} nodes, {stats.total_edges} edges")
 
 
@@ -142,45 +142,45 @@ def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir
     if source_name is None:
         source_name = nodes_file.parent.name
     logging.info(f"Generating metagraph for source {source_name}")
-    
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Generate core statistics
     stats = generate_metagraph_streaming(nodes_file, edges_file, source_name)
-    
+
     generated_files = []
-    
+
     # 1. Save main JSON statistics
     json_file = output_dir / f"{source_name}_metagraph.json"
     save_metagraph(stats, json_file)
     generated_files.append(json_file)
-    
+
     # 2. Generate human-readable summary
     summary = generate_metagraph_summary(stats)
     summary_file = output_dir / f"{source_name}_metagraph_summary.txt"
-    with open(summary_file, 'w') as f:
+    with open(summary_file, "w") as f:
         f.write(summary)
     generated_files.append(summary_file)
     logging.info(f"Summary saved: {summary_file}")
-    
+
     # 3. Generate Cytoscape files with different thresholds
     cytoscape_files = []
     thresholds = [1, 5, 10]
-    
+
     for threshold in thresholds:
         if threshold == 1:
             cyto_file = output_dir / f"{source_name}_cytoscape.json"
         else:
             cyto_file = output_dir / f"{source_name}_cytoscape_min{threshold}.json"
-        
+
         create_cytoscape_metagraph(stats, cyto_file, min_edge_count=threshold)
         cytoscape_files.append(cyto_file)
         generated_files.append(cyto_file)
-    
+
     # 4. Generate HTML viewer
     html_file = create_html_viewer(output_dir, cytoscape_files, source_name)
     generated_files.append(html_file)
-    
+
     logging.info(f"Metagraph suite generated for {source_name}: {len(generated_files)} files")
     return generated_files
 
@@ -188,57 +188,54 @@ def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir
 def compare_metagraphs(metagraph_files: list, output_file: Path):
     """Compare multiple metagraphs and generate comparison report"""
     logging.info(f"Comparing {len(metagraph_files)} metagraphs")
-    
+
     metagraphs = []
     for file_path in metagraph_files:
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             metagraphs.append(json.load(f))
-    
+
     comparison = {
-        'sources_compared': [mg['source'] for mg in metagraphs],
-        'summary_comparison': {},
-        'category_overlap': {},
-        'predicate_overlap': {},
-        'unique_to_source': {}
+        "sources_compared": [mg["source"] for mg in metagraphs],
+        "summary_comparison": {},
+        "category_overlap": {},
+        "predicate_overlap": {},
+        "unique_to_source": {},
     }
-    
+
     # Summary comparison
     for mg in metagraphs:
-        source = mg['source']
-        comparison['summary_comparison'][source] = mg['summary']
-    
+        source = mg["source"]
+        comparison["summary_comparison"][source] = mg["summary"]
+
     # Find overlaps and unique elements
     all_categories = set()
     all_predicates = set()
-    
+
     for mg in metagraphs:
-        categories = set(mg['node_categories'].keys())
-        predicates = set(mg['edge_predicates'].keys())
-        
+        categories = set(mg["node_categories"].keys())
+        predicates = set(mg["edge_predicates"].keys())
+
         all_categories.update(categories)
         all_predicates.update(predicates)
-        
-        source = mg['source']
-        comparison['unique_to_source'][source] = {
-            'categories': list(categories),
-            'predicates': list(predicates)
-        }
-    
+
+        source = mg["source"]
+        comparison["unique_to_source"][source] = {"categories": list(categories), "predicates": list(predicates)}
+
     # Calculate overlaps
-    comparison['category_overlap'] = {
-        'total_unique_categories': len(all_categories),
-        'categories': list(all_categories)
+    comparison["category_overlap"] = {
+        "total_unique_categories": len(all_categories),
+        "categories": list(all_categories),
     }
-    
-    comparison['predicate_overlap'] = {
-        'total_unique_predicates': len(all_predicates), 
-        'predicates': list(all_predicates)
+
+    comparison["predicate_overlap"] = {
+        "total_unique_predicates": len(all_predicates),
+        "predicates": list(all_predicates),
     }
-    
+
     # Save comparison
-    with open(output_file, 'w') as f:
+    with open(output_file, "w") as f:
         json.dump(comparison, f, indent=2)
-    
+
     logging.info(f"Metagraph comparison saved to {output_file}")
 
 
@@ -259,24 +256,28 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
         "",
         "Top Node Categories:",
     ]
-    
+
     for category, count in stats.node_categories.most_common(10):
         percentage = (count / stats.total_nodes) * 100
         summary_lines.append(f"  {category}: {count:,} ({percentage:.1f}%)")
-    
-    summary_lines.extend([
-        "",
-        "Top Edge Predicates:",
-    ])
-    
+
+    summary_lines.extend(
+        [
+            "",
+            "Top Edge Predicates:",
+        ]
+    )
+
     for predicate, count in stats.edge_predicates.most_common(10):
         percentage = (count / stats.total_edges) * 100
         summary_lines.append(f"  {predicate}: {count:,} ({percentage:.1f}%)")
-    
-    summary_lines.extend([
-        "",
-        "Top Category Pairs:",
-    ])
+
+    summary_lines.extend(
+        [
+            "",
+            "Top Category Pairs:",
+        ]
+    )
 
     for (subj_cat, obj_cat), count in stats.meta_doubles.most_common(10):
         percentage = (count / stats.total_edges) * 100
@@ -284,28 +285,34 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
 
     # Add edge metadata statistics
     if stats.knowledge_sources:
-        summary_lines.extend([
-            "",
-            "Knowledge Sources:",
-        ])
+        summary_lines.extend(
+            [
+                "",
+                "Knowledge Sources:",
+            ]
+        )
         for source, count in stats.knowledge_sources.most_common(10):
             percentage = (count / stats.total_edges) * 100
             summary_lines.append(f"  {source}: {count:,} ({percentage:.1f}%)")
 
     if stats.knowledge_levels:
-        summary_lines.extend([
-            "",
-            "Knowledge Levels:",
-        ])
+        summary_lines.extend(
+            [
+                "",
+                "Knowledge Levels:",
+            ]
+        )
         for level, count in stats.knowledge_levels.most_common(10):
             percentage = (count / stats.total_edges) * 100
             summary_lines.append(f"  {level}: {count:,} ({percentage:.1f}%)")
 
     if stats.agent_types:
-        summary_lines.extend([
-            "",
-            "Agent Types:",
-        ])
+        summary_lines.extend(
+            [
+                "",
+                "Agent Types:",
+            ]
+        )
         for agent_type, count in stats.agent_types.most_common(10):
             percentage = (count / stats.total_edges) * 100
             summary_lines.append(f"  {agent_type}: {count:,} ({percentage:.1f}%)")
@@ -316,64 +323,65 @@ def generate_metagraph_summary(stats: MetagraphStats) -> str:
 def create_cytoscape_metagraph(stats: MetagraphStats, output_file: Path, min_edge_count: int = 1):
     """Create Cytoscape-compatible metagraph visualization file"""
     logging.info(f"Creating Cytoscape metagraph for {stats.source_name} with min_edge_count={min_edge_count}")
-    
+
     # Create nodes (categories)
     nodes = []
     for category, count in stats.node_categories.items():
-        nodes.append({
-            'data': {
-                'id': category,
-                'label': category.replace('biolink:', ''),
-                'node_count': count,
-                'size': min(100, max(10, count // 1000))  # Scale node size
+        nodes.append(
+            {
+                "data": {
+                    "id": category,
+                    "label": category.replace("biolink:", ""),
+                    "node_count": count,
+                    "size": min(100, max(10, count // 1000)),  # Scale node size
+                }
             }
-        })
-    
+        )
+
     # Create edges (category relationships)
     edges = []
     edge_id = 0
     for (source_cat, target_cat), count in stats.meta_doubles.items():
         if count >= min_edge_count:
-            edges.append({
-                'data': {
-                    'id': f'edge_{edge_id}',
-                    'source': source_cat,
-                    'target': target_cat,
-                    'edge_count': count,
-                    'weight': min(10, max(1, count // 1000))  # Scale edge weight
+            edges.append(
+                {
+                    "data": {
+                        "id": f"edge_{edge_id}",
+                        "source": source_cat,
+                        "target": target_cat,
+                        "edge_count": count,
+                        "weight": min(10, max(1, count // 1000)),  # Scale edge weight
+                    }
                 }
-            })
+            )
             edge_id += 1
-    
+
     cytoscape_data = {
-        'elements': {
-            'nodes': nodes,
-            'edges': edges
+        "elements": {"nodes": nodes, "edges": edges},
+        "metadata": {
+            "source": stats.source_name,
+            "total_nodes": stats.total_nodes,
+            "total_edges": stats.total_edges,
+            "min_edge_count_filter": min_edge_count,
         },
-        'metadata': {
-            'source': stats.source_name,
-            'total_nodes': stats.total_nodes,
-            'total_edges': stats.total_edges,
-            'min_edge_count_filter': min_edge_count
-        }
     }
-    
-    with open(output_file, 'w') as f:
+
+    with open(output_file, "w") as f:
         json.dump(cytoscape_data, f, indent=2)
-    
+
     logging.info(f"Cytoscape metagraph saved: {len(nodes)} category nodes, {len(edges)} category edges")
 
 
 def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str = "metagraph"):
     """Create HTML viewer for interactive metagraph visualization"""
     logging.info(f"Creating HTML viewer for {source_name}")
-    
+
     html_file = output_dir / f"{source_name}_viewer.html"
-    
+
     # Find all Cytoscape files across the entire artifacts structure
     artifacts_root = Path("artifacts/metagraphs")
     all_cytoscape_files = []
-    
+
     if artifacts_root.exists():
         # Find all cytoscape files in the entire metagraphs directory
         for cyto_file in artifacts_root.rglob("*_cytoscape*.json"):
@@ -381,7 +389,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 # Get relative path from current viewer location to the artifacts root
                 # then navigate to the specific file
                 rel_to_artifacts = cyto_file.relative_to(artifacts_root)
-                
+
                 # Calculate how many levels up to get to artifacts from output_dir
                 try:
                     output_rel_to_artifacts = output_dir.relative_to(artifacts_root)
@@ -391,88 +399,87 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 except ValueError:
                     # output_dir is not under artifacts_root, use absolute reference
                     rel_path = f"../../{rel_to_artifacts}"
-                
+
                 # Create descriptive name from path
                 path_parts = cyto_file.relative_to(artifacts_root).parts
                 if len(path_parts) >= 2:
                     section = path_parts[0]  # harmonized, unified, etc.
-                    source = path_parts[1] if len(path_parts) > 2 else path_parts[-1].split('_')[0]
-                    
+                    source = path_parts[1] if len(path_parts) > 2 else path_parts[-1].split("_")[0]
+
                     # Handle different threshold files
                     filename = cyto_file.stem
-                    if 'min' in filename:
-                        threshold = filename.split('min')[-1]
+                    if "min" in filename:
+                        threshold = filename.split("min")[-1]
                         display_name = f"{section.title()} - {source.title()} (Min {threshold} edges)"
                     else:
                         display_name = f"{section.title()} - {source.title()}"
                 else:
-                    display_name = cyto_file.stem.replace('_cytoscape', '').replace('_', ' ').title()
-                
-                all_cytoscape_files.append({
-                    'path': str(rel_path),
-                    'name': display_name,
-                    'section': section if len(path_parts) >= 2 else 'other',
-                    'source': source if len(path_parts) >= 2 else 'unknown'
-                })
+                    display_name = cyto_file.stem.replace("_cytoscape", "").replace("_", " ").title()
+
+                all_cytoscape_files.append(
+                    {
+                        "path": str(rel_path),
+                        "name": display_name,
+                        "section": section if len(path_parts) >= 2 else "other",
+                        "source": source if len(path_parts) >= 2 else "unknown",
+                    }
+                )
             except ValueError:
                 # Skip files that can't be made relative to output_dir
                 continue
-    
+
     # Also include local files (fallback)
     for file_path in metagraph_files:
-        if file_path.name.endswith('_cytoscape.json'):
+        if file_path.name.endswith("_cytoscape.json"):
             try:
                 rel_path = file_path.relative_to(output_dir)
                 display_name = f"Local - {file_path.stem.replace('_cytoscape', '').replace('_', ' ').title()}"
-                
+
                 # Only add if not already in the global list
-                if not any(opt['path'] == str(rel_path) for opt in all_cytoscape_files):
-                    all_cytoscape_files.append({
-                        'path': str(rel_path),
-                        'name': display_name,
-                        'section': 'local',
-                        'source': source_name
-                    })
+                if not any(opt["path"] == str(rel_path) for opt in all_cytoscape_files):
+                    all_cytoscape_files.append(
+                        {"path": str(rel_path), "name": display_name, "section": "local", "source": source_name}
+                    )
             except ValueError:
                 continue
-    
+
     # Sort by section and then by name
-    all_cytoscape_files.sort(key=lambda x: (x['section'], x['name']))
-    
+    all_cytoscape_files.sort(key=lambda x: (x["section"], x["name"]))
+
     file_options = all_cytoscape_files
-    
+
     def build_dropdown_options(options):
         if not options:
             return ""
-        
+
         # Group by section
         sections = {}
         for opt in options:
-            section = opt['section']
+            section = opt["section"]
             if section not in sections:
                 sections[section] = []
             sections[section].append(opt)
-        
+
         # Build HTML with optgroups
         html_parts = []
         section_labels = {
-            'harmonized': 'Source Graphs',
-            'unified': 'Integrated Graph',
-            'local': 'Current Graph',
-            'other': 'Other'
+            "harmonized": "Source Graphs",
+            "unified": "Integrated Graph",
+            "local": "Current Graph",
+            "other": "Other",
         }
-        
-        for section in ['harmonized', 'unified', 'local', 'other']:
+
+        for section in ["harmonized", "unified", "local", "other"]:
             if section in sections and sections[section]:
                 label = section_labels.get(section, section.title())
                 html_parts.append(f'<optgroup label="{label}">')
                 for opt in sections[section]:
                     html_parts.append(f'  <option value="{opt["path"]}">{opt["name"]}</option>')
-                html_parts.append('</optgroup>')
-        
+                html_parts.append("</optgroup>")
+
         return chr(10).join(html_parts)
-    
-    html_content = f'''<!DOCTYPE html>
+
+    html_content = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -1099,10 +1106,10 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
         }});
     </script>
 </body>
-</html>'''
-    
-    with open(html_file, 'w', encoding='utf-8') as f:
+</html>"""
+
+    with open(html_file, "w", encoding="utf-8") as f:
         f.write(html_content)
-    
+
     logging.info(f"HTML viewer created: {html_file}")
     return html_file

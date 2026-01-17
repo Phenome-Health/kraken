@@ -10,7 +10,7 @@ import time
 import yaml
 
 from kraken.orchestrator import run_kg_build
-from kraken.utils import setup_logging
+from kraken.utils.logging_config import setup_logging
 
 
 def main():

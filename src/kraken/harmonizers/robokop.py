@@ -1,4 +1,4 @@
-from .base import BaseHarmonizer
+from kraken.harmonizers.base import BaseHarmonizer
 from kraken.utils.constants import ROBOKOP_INFORES
 
 
@@ -14,4 +14,3 @@ class RobokopHarmonizer(BaseHarmonizer):
 
     # Edge property config
     publications_info_prop = "sentences"
-

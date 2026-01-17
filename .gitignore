@@ -3,8 +3,6 @@ __pycache__/
 .claude/
 .DS_Store
 
-src/kraken.egg-info/
-
 input_data/
 artifacts/
 cache/

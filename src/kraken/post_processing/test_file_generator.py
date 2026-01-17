@@ -4,8 +4,8 @@ from pathlib import Path
 
 import jsonlines
 
-from ..utils.general import create_edge_key
-from ..utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, save_to_jsonl
+from kraken.utils.general import create_edge_key
+from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, save_to_jsonl
 
 
 def create_test_kg_files(nodes_path: Path, edges_path: Path, output_dir: Path, num_edges: int = 1000):
@@ -23,16 +23,16 @@ def create_test_kg_files(nodes_path: Path, edges_path: Path, output_dir: Path, n
     assert len(test_edges) == len(test_edge_ids)
 
     logging.info(f"Grabbing nodes that are used by those edges")
-    node_ids_used = {edge['subject'] for edge in test_edges}.union({edge['object'] for edge in test_edges})
-    test_nodes = [node for node in stream_nodes_from_jsonl(nodes_path) if node['id'] in node_ids_used]
+    node_ids_used = {edge["subject"] for edge in test_edges}.union({edge["object"] for edge in test_edges})
+    test_nodes = [node for node in stream_nodes_from_jsonl(nodes_path) if node["id"] in node_ids_used]
     logging.info(f"Grabbed the {len(test_nodes)} nodes used by the selected edges.")
     assert len(node_ids_used) == len(test_nodes)
 
-    test_nodes_file_name = nodes_path.name.replace('.jsonl', '_test.jsonl')
-    test_edges_file_name = edges_path.name.replace('.jsonl', '_test.jsonl')
+    test_nodes_file_name = nodes_path.name.replace(".jsonl", "_test.jsonl")
+    test_edges_file_name = edges_path.name.replace(".jsonl", "_test.jsonl")
     test_nodes_path = output_dir / test_nodes_file_name
     test_edges_path = output_dir / test_edges_file_name
     logging.info(f"Saving {len(test_nodes)} test nodes to {test_nodes_path}")
     logging.info(f"Saving {len(test_edges)} test edges to {test_edges_path}")
-    save_to_jsonl(test_nodes, test_nodes_path, mode='w')
-    save_to_jsonl(test_edges, test_edges_path, mode='w')
+    save_to_jsonl(test_nodes, test_nodes_path, mode="w")
+    save_to_jsonl(test_edges, test_edges_path, mode="w")

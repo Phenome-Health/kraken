@@ -4,9 +4,15 @@ from typing import Any
 import jsonlines
 import logging
 
-from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, stream_nodes_from_tsv, stream_edges_from_tsv
+from kraken.utils.kg_io import (
+    stream_edges_from_jsonl,
+    stream_nodes_from_jsonl,
+    stream_nodes_from_tsv,
+    stream_edges_from_tsv,
+)
 from kraken.utils.general import to_list, clean_text, is_empty
 from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils.constants import *
 
 
 class BaseHarmonizer(ABC):
@@ -19,10 +25,10 @@ class BaseHarmonizer(ABC):
 
     # Node property name mappings - override when source uses different names
     id_prop: str = ID
-    category_prop: str          # Varies a lot, harmonizer required to set
-    equivalent_ids_prop: str    # Varies a lot, harmonizer required to set
-    synonyms_props: set[str]    # Varies a lot, harmonizer required to set
-    url_prop: str               # Varies a lot, harmonizer required to set
+    category_prop: str  # Varies a lot, harmonizer required to set
+    equivalent_ids_prop: str  # Varies a lot, harmonizer required to set
+    synonyms_props: set[str]  # Varies a lot, harmonizer required to set
+    url_prop: str  # Varies a lot, harmonizer required to set
     name_prop: str = NAME
     description_prop: str = DESCRIPTION
     chemical_formula_prop: str = CHEMICAL_FORMULA
@@ -40,7 +46,7 @@ class BaseHarmonizer(ABC):
     object_aspect_qualifier_prop: str = OBJ_ASPECT_QUALIFIER
     context_qualifier_prop: str = CONTEXT_QUALIFIER
     supporting_sources_prop: str = SUPPORTING_SOURCES
-    publications_prop: str = PUBLICATIONS                 # NOTE: this one is also a node prop
+    publications_prop: str = PUBLICATIONS  # NOTE: this one is also a node prop
     publications_info_prop: str = PUBLICATIONS_INFO
 
     # Properties to ignore (won't be stored in attributes)
@@ -61,28 +67,42 @@ class BaseHarmonizer(ABC):
     def __init__(self, biolink_client: BiolinkClient):
         self.biolink = biolink_client
 
-        self.core_node_props = {self.id_prop, self.category_prop, self.equivalent_ids_prop,
-                                self.name_prop, self.description_prop, self.url_prop,
-                                self.chemical_formula_prop, self.exact_mass_prop,
-                                self.publications_prop}.union(self.synonyms_props)
-        self.core_edge_props = {self.subject_prop, self.object_prop, self.predicate_prop,
-                                self.primary_ks_prop, self.knowledge_level_prop, self.agent_type_prop,
-                                self.qualified_predicate_prop, self.object_direction_qualifier_prop,
-                                self.object_aspect_qualifier_prop, self.context_qualifier_prop,
-                                self.supporting_sources_prop,
-                                self.publications_prop, self.publications_info_prop}
+        self.core_node_props = {
+            self.id_prop,
+            self.category_prop,
+            self.equivalent_ids_prop,
+            self.name_prop,
+            self.description_prop,
+            self.url_prop,
+            self.chemical_formula_prop,
+            self.exact_mass_prop,
+            self.publications_prop,
+        }.union(self.synonyms_props)
+        self.core_edge_props = {
+            self.subject_prop,
+            self.object_prop,
+            self.predicate_prop,
+            self.primary_ks_prop,
+            self.knowledge_level_prop,
+            self.agent_type_prop,
+            self.qualified_predicate_prop,
+            self.object_direction_qualifier_prop,
+            self.object_aspect_qualifier_prop,
+            self.context_qualifier_prop,
+            self.supporting_sources_prop,
+            self.publications_prop,
+            self.publications_info_prop,
+        }
 
     def harmonize(
-            self,
-            nodes_input: Path,
-            edges_input: Path,
-            nodes_output: Path,
-            edges_output: Path,
+        self,
+        nodes_input: Path,
+        edges_input: Path,
+        nodes_output: Path,
+        edges_output: Path,
     ):
         """Run full harmonization pipeline"""
-        logging.info(
-            f"Harmonizing {self.source_name}: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}"
-        )
+        logging.info(f"Harmonizing {self.source_name}: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
 
         node_count = self._harmonize_nodes(nodes_input, nodes_output)
         edge_count = self._harmonize_edges(edges_input, edges_output)
@@ -91,7 +111,7 @@ class BaseHarmonizer(ABC):
 
     def _harmonize_nodes(self, input_path: Path, output_path: Path) -> int:
         count = 0
-        with jsonlines.open(output_path, 'w') as writer:
+        with jsonlines.open(output_path, "w") as writer:
             for node in self._stream_nodes(input_path):
                 harmonized = self.harmonize_node(node)
                 writer.write(harmonized)
@@ -101,7 +121,7 @@ class BaseHarmonizer(ABC):
 
     def _harmonize_edges(self, input_path: Path, output_path: Path) -> int:
         count = 0
-        with jsonlines.open(output_path, 'w') as writer:
+        with jsonlines.open(output_path, "w") as writer:
             for edge in self._stream_edges(input_path):
                 harmonized = self.harmonize_edge(edge)
                 writer.write(harmonized)
@@ -148,13 +168,17 @@ class BaseHarmonizer(ABC):
             chemical_formula=node.get(self.chemical_formula_prop),
             exact_mass=node.get(self.exact_mass_prop),
             publications=node.get(self.publications_prop),
-            attributes=self.collect_node_attributes(node)
+            attributes=self.collect_node_attributes(node),
         )
 
     def harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single edge. Override for source-specific logic."""
         primary_ks = edge[self.primary_ks_prop] if edge.get(self.primary_ks_prop) else self.primary_ks_default_value
-        supporting_sources = edge[self.supporting_sources_prop] if edge.get(self.supporting_sources_prop) else self.supporting_sources_default_value
+        supporting_sources = (
+            edge[self.supporting_sources_prop]
+            if edge.get(self.supporting_sources_prop)
+            else self.supporting_sources_default_value
+        )
         return self.create_edge(
             source_infores=self.source_infores,
             subject_id=edge[self.subject_prop],
@@ -171,45 +195,48 @@ class BaseHarmonizer(ABC):
             supporting_sources=to_list(supporting_sources),
             publications=to_list(edge.get(self.publications_prop, [])),
             publications_info=edge.get(self.publications_info_prop),
-            attributes=self.collect_edge_attributes(edge)
+            attributes=self.collect_edge_attributes(edge),
         )
 
     def _stream_nodes(self, input_path: Path | str):
         suffix = Path(input_path).suffix.lower()
-        if suffix == '.tsv':
+        if suffix == ".tsv":
             return stream_nodes_from_tsv(input_path, self.list_delimiter, self.exclude_from_list_parsing)
-        elif suffix in ('.jsonl', '.jsonlines'):
+        elif suffix in (".jsonl", ".jsonlines"):
             return stream_nodes_from_jsonl(input_path)
         else:
             raise ValueError(f"Unknown file format: {suffix}")
 
     def _stream_edges(self, input_path: Path | str):
         suffix = Path(input_path).suffix.lower()
-        if suffix == '.tsv':
+        if suffix == ".tsv":
             return stream_edges_from_tsv(input_path, self.list_delimiter, self.exclude_from_list_parsing)
-        elif suffix in ('.jsonl', '.jsonlines'):
+        elif suffix in (".jsonl", ".jsonlines"):
             return stream_edges_from_jsonl(input_path)
         else:
             raise ValueError(f"Unknown file format: {suffix}")
 
-
     @staticmethod
-    def create_node(source_infores: str,
-                    curie: str,
-                    categories: list[str],
-                    provided_by: str | list[str],
-                    equivalent_ids: str | list[str] | None = None,
-                    name: str | None = None,
-                    synonyms: list[str] | set[str] | None = None,
-                    description: str | None = None,
-                    urls: str | list[str] | None = None,
-                    chemical_formula: str | list[str] | None = None,
-                    exact_mass: float | None = None,
-                    publications: str | list[str] = None,
-                    attributes: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_node(
+        source_infores: str,
+        curie: str,
+        categories: list[str],
+        provided_by: str | list[str],
+        equivalent_ids: str | list[str] | None = None,
+        name: str | None = None,
+        synonyms: list[str] | set[str] | None = None,
+        description: str | None = None,
+        urls: str | list[str] | None = None,
+        chemical_formula: str | list[str] | None = None,
+        exact_mass: float | None = None,
+        publications: str | list[str] = None,
+        attributes: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not (curie and categories and provided_by):
-            raise ValueError(f"Node is missing required field(s): curie={curie}, "
-                             f"categories={categories}, provided_by={provided_by}")
+            raise ValueError(
+                f"Node is missing required field(s): curie={curie}, "
+                f"categories={categories}, provided_by={provided_by}"
+            )
 
         # Assemble the node, with properties in a specific order (for convenient review)
         node = {ID: curie}
@@ -262,28 +289,28 @@ class BaseHarmonizer(ABC):
         return node
 
     @staticmethod
-    def create_edge(source_infores: str,
-                    subject_id: str,
-                    object_id: str,
-                    predicate: str,
-                    primary_ks: str | list[str],
-                    knowledge_level: str,
-                    agent_type: str | list[str],
-                    aggregator_ks: str | None = None,
-                    supporting_sources: list[str] | None = None,
-                    qualified_predicate: str | None = None,
-                    object_direction_qualifier: str | None = None,
-                    object_aspect_qualifier: str | None = None,
-                    context_qualifier: str | None = None,
-                    publications: str | list[str] | None = None,
-                    publications_info: dict[str, Any] | None = None,
-                    attributes: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_edge(
+        source_infores: str,
+        subject_id: str,
+        object_id: str,
+        predicate: str,
+        primary_ks: str | list[str],
+        knowledge_level: str,
+        agent_type: str | list[str],
+        aggregator_ks: str | None = None,
+        supporting_sources: list[str] | None = None,
+        qualified_predicate: str | None = None,
+        object_direction_qualifier: str | None = None,
+        object_aspect_qualifier: str | None = None,
+        context_qualifier: str | None = None,
+        publications: str | list[str] | None = None,
+        publications_info: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
 
         # Assemble the edge, with properties in a specific order (for convenient review)
-        edge = {SUBJECT: subject_id,
-                OBJECT: object_id,
-                PREDICATE: predicate}
+        edge = {SUBJECT: subject_id, OBJECT: object_id, PREDICATE: predicate}
 
         if qualified_predicate:
             edge[QUALIFIED_PREDICATE] = qualified_predicate
@@ -313,9 +340,7 @@ class BaseHarmonizer(ABC):
         if agent_type == "unspecified":
             agent_type = NOT_PROVIDED
 
-        edge |= {PRIMARY_KS: primary_ks,
-                 KNOWLEDGE_LEVEL: knowledge_level,
-                 AGENT_TYPE: agent_type}
+        edge |= {PRIMARY_KS: primary_ks, KNOWLEDGE_LEVEL: knowledge_level, AGENT_TYPE: agent_type}
 
         if supporting_sources:
             edge[SUPPORTING_SOURCES] = supporting_sources

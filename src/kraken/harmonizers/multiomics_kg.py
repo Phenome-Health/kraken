@@ -1,5 +1,5 @@
 from kraken.utils.constants import MULTIOMICS_KG_INFORES
-from .base import BaseHarmonizer
+from kraken.harmonizers.base import BaseHarmonizer
 
 
 class MultiomicsKGHarmonizer(BaseHarmonizer):
@@ -16,4 +16,3 @@ class MultiomicsKGHarmonizer(BaseHarmonizer):
     publications_prop = "publication"
     primary_ks_default_value = MULTIOMICS_KG_INFORES
     supporting_sources_default_value = "infores:pubmed-central"
-

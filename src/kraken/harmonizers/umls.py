@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 from kraken.utils.constants import UMLS_INFORES, ROOT_CATEGORY, ROOT_PREDICATE, ID, NOT_PROVIDED
 from kraken.utils.kg_io import save_to_jsonl
 from kraken.utils.biolink_client import BiolinkClient
-from .base import BaseHarmonizer
+from kraken.harmonizers.base import BaseHarmonizer
 
 
 class UMLSHarmonizer:
@@ -20,18 +20,18 @@ class UMLSHarmonizer:
         self.biolink = biolink_client
 
     def harmonize(
-            self,
-            input_file: Path,
-            nodes_output: Path,
-            edges_output: Path,
+        self,
+        input_file: Path,
+        nodes_output: Path,
+        edges_output: Path,
     ):
         logging.info(f"Harmonizing {self.source_name}: {input_file} -> {nodes_output}, {edges_output}")
 
         nodes = {}
         edges = []
 
-        with open(input_file, 'r') as tsv_file:
-            reader = csv.reader(tsv_file, delimiter='\t')
+        with open(input_file, "r") as tsv_file:
+            reader = csv.reader(tsv_file, delimiter="\t")
             next(reader)  # Skip the header row
             for row in reader:
                 row_nodes, row_edge = self._harmonize_row(row, nodes)
@@ -39,16 +39,12 @@ class UMLSHarmonizer:
                 edges.append(row_edge)
 
         logging.info(f"Saving {len(nodes)} nodes and {len(edges)} edges")
-        save_to_jsonl(nodes.values(), nodes_output, mode='w')
-        save_to_jsonl(edges, edges_output, mode='w')
+        save_to_jsonl(nodes.values(), nodes_output, mode="w")
+        save_to_jsonl(edges, edges_output, mode="w")
 
         logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, {len(edges)} edges")
 
-    def _harmonize_row(
-            self,
-            row: List[str],
-            existing_nodes: Dict[str, Any]
-    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    def _harmonize_row(self, row: List[str], existing_nodes: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
         loinc_observable_id, loinc_part_id, umls_part_id = row
 
         new_nodes = {}
@@ -60,8 +56,8 @@ class UMLSHarmonizer:
                 source_infores=self.source_infores,
                 curie=loinc_observable_curie,
                 equivalent_ids=[loinc_observable_curie],
-                categories=['biolink:ClinicalFinding'],
-                provided_by=self.source_infores
+                categories=["biolink:ClinicalFinding"],
+                provided_by=self.source_infores,
             )
             new_nodes[observable_node[ID]] = observable_node
 
@@ -74,7 +70,7 @@ class UMLSHarmonizer:
                 curie=umls_part_curie,
                 equivalent_ids=[umls_part_curie, loinc_part_curie],
                 categories=[ROOT_CATEGORY],
-                provided_by=self.source_infores
+                provided_by=self.source_infores,
             )
             new_nodes[part_node[ID]] = part_node
 
@@ -85,8 +81,8 @@ class UMLSHarmonizer:
             object_id=umls_part_curie,
             predicate=ROOT_PREDICATE,
             primary_ks=self.source_infores,
-            knowledge_level='knowledge_assertion',
-            agent_type=NOT_PROVIDED
+            knowledge_level="knowledge_assertion",
+            agent_type=NOT_PROVIDED,
         )
 
         return new_nodes, edge

@@ -15,7 +15,7 @@ from kraken.utils.constants import CLINGEN_INFORES, ID
 from kraken.utils.kg_io import save_to_jsonl
 from kraken.utils.general import create_edge_key
 from kraken.utils.biolink_client import BiolinkClient
-from .base import BaseHarmonizer
+from kraken.harmonizers.base import BaseHarmonizer
 
 
 CLINGEN_ACMG_API_URL = "https://actionability.clinicalgenome.org/ac/api/summ/brief"
@@ -39,10 +39,10 @@ class ClinGenHarmonizer:
         self.normalizer = Normalizer(biolink_version=biolink_client.version)
 
     def harmonize(
-            self,
-            input_file: Path,
-            nodes_output: Path,
-            edges_output: Path,
+        self,
+        input_file: Path,
+        nodes_output: Path,
+        edges_output: Path,
     ) -> None:
         """
         Harmonize ClinGen ACMG actionability data.
@@ -65,8 +65,8 @@ class ClinGenHarmonizer:
             self._process_record(record, nodes, edges)
 
         logging.info(f"Saving {len(nodes)} ClinGen ACMG nodes and {len(edges)} edges")
-        save_to_jsonl(nodes.values(), nodes_output, mode='w')
-        save_to_jsonl(edges.values(), edges_output, mode='w')
+        save_to_jsonl(nodes.values(), nodes_output, mode="w")
+        save_to_jsonl(edges.values(), edges_output, mode="w")
 
         logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, {len(edges)} edges")
 
@@ -74,7 +74,7 @@ class ClinGenHarmonizer:
         """Load data from file or fetch from API if file doesn't exist."""
         if input_file.exists():
             logging.info(f"Loading ClinGen ACMG data from {input_file}")
-            with open(input_file, 'r') as f:
+            with open(input_file, "r") as f:
                 return json.load(f)
         else:
             logging.info(f"Fetching ClinGen ACMG data from {CLINGEN_ACMG_API_URL}")
@@ -84,27 +84,24 @@ class ClinGenHarmonizer:
 
             # Save the fetched data for future use
             input_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(input_file, 'w') as f:
+            with open(input_file, "w") as f:
                 json.dump(data, f, indent=2)
             logging.info(f"Saved ClinGen ACMG data to {input_file}")
 
             return data
 
     def _process_record(
-            self,
-            record: Dict[str, Any],
-            nodes: Dict[str, Dict[str, Any]],
-            edges: Dict[str, Dict[str, Any]]
+        self, record: Dict[str, Any], nodes: Dict[str, Dict[str, Any]], edges: Dict[str, Dict[str, Any]]
     ) -> None:
         """Process a single ClinGen record."""
-        doc_id = record.get('docId')
-        modes_of_inheritance = record.get('modesOfInheritance', [])
-        context = record['context']
-        context_type = 'Adult'  # SKIP pediatric for now...
+        doc_id = record.get("docId")
+        modes_of_inheritance = record.get("modesOfInheritance", [])
+        context = record["context"]
+        context_type = "Adult"  # SKIP pediatric for now...
         context_data = context.get(context_type)
 
         # Skip any records with incomplete status (they generally don't have html pages..)
-        if not context_data or context_data['status'].get('stg2', '').lower() == 'incomplete':
+        if not context_data or context_data["status"].get("stg2", "").lower() == "incomplete":
             return
 
         logging.info(f"On record {doc_id}")
@@ -114,17 +111,17 @@ class ClinGenHarmonizer:
         assertions_by_gene, outcome_intervention_pairs = self._scrape_actionability_scores(source_iri, doc_id)
 
         # Process gene-disease associations
-        genes = context_data.get('genes', [])
+        genes = context_data.get("genes", [])
         for gene_info in genes:
-            gene_symbol = gene_info['gene']
-            gene_omim = gene_info['geneOmim']
+            gene_symbol = gene_info["gene"]
+            gene_omim = gene_info["geneOmim"]
 
             # Create gene node
             gene_node = self._process_gene(gene_symbol, gene_omim)
             nodes[gene_node[ID]] = gene_node
 
             # Process diseases associated with this gene
-            diseases = gene_info.get('diseases', [])
+            diseases = gene_info.get("diseases", [])
             for disease_info in diseases:
                 # Create disease node from omim and preferredMondo identifiers
                 disease_node = self._process_disease(disease_info, gene_omim)
@@ -136,36 +133,32 @@ class ClinGenHarmonizer:
                         gene_node[ID],
                         disease_node[ID],
                         gene_symbol,
-                        disease_info.get('omim'),
+                        disease_info.get("omim"),
                         doc_id,
                         context_type,
                         modes_of_inheritance,
                         outcome_intervention_pairs,
-                        assertions_by_gene
+                        assertions_by_gene,
                     )
                     if edge:
                         edge_key = create_edge_key(edge)
                         edges[edge_key] = edge
 
-    def _process_disease(
-            self,
-            disease_info: Dict[str, Any],
-            gene_omim: str
-    ) -> Optional[Dict[str, Any]]:
+    def _process_disease(self, disease_info: Dict[str, Any], gene_omim: str) -> Optional[Dict[str, Any]]:
         """
         Process a disease/condition into a harmonized node.
         Uses the omim and preferredMondo identifiers from the disease_info.
         """
-        disease_label = disease_info.get('label', '')
-        disease_omim = disease_info.get('omim')
-        disease_mondo = disease_info.get('preferredMondo')
+        disease_label = disease_info.get("label", "")
+        disease_omim = disease_info.get("omim")
+        disease_mondo = disease_info.get("preferredMondo")
 
         # Build a dict of identifiers to normalize
         id_dict = {}
         if disease_mondo:
-            id_dict['mondo'] = disease_mondo
+            id_dict["mondo"] = disease_mondo
         if disease_omim and disease_omim != gene_omim:  # Sometimes they incorrectly give the gene OMIM on the disease
-            id_dict['omim'] = disease_omim
+            id_dict["omim"] = disease_omim
 
         if not id_dict:
             logging.error(f"No disease identifiers found for: {disease_label}")
@@ -175,33 +168,33 @@ class ClinGenHarmonizer:
         disease_curies_dict, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True)
 
         if disease_curies_dict:
-            disease_curie = list(sorted(disease_curies_dict.keys(), reverse=True))[0]  # OMIM identifiers seem more accurate
+            disease_curie = list(sorted(disease_curies_dict.keys(), reverse=True))[
+                0
+            ]  # OMIM identifiers seem more accurate
             disease_iri = disease_curies_dict[disease_curie]
             equivalent_ids = list(disease_curies_dict.keys())
         else:
             # Fallback: if normalization fails, use the MONDO or OMIM directly
-            logging.error(f"Could not normalize disease: {disease_label} with IDs {id_dict}. full disease item is: {disease_info}")
+            logging.error(
+                f"Could not normalize disease: {disease_label} with IDs {id_dict}. full disease item is: {disease_info}"
+            )
             sys.exit(1)
 
         return BaseHarmonizer.create_node(
             source_infores=self.source_infores,
             curie=disease_curie,
-            categories=['biolink:Disease'],
+            categories=["biolink:Disease"],
             equivalent_ids=equivalent_ids,
             provided_by=self.source_infores,
             name=disease_label,
             urls=disease_iri,
-            synonyms=[disease_label] if disease_label else None
+            synonyms=[disease_label] if disease_label else None,
         )
 
-    def _process_gene(
-            self,
-            gene_symbol: str,
-            gene_omim: str
-    ) -> Dict[str, Any]:
+    def _process_gene(self, gene_symbol: str, gene_omim: str) -> Dict[str, Any]:
         """Process a gene into a harmonized node."""
         # Build a dict of identifiers to normalize
-        id_dict = {'omim': gene_omim}
+        id_dict = {"omim": gene_omim}
 
         # Normalize to standard gene identifiers (HGNC, NCBIGene, etc.)
         gene_curies_dict, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True)
@@ -217,25 +210,25 @@ class ClinGenHarmonizer:
 
         return BaseHarmonizer.create_node(
             curie=gene_curie,
-            categories=['biolink:Gene'],
+            categories=["biolink:Gene"],
             equivalent_ids=equivalent_ids,
             provided_by=self.source_infores,
             name=gene_symbol,
             urls=gene_iri,
-            synonyms=[gene_symbol]
+            synonyms=[gene_symbol],
         )
 
     def _create_gene_disease_edge(
-            self,
-            gene_id: str,
-            disease_id: str,
-            gene_symbol: str,
-            disease_local_ids: List[str],
-            doc_id: str,
-            context_type: str,
-            modes_of_inheritance: List[str],
-            outcome_intervention_pairs: List[Dict[str, Any]],
-            assertions_by_gene: Dict[str, List[Dict[str, str]]]
+        self,
+        gene_id: str,
+        disease_id: str,
+        gene_symbol: str,
+        disease_local_ids: List[str],
+        doc_id: str,
+        context_type: str,
+        modes_of_inheritance: List[str],
+        outcome_intervention_pairs: List[Dict[str, Any]],
+        assertions_by_gene: Dict[str, List[Dict[str, str]]],
     ) -> Optional[Dict[str, Any]]:
         """
         Create an edge representing a gene-disease association.
@@ -258,37 +251,34 @@ class ClinGenHarmonizer:
 
         # Build attributes
         attributes = {
-            'doc_id': doc_id,
-            'modes_of_inheritance': modes_of_inheritance,
-            'source_iri': source_iri,
-            'source_iri_json': f"https://actionability.clinicalgenome.org/ac/{context_type}/api/sepio/doc/{doc_id}"
+            "doc_id": doc_id,
+            "modes_of_inheritance": modes_of_inheritance,
+            "source_iri": source_iri,
+            "source_iri_json": f"https://actionability.clinicalgenome.org/ac/{context_type}/api/sepio/doc/{doc_id}",
         }
 
         # Add gene-condition specific assertion if found
         if matching_assertion:
-            attributes['gene_condition_assertion'] = matching_assertion
+            attributes["gene_condition_assertion"] = matching_assertion
 
         # Add outcome-intervention pairs (same for all edges from this record)
         if outcome_intervention_pairs:
-            attributes['outcome_intervention_pairs'] = outcome_intervention_pairs
+            attributes["outcome_intervention_pairs"] = outcome_intervention_pairs
 
         return BaseHarmonizer.create_edge(
             source_infores=self.source_infores,
             subject_id=gene_id,
             object_id=disease_id,
-            predicate='biolink:contributes_to',
+            predicate="biolink:contributes_to",
             context_qualifier=context_type.lower(),
             primary_ks=self.source_infores,
-            knowledge_level='knowledge_assertion',
-            agent_type='manual_agent',
-            attributes=attributes
+            knowledge_level="knowledge_assertion",
+            agent_type="manual_agent",
+            attributes=attributes,
         )
 
     def _scrape_actionability_scores(
-            self,
-            url: str,
-            doc_id: str,
-            debug: bool = False
+        self, url: str, doc_id: str, debug: bool = False
     ) -> Tuple[Dict[str, List[Dict[str, str]]], List[Dict[str, Any]]]:
         """
         Scrape actionability scores and final assertions from a ClinGen HTML page.
@@ -312,7 +302,7 @@ class ClinGenHarmonizer:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
 
-            soup = BeautifulSoup(response.content, 'html.parser')
+            soup = BeautifulSoup(response.content, "html.parser")
 
             final_assertions: List[Dict[str, str]] = []
             outcome_intervention_pairs: List[Dict[str, Any]] = []
@@ -356,18 +346,17 @@ class ClinGenHarmonizer:
 
                         # Pair them up (they should alternate)
                         for i in range(min(len(gene_condition_pattern), len(assertion_pattern))):
-                            final_assertions.append({
-                                'gene_condition_pair': gene_condition_pattern[i],
-                                'assertion': assertion_pattern[i]
-                            })
+                            final_assertions.append(
+                                {"gene_condition_pair": gene_condition_pattern[i], "assertion": assertion_pattern[i]}
+                            )
 
                 # Alternative approach: use regex to find patterns in the full text
                 if not final_assertions:
                     # Extract the assertion section
                     assertion_section_match = re.search(
-                        r'Actionability Assertion.*?(?=Actionability Rationale|Final Consensus Scores)',
+                        r"Actionability Assertion.*?(?=Actionability Rationale|Final Consensus Scores)",
                         page_text,
-                        re.DOTALL
+                        re.DOTALL,
                     )
 
                     if assertion_section_match:
@@ -378,10 +367,10 @@ class ClinGenHarmonizer:
                             print(assertion_text[:500])
 
                         # Find all gene-condition pairs (contain ⇔ and a number)
-                        gene_cond_matches = re.findall(r'([A-Z0-9]+⇔\d+[^\n]*)', assertion_text)
+                        gene_cond_matches = re.findall(r"([A-Z0-9]+⇔\d+[^\n]*)", assertion_text)
 
                         # Find all actionability levels
-                        assertion_matches = re.findall(r'(\w+(?:\s+\w+)?\s+Actionability)', assertion_text)
+                        assertion_matches = re.findall(r"(\w+(?:\s+\w+)?\s+Actionability)", assertion_text)
 
                         if debug:
                             print(f"\nFound {len(gene_cond_matches)} gene-condition pairs")
@@ -391,10 +380,12 @@ class ClinGenHarmonizer:
 
                         # Pair them up
                         for i in range(min(len(gene_cond_matches), len(assertion_matches))):
-                            final_assertions.append({
-                                'gene_condition_pair': gene_cond_matches[i].strip(),
-                                'assertion': assertion_matches[i].strip()
-                            })
+                            final_assertions.append(
+                                {
+                                    "gene_condition_pair": gene_cond_matches[i].strip(),
+                                    "assertion": assertion_matches[i].strip(),
+                                }
+                            )
 
             if not final_assertions and debug:
                 print("WARNING: No final assertions found")
@@ -402,52 +393,51 @@ class ClinGenHarmonizer:
             # Organize assertions by gene symbol
             assertions_by_gene: Dict[str, List[Dict[str, str]]] = {}
             for assertion in final_assertions:
-                gene_condition_pair = assertion.get('gene_condition_pair', '')
+                gene_condition_pair = assertion.get("gene_condition_pair", "")
 
                 # Parse the gene symbol from the pair (e.g., "BRCA1⇔114480 (...)")
-                if '⇔' in gene_condition_pair:
-                    gene_symbol = gene_condition_pair.split('⇔')[0].strip()
+                if "⇔" in gene_condition_pair:
+                    gene_symbol = gene_condition_pair.split("⇔")[0].strip()
 
                     if gene_symbol not in assertions_by_gene:
                         assertions_by_gene[gene_symbol] = []
 
-                    assertions_by_gene[gene_symbol].append({
-                        'gene_condition_pair': gene_condition_pair,
-                        'assertion': assertion.get('assertion', '')
-                    })
+                    assertions_by_gene[gene_symbol].append(
+                        {"gene_condition_pair": gene_condition_pair, "assertion": assertion.get("assertion", "")}
+                    )
 
             # Now find the "Final Consensus Scores" section for outcome/intervention pairs
-            scr_table = soup.find('div', class_='scrTable')
+            scr_table = soup.find("div", class_="scrTable")
 
             if debug:
-                print("="*80)
+                print("=" * 80)
                 print("SCORING TABLE:")
-                print("="*80)
+                print("=" * 80)
                 if scr_table:
                     print(scr_table.prettify())
                 else:
                     print("No scrTable found!")
-                print("="*80)
+                print("=" * 80)
 
             if not scr_table:
                 elapsed_time = time.time() - start_time
                 logging.warning(f"No scoring table found for doc {doc_id} (took {elapsed_time:.2f}s)")
             else:
                 # Find all data rows (rows with class "data")
-                data_rows = scr_table.find_all('div', class_='data row')
+                data_rows = scr_table.find_all("div", class_="data row")
 
                 if debug:
                     print(f"\nFound {len(data_rows)} data rows")
 
                 for row in data_rows:
-                    oi_pair = row.find('div', class_=lambda x: x and 'oiPair' in x)
-                    severity = row.find('div', class_=lambda x: x and 'severity' in x and 'scrData' in x)
-                    likelihood = row.find('div', class_=lambda x: x and 'likelihood' in x and 'scrData' in x)
-                    effectiveness_div = row.find_all('div', class_=lambda x: x and 'scrData' in x)
+                    oi_pair = row.find("div", class_=lambda x: x and "oiPair" in x)
+                    severity = row.find("div", class_=lambda x: x and "severity" in x and "scrData" in x)
+                    likelihood = row.find("div", class_=lambda x: x and "likelihood" in x and "scrData" in x)
+                    effectiveness_div = row.find_all("div", class_=lambda x: x and "scrData" in x)
                     # The third scrData div is typically effectiveness
                     effectiveness = effectiveness_div[2] if len(effectiveness_div) > 2 else None
-                    noi = row.find('div', class_=lambda x: x and 'noi' in x and 'scrData' in x)
-                    total_score = row.find('div', class_=lambda x: x and 'totalScore' in x and 'scrData' in x)
+                    noi = row.find("div", class_=lambda x: x and "noi" in x and "scrData" in x)
+                    total_score = row.find("div", class_=lambda x: x and "totalScore" in x and "scrData" in x)
 
                     if debug:
                         print(f"\nProcessing row:")
@@ -462,21 +452,21 @@ class ClinGenHarmonizer:
                         pair_text = oi_pair.get_text(strip=True)
 
                         # Split by " / " to separate outcome and intervention
-                        if ' / ' in pair_text:
-                            parts = pair_text.split(' / ', 1)
+                        if " / " in pair_text:
+                            parts = pair_text.split(" / ", 1)
                             outcome = parts[0].strip()
                             intervention = parts[1].strip()
 
                             pair = {
-                                'outcome': outcome,
-                                'intervention': intervention,
-                                'scores': {
-                                    'severity': severity.get_text(strip=True) if severity else None,
-                                    'likelihood': likelihood.get_text(strip=True) if likelihood else None,
-                                    'effectiveness': effectiveness.get_text(strip=True) if effectiveness else None,
-                                    'nature_of_intervention': noi.get_text(strip=True) if noi else None,
-                                    'total': total_score.get_text(strip=True) if total_score else None
-                                }
+                                "outcome": outcome,
+                                "intervention": intervention,
+                                "scores": {
+                                    "severity": severity.get_text(strip=True) if severity else None,
+                                    "likelihood": likelihood.get_text(strip=True) if likelihood else None,
+                                    "effectiveness": effectiveness.get_text(strip=True) if effectiveness else None,
+                                    "nature_of_intervention": noi.get_text(strip=True) if noi else None,
+                                    "total": total_score.get_text(strip=True) if total_score else None,
+                                },
                             }
                             outcome_intervention_pairs.append(pair)
 
@@ -505,10 +495,7 @@ class ClinGenHarmonizer:
             return {}, []
 
     def _find_matching_assertion(
-            self,
-            gene_symbol: str,
-            disease_ids: List[str],
-            assertions_by_gene: Dict[str, List[Dict[str, str]]]
+        self, gene_symbol: str, disease_ids: List[str], assertions_by_gene: Dict[str, List[Dict[str, str]]]
     ) -> Optional[Dict[str, str]]:
         """
         Find the assertion that matches the current gene-condition edge.
@@ -528,7 +515,7 @@ class ClinGenHarmonizer:
 
         # Look for the matching disease
         for assertion in gene_assertions:
-            gene_condition_pair = assertion.get('gene_condition_pair', '')
+            gene_condition_pair = assertion.get("gene_condition_pair", "")
             if any(disease_id in gene_condition_pair for disease_id in disease_ids):
                 return assertion
 

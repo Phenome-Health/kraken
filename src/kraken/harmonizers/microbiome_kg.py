@@ -1,5 +1,5 @@
 from kraken.utils.constants import MICROBIOME_KG_INFORES
-from .base import BaseHarmonizer
+from kraken.harmonizers.base import BaseHarmonizer
 
 
 class MicrobiomeKGHarmonizer(BaseHarmonizer):
@@ -16,4 +16,3 @@ class MicrobiomeKGHarmonizer(BaseHarmonizer):
     publications_prop = "publication"
     primary_ks_default_value = MICROBIOME_KG_INFORES
     supporting_sources_default_value = "infores:pubmed-central"
-
