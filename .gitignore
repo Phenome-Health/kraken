@@ -7,13 +7,13 @@ input_data/
 artifacts/
 cache/
 
+*.tsv
 scripts/*.json
 scripts/*.jsonl
 scripts/*.png
 scripts/*.html
 scripts/*.csv
 scripts/*.txt
-scripts/*.tsv
 scripts/*.pdf
 scripts/overlap/
 
