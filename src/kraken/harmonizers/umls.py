@@ -2,12 +2,12 @@
 import csv
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
-from kraken.utils.constants import UMLS_INFORES, ROOT_CATEGORY, ROOT_PREDICATE, ID, NOT_PROVIDED
-from kraken.utils.kg_io import save_to_jsonl
-from kraken.utils.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils.constants import ID, NOT_PROVIDED, ROOT_CATEGORY, ROOT_PREDICATE, UMLS_INFORES
+from kraken.utils.kg_io import save_to_jsonl
 
 
 class UMLSHarmonizer:
@@ -30,7 +30,7 @@ class UMLSHarmonizer:
         nodes = {}
         edges = []
 
-        with open(input_file, "r") as tsv_file:
+        with open(input_file) as tsv_file:
             reader = csv.reader(tsv_file, delimiter="\t")
             next(reader)  # Skip the header row
             for row in reader:
@@ -44,7 +44,7 @@ class UMLSHarmonizer:
 
         logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, {len(edges)} edges")
 
-    def _harmonize_row(self, row: List[str], existing_nodes: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    def _harmonize_row(self, row: list[str], existing_nodes: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         loinc_observable_id, loinc_part_id, umls_part_id = row
 
         new_nodes = {}
@@ -61,7 +61,7 @@ class UMLSHarmonizer:
             )
             new_nodes[observable_node[ID]] = observable_node
 
-        # Add a node representing the LOINC part captured in this row (e.g., compound measured), if one doesn't yet exist
+        # Add a node representing the LOINC part captured in this row (e.g., compound measured), if one doesn't exist
         loinc_part_curie = f"LOINC:{loinc_part_id}"
         umls_part_curie = f"UMLS:{umls_part_id}"
         if umls_part_curie not in existing_nodes:

@@ -3,16 +3,26 @@ Metagraph generation utilities for Biolink knowledge graphs
 Analyzes node categories, edge predicates, and connectivity patterns
 """
 
-import itertools
-from pathlib import Path
-from collections import defaultdict, Counter
-import sys
-from typing import Dict, Set, Tuple, Any, Iterator
 import json
 import logging
+import sys
+from collections import Counter
+from pathlib import Path
+from typing import Any
 
-from kraken.utils.kg_io import stream_nodes_from_jsonl, stream_edges_from_jsonl
-from kraken.utils.constants import *
+from kraken.utils.constants import (
+    AGENT_TYPE,
+    CATEGORIES,
+    EQUIVALENT_IDS,
+    ID,
+    KNOWLEDGE_LEVEL,
+    OBJECT,
+    PREDICATE,
+    PRIMARY_KS,
+    SUBJECT,
+    SUPPORTING_SOURCES,
+)
+from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
 class MetagraphStats:
@@ -34,7 +44,7 @@ class MetagraphStats:
         self.meta_doubles = Counter()  # (subject_category, object_category) -> count
         self.meta_triples = Counter()  # (subject_cat, predicate, object_cat) -> count
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert stats to dictionary for JSON serialization"""
         return {
             "source": self.source_name,
@@ -88,7 +98,7 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
     logging.info(f"Found {len(stats.node_categories)} unique node categories")
 
     if not categories_map:
-        logging.error(f"Categories map is empty.")
+        logging.error("Categories map is empty.")
         sys.exit(1)
 
     # Phase 2: Analyze edges
@@ -191,7 +201,7 @@ def compare_metagraphs(metagraph_files: list, output_file: Path):
 
     metagraphs = []
     for file_path in metagraph_files:
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             metagraphs.append(json.load(f))
 
     comparison = {
@@ -492,7 +502,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             padding: 20px;
             background-color: #f8f9fa;
         }}
-        
+
         .header {{
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -501,7 +511,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             margin-bottom: 20px;
             text-align: center;
         }}
-        
+
         .controls {{
             background: white;
             padding: 15px;
@@ -513,7 +523,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             gap: 15px;
             align-items: center;
         }}
-        
+
         #cy {{
             width: 100%;
             height: 70vh;
@@ -522,7 +532,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }}
-        
+
         button {{
             padding: 10px 16px;
             background: #4CAF50;
@@ -533,26 +543,26 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             font-size: 14px;
             transition: background-color 0.3s;
         }}
-        
+
         button:hover {{
             background: #45a049;
         }}
-        
+
         .secondary-btn {{
             background: #2196F3;
         }}
-        
+
         .secondary-btn:hover {{
             background: #1976D2;
         }}
-        
+
         select, input[type="file"] {{
             padding: 8px 12px;
             border: 1px solid #ddd;
             border-radius: 6px;
             font-size: 14px;
         }}
-        
+
         .info {{
             background: white;
             margin-top: 20px;
@@ -560,33 +570,33 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
-        
+
         .stats {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin: 15px 0;
         }}
-        
+
         .stat-card {{
             background: #f8f9fa;
             padding: 15px;
             border-radius: 6px;
             text-align: center;
         }}
-        
+
         .stat-value {{
             font-size: 24px;
             font-weight: bold;
             color: #667eea;
         }}
-        
+
         .file-selector {{
             display: flex;
             align-items: center;
             gap: 10px;
         }}
-        
+
         .instructions {{
             background: #e3f2fd;
             border-left: 4px solid #2196F3;
@@ -601,7 +611,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
         <h1>KG Metagraph Visualization</h1>
         <p>Interactive network view of knowledge graph structure - {source_name.title()}</p>
     </div>
-    
+
     <div class="controls">
         <div class="file-selector">
             <label for="file-select">Metagraph:</label>
@@ -610,7 +620,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 {build_dropdown_options(file_options)}
             </select>
         </div>
-        
+
         <div>
             <label for="layout-select">Layout:</label>
             <select id="layout-select">
@@ -626,24 +636,28 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
 
         <div>
             <label for="threshold-input">Min Edge Count:</label>
-            <input type="number" id="threshold-input" min="1" value="1" placeholder="1" onchange="updateThreshold()" onkeyup="updateThreshold()">
+            <input type="number" id="threshold-input" min="1" value="1"
+                placeholder="1" onchange="updateThreshold()"
+                onkeyup="updateThreshold()">
             <button onclick="resetThreshold()">Reset</button>
         </div>
-        
+
         <div>
             <button onclick="fitGraph()" class="secondary-btn">Fit to Screen</button>
             <button onclick="resetZoom()" class="secondary-btn">Reset Zoom</button>
             <button onclick="exportImage()" class="secondary-btn">Export PNG</button>
         </div>
-        
+
         <div>
             <input type="file" id="file-input" accept=".json" onchange="loadCustomFile(event)" style="display: none;">
-            <button onclick="document.getElementById('file-input').click()" class="secondary-btn">Load Custom File</button>
+            <button onclick="document.getElementById('file-input').click()" class="secondary-btn">
+                Load Custom File
+            </button>
         </div>
     </div>
-    
+
     <div id="cy"></div>
-    
+
     <div class="info">
         <div class="instructions">
             <h3>How to Use:</h3>
@@ -652,12 +666,14 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 <li><strong>Zoom:</strong> Mouse wheel or pinch gesture</li>
                 <li><strong>Node Details:</strong> Click on nodes to see category information</li>
                 <li><strong>Edge Details:</strong> Click on edges to see relationship counts</li>
-                <li><strong>Threshold Filter:</strong> Adjust slider to hide edges with fewer connections (useful for large graphs)</li>
+                <li><strong>Threshold Filter:</strong>
+                    Adjust slider to hide edges with fewer connections (useful for large graphs)
+                </li>
                 <li><strong>Node Sizes:</strong> Proportional to number of entities in each category</li>
                 <li><strong>Edge Thickness:</strong> Proportional to number of connections between categories</li>
             </ul>
         </div>
-        
+
         <div class="stats" id="stats-container">
             <div class="stat-card">
                 <div class="stat-value" id="node-count">-</div>
@@ -676,7 +692,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 <div>Total Relations</div>
             </div>
         </div>
-        
+
         <p id="status-message">Select a metagraph file to begin visualization...</p>
     </div>
 
@@ -684,7 +700,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
         let cy;
         let currentData = null;
         let originalData = null;
-        
+
         function initializeCytoscape(data) {{
             if (cy) {{
                 cy.destroy();
@@ -695,7 +711,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
 
             // Update threshold slider max based on data
             updateThresholdRange(data);
-            
+
             cy = cytoscape({{
                 container: document.getElementById('cy'),
                 elements: data.elements,
@@ -706,12 +722,12 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                             'background-color': function(ele) {{
                                 const category = ele.data('id') || '';
                                 const count = ele.data('node_count') || 1;
-                                
+
                                 // Determine theme based on category
                                 let baseColor = [220, 205, 190]; // Default light muted brown
-                                
+
                                 // Genomic/Genetic entities (blues)
-                                if (category.includes('Gene') || category.includes('Protein') || 
+                                if (category.includes('Gene') || category.includes('Protein') ||
                                     category.includes('Transcript') || category.includes('MicroRNA') ||
                                     category.includes('RNA') || category.includes('Genomic') ||
                                     category.includes('Polypeptide') || category.includes('NucleicAcidEntity') ||
@@ -719,7 +735,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                     category.includes('MacromolecularComplex'))  {{
                                     baseColor = [173, 216, 230]; // Light blue
                                 }}
-                                // Chemical/Drug entities (greens) 
+                                // Chemical/Drug entities (greens)
                                 else if (category.includes('Chemical') || category.includes('Drug') ||
                                          category.includes('SmallMolecule') || category.includes('Compound') ||
                                          category.includes('MolecularMixture') || category.includes('Metabolite') ||
@@ -744,13 +760,13 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                                          category.includes('Event') || category.includes('BiologicalEntity')) {{
                                     baseColor = [255, 218, 185]; // Peach
                                 }}
-                                
+
                                 // Adjust intensity based on count (darker for more entities)
                                 const intensity = Math.min(0.4, Math.max(0.1, count / 10000));
                                 const r = Math.floor(baseColor[0] - (baseColor[0] - 255) * intensity);
                                 const g = Math.floor(baseColor[1] - (baseColor[1] - 255) * intensity);
                                 const b = Math.floor(baseColor[2] - (baseColor[2] - 255) * intensity);
-                                
+
                                 return `rgb(${{r}}, ${{g}}, ${{b}})`;
                             }},
                             'label': 'data(label)',
@@ -864,7 +880,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                     minTemp: 1.0
                 }}
             }});
-            
+
             // Add interaction events
             cy.on('tap', 'node', function(evt) {{
                 const node = evt.target;
@@ -873,45 +889,47 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                     entity_count: node.data('node_count'),
                     id: node.data('id')
                 }};
-                
-                alert(`Category: ${{info.category}}\\nEntities: ${{info.entity_count.toLocaleString()}}\\nID: ${{info.id}}`);
+
+                alert(`Category: ${{info.category}}
+            Entities: ${{info.entity_count.toLocaleString()}}
+            ID: ${{info.id}}`);
                 console.log('Node details:', info);
             }});
-            
+
             cy.on('tap', 'edge', function(evt) {{
                 const edge = evt.target;
                 const sourceLabel = cy.getElementById(edge.data('source')).data('label');
                 const targetLabel = cy.getElementById(edge.data('target')).data('label');
-                
+
                 const info = {{
                     connection: `${{sourceLabel}} → ${{targetLabel}}`,
                     edge_count: edge.data('edge_count')
                 }};
-                
+
                 alert(`Connection: ${{info.connection}}\\nRelations: ${{info.edge_count.toLocaleString()}}`);
                 console.log('Edge details:', info);
             }});
-            
+
             // Update statistics
             updateStats(data);
         }}
-        
+
         function updateStats(data) {{
             const nodeCount = data.elements.nodes.length;
             const edgeCount = data.elements.edges.length;
             const totalNodes = data.elements.nodes.reduce((sum, n) => sum + (n.data.node_count || 0), 0);
             const totalEdges = data.elements.edges.reduce((sum, e) => sum + (e.data.edge_count || 0), 0);
-            
+
             document.getElementById('node-count').textContent = nodeCount.toLocaleString();
             document.getElementById('edge-count').textContent = edgeCount.toLocaleString();
             document.getElementById('total-nodes').textContent = totalNodes.toLocaleString();
             document.getElementById('total-edges').textContent = totalEdges.toLocaleString();
         }}
-        
+
         function applyLayout() {{
             if (!cy) return;
             const layoutName = document.getElementById('layout-select').value;
-            
+
             let layoutOptions = {{
                 name: layoutName,
                 fit: true,
@@ -919,7 +937,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 animate: true,
                 animationDuration: 1000
             }};
-            
+
             // Use the same detailed configuration for COSE as the initial layout
             if (layoutName === 'cose') {{
                 layoutOptions = {{
@@ -943,22 +961,22 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                     animationDuration: 1000
                 }};
             }}
-            
+
             const layout = cy.layout(layoutOptions);
             layout.run();
         }}
-        
+
         function fitGraph() {{
             if (cy) cy.fit(null, 50);
         }}
-        
+
         function resetZoom() {{
             if (cy) {{
                 cy.zoom(1);
                 cy.center();
             }}
         }}
-        
+
         function exportImage() {{
             if (cy) {{
                 const png64 = cy.png({{scale: 2, full: true}});
@@ -968,15 +986,16 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 link.click();
             }}
         }}
-        
+
         function loadSelectedFile() {{
             const select = document.getElementById('file-select');
             const filePath = select.value;
-            
+
             if (!filePath) return;
-            
-            document.getElementById('status-message').textContent = `Loading ${{select.options[select.selectedIndex].text}}...`;
-            
+
+            const selectedText = select.options[select.selectedIndex].text;
+            document.getElementById('status-message').textContent = `Loading ${{selectedText}}...`;
+
             fetch(filePath)
                 .then(response => {{
                     if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
@@ -984,16 +1003,16 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                 }})
                 .then(data => {{
                     initializeCytoscape(data);
-                    document.getElementById('status-message').textContent = 
+                    document.getElementById('status-message').textContent =
                         `Loaded: ${{select.options[select.selectedIndex].text}}`;
                 }})
                 .catch(error => {{
                     console.error('Error loading file:', error);
-                    document.getElementById('status-message').textContent = 
+                    document.getElementById('status-message').textContent =
                         `Error loading file: ${{error.message}}`;
                 }});
         }}
-        
+
         function loadCustomFile(event) {{
             const file = event.target.files[0];
             if (!file) return;
@@ -1068,11 +1087,11 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
             document.getElementById('threshold-input').value = 1;
             updateThreshold();
         }}
-        
+
         // Auto-load the current graph's default file
         window.addEventListener('DOMContentLoaded', function() {{
             const select = document.getElementById('file-select');
-            
+
             // First try to find the "Local" option (current graph)
             let defaultOption = null;
             for (let i = 0; i < select.options.length; i++) {{
@@ -1082,7 +1101,7 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                     break;
                 }}
             }}
-            
+
             // If no local option found, try to find current source in the list
             if (!defaultOption) {{
                 for (let i = 0; i < select.options.length; i++) {{
@@ -1093,12 +1112,12 @@ def create_html_viewer(output_dir: Path, metagraph_files: list, source_name: str
                     }}
                 }}
             }}
-            
+
             // Fallback to first available option
             if (!defaultOption && select.options.length > 1) {{
                 defaultOption = select.options[1];
             }}
-            
+
             if (defaultOption) {{
                 select.value = defaultOption.value;
                 loadSelectedFile();

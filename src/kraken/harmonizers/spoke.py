@@ -5,17 +5,28 @@ SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import jsonlines
 
+from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils.constants import (
+    AGENT_TYPE,
+    BIOLINK_PREFIX,
+    ID,
+    INFORES_PREFIX,
+    KNOWLEDGE_LEVEL,
+    KNOWN_INVALID,
+    NOT_PROVIDED,
+    OBJ_ASPECT_QUALIFIER,
+    OBJ_DIRECTION_QUALIFIER,
+    QUALIFIED_PREDICATE,
+    SPOKE_INFORES,
+)
 from kraken.utils.general import load_biolink_file
 from kraken.utils.kg_io import stream_mixed_jsonl
-from kraken.utils.biolink_client import BiolinkClient
-from kraken.harmonizers.base import BaseHarmonizer
 from kraken.utils.spoke_id_utils import SpokeIDNormalizer
-from kraken.utils.constants import *
-
 
 EMPTY_VALUES = ["", [], dict(), set(), None]
 EXCLUDE_PROPS = {
@@ -103,7 +114,7 @@ class SpokeHarmonizer:
 
         logging.info(f"{self.source_name} harmonization complete: {node_count} nodes, {edge_count} edges")
 
-    def _harmonize_node(self, node_item: dict) -> Optional[dict]:
+    def _harmonize_node(self, node_item: dict) -> dict | None:
         """Harmonize a single SPOKE node"""
         properties = node_item.get("properties", {})
         labels = node_item.get("labels", [])
@@ -155,7 +166,7 @@ class SpokeHarmonizer:
             logging.error(f"Failed to convert SPOKE 'identifier' to a proper curie. {node_item}")
             sys.exit(1)
 
-    def _harmonize_edge(self, edge_item: dict, spoke_to_normalized_id: dict) -> Optional[dict]:
+    def _harmonize_edge(self, edge_item: dict, spoke_to_normalized_id: dict) -> dict | None:
         """Harmonize a single SPOKE edge"""
         edge_type = edge_item.get("label")
         if not edge_type:
@@ -168,7 +179,7 @@ class SpokeHarmonizer:
             predicate, subject_id, object_id, qual_predicate, qual_direction, qual_aspect = (
                 self._map_spoke_edge_type_to_biolink(edge_type, spoke_subject_id, spoke_object_id)
             )
-        except:
+        except Exception:
             logging.error(f"Failed to find biolink type for spoke edge type '{edge_type}': {edge_item}")
             sys.exit(1)
 
@@ -204,7 +215,7 @@ class SpokeHarmonizer:
 
         return harmonized_edge
 
-    def _map_spoke_labels_to_biolink(self, labels: List[str], source: str, standardized_id: str) -> List[str]:
+    def _map_spoke_labels_to_biolink(self, labels: list[str], source: str, standardized_id: str) -> list[str]:
         """Map SPOKE node labels to Biolink categories"""
 
         # Simple mapping - extend as needed
@@ -219,7 +230,7 @@ class SpokeHarmonizer:
             "Reaction": "MolecularActivity",
             "Gene": "Gene",
             "ProteinDomain": "ProteinDomain",
-            "DietarySupplement": "Food",  # Doesn't seem to be a good Biolink type for supplements... invent one? add 'supplement' flag?
+            "DietarySupplement": "Food",  # Doesn't seem to be a good Biolink type for supplements...
             "Anatomy": "AnatomicalEntity",
             "BiologicalProcess": "BiologicalProcess",
             "CellLine": "CellLine",
@@ -227,7 +238,7 @@ class SpokeHarmonizer:
             "EC": "BiologicalEntity",  # TODO: Collapse these nodes into annotations on Protein nodes (see issue)
             "PwGroup": "MacromolecularComplex",  # Think these are protein working groups?
             "Pathway": "Pathway",
-            "SideEffect": "DiseaseOrPhenotypicFeature",  # The fact that this is a side effect would be implied by the edge from the drug
+            "SideEffect": "DiseaseOrPhenotypicFeature",  # side effect role implied by the edge from the drug
             "Blend": "ChemicalMixture",
             "MolecularFunction": "MolecularActivity",
             "CellType": "Cell",
@@ -254,7 +265,7 @@ class SpokeHarmonizer:
 
     def _map_spoke_edge_type_to_biolink(
         self, edge_type: str, original_subject_id: str, original_object_id: str
-    ) -> Tuple[str, str, str, Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[str, str, str, str | None, str | None, str | None]:
         """Map SPOKE edge types to Biolink predicates; flips edges as necessary to use canonical predicates."""
         core_edge_type = "_".join(edge_type.split("_")[:-1])  # Gets rid of suffix indicating node categories, like _GiP
 
@@ -355,6 +366,7 @@ class SpokeHarmonizer:
 
     def _normalize_source(self, spoke_source: str, spoke_edge: dict) -> str:
         spoke_source_cleaned = spoke_source.lower().replace(" ", "")
+        huge = "nationalcenterforhealthstatistics.u.s.censusbureau,householdpulsesurvey,2024.lackofsocialconnection4.2"
         mappings = {
             "ahrqsdohdatabase": "ahrq-sdoh",
             "bgee": f"{INFORES_PREFIX}:bgee",
@@ -411,7 +423,7 @@ class SpokeHarmonizer:
             "celllineontology": "clo",
             "pfam": f"{INFORES_PREFIX}:pfam",
             "gwas": f"{INFORES_PREFIX}:gwas-catalog",
-            "pharmvar": f"pharmvar",
+            "pharmvar": "pharmvar",
             "explorenz": "explor-enz",
             "complexportal": f"{INFORES_PREFIX}:complex-portal",
             "2020nationalemissionsinventory(nei)data": "epa-nei",
@@ -426,12 +438,12 @@ class SpokeHarmonizer:
             "eqtlcatalogue": "eqtl-catalogue",
             "cellphonedb": "cellphone-db",
             "civic": f"{INFORES_PREFIX}:civic",
-            "nationalcenterforhealthstatistics.u.s.censusbureau,householdpulsesurvey,2024.lackofsocialconnection4.2": "pulse-survey",
+            huge: "pulse-survey",
             "pathophenodb": f"{INFORES_PREFIX}:path-pheno-db",
             "airqualitystatisticsreport": "epa-air-quality-stats",
             "https://github.com/hadlock_lab/recover/": "hadlock-recover",
             "https://github.com/hadlock_lab/incov/": "hadlock-incov",
-            "unknown": self.source_infores,  # If SPOKE doesn't give a source for the edge, just list SPOKE as the source.. (better than nothing)
+            "unknown": self.source_infores,  # If no source given, just list SPOKE as the source.. (better than nothing)
         }
         if spoke_source_cleaned in mappings:
             return mappings[spoke_source_cleaned]
@@ -441,7 +453,7 @@ class SpokeHarmonizer:
             )
             sys.exit(1)
 
-    def _get_all_sources(self, item: dict) -> Tuple[str, List[str]]:
+    def _get_all_sources(self, item: dict) -> tuple[str, list[str]]:
         properties = item["properties"]
         sources = []
         if "source" in properties and properties["source"]:
@@ -457,7 +469,7 @@ class SpokeHarmonizer:
 
         return primary_source, secondary_sources
 
-    def _get_attributes(self, item: dict) -> Dict[str, Any]:
+    def _get_attributes(self, item: dict) -> dict[str, Any]:
         id_attr = {"spoke_id": item["id"]}
         properties = item.get("properties")
         attributes = {
@@ -469,7 +481,7 @@ class SpokeHarmonizer:
         }
         return id_attr | attributes
 
-    def _get_true_publications(self, input_list: List[str]) -> List[str]:
+    def _get_true_publications(self, input_list: list[str]) -> list[str]:
         # TODO: later add to id normalizer? pmid and doi cleaners/validators..
         publications = set()
         for entry in input_list:

@@ -8,19 +8,16 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-import networkx as nx
 import matplotlib.pyplot as plt
-import plotly.graph_objects as go
-import plotly.express as px
+import networkx as nx
 import numpy as np
-import matplotlib.patches as patches
-from matplotlib.patches import FancyBboxPatch
-import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-from utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
-from utils.logging_config import setup_logging
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 from utils.constants import PRIMARY_KS
+from utils.kg_io import stream_edges_from_jsonl
+from utils.logging_config import setup_logging
 
 PROJECT_ROOT_PATH = Path(__file__).parents[1]
 
@@ -102,7 +99,6 @@ def visualize_dag_plotly(G, title="Interactive DAG Visualization", width=1000, h
     node_sizes = []
 
     # Color scheme based on levels
-    max_level = max(levels.values())
     colors = px.colors.qualitative.Set3
 
     for node in G.nodes():
@@ -123,13 +119,16 @@ def visualize_dag_plotly(G, title="Interactive DAG Visualization", width=1000, h
     fig = go.Figure()
 
     # Add edges
-    fig.add_trace(go.Scatter(
-        x=edge_x, y=edge_y,
-        line=dict(width=2, color='rgba(125, 125, 125, 0.8)'),
-        hoverinfo='none',
-        mode='lines',
-        showlegend=False
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=edge_x,
+            y=edge_y,
+            line=dict(width=2, color="rgba(125, 125, 125, 0.8)"),
+            hoverinfo="none",
+            mode="lines",
+            showlegend=False,
+        )
+    )
 
     # Add arrow heads for edges
     for edge in G.edges():
@@ -143,96 +142,96 @@ def visualize_dag_plotly(G, title="Interactive DAG Visualization", width=1000, h
         # Calculate arrow direction
         dx = x1 - x0
         dy = y1 - y0
-        length = np.sqrt(dx ** 2 + dy ** 2)
+        length = np.sqrt(dx**2 + dy**2)
         if length > 0:
             dx, dy = dx / length, dy / length
 
         fig.add_annotation(
-            x=arrow_x, y=arrow_y,
-            ax=arrow_x - dx * 0.1, ay=arrow_y - dy * 0.1,
-            xref='x', yref='y', axref='x', ayref='y',
-            arrowhead=2, arrowsize=1.5, arrowwidth=2,
-            arrowcolor='rgba(125, 125, 125, 0.8)',
-            showlegend=False
+            x=arrow_x,
+            y=arrow_y,
+            ax=arrow_x - dx * 0.1,
+            ay=arrow_y - dy * 0.1,
+            xref="x",
+            yref="y",
+            axref="x",
+            ayref="y",
+            arrowhead=2,
+            arrowsize=1.5,
+            arrowwidth=2,
+            arrowcolor="rgba(125, 125, 125, 0.8)",
+            showlegend=False,
         )
 
     # Add nodes
-    fig.add_trace(go.Scatter(
-        x=node_x, y=node_y,
-        mode='markers+text',
-        marker=dict(
-            size=node_sizes,
-            color=node_colors,
-            line=dict(width=2, color='white'),
-            symbol='circle'
-        ),
-        text=node_text,
-        textposition="middle center",
-        textfont=dict(size=12, color='black', family="Arial Black"),
-        hovertemplate='<b>%{text}</b><br>Level: %{customdata}<extra></extra>',
-        customdata=[levels[node] for node in G.nodes()],
-        showlegend=False
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=node_x,
+            y=node_y,
+            mode="markers+text",
+            marker=dict(size=node_sizes, color=node_colors, line=dict(width=2, color="white"), symbol="circle"),
+            text=node_text,
+            textposition="middle center",
+            textfont=dict(size=12, color="black", family="Arial Black"),
+            hovertemplate="<b>%{text}</b><br>Level: %{customdata}<extra></extra>",
+            customdata=[levels[node] for node in G.nodes()],
+            showlegend=False,
+        )
+    )
 
     fig.update_layout(
-        title=dict(
-            text=title,
-            x=0.5,
-            font=dict(size=20, family="Arial Black")
-        ),
+        title=dict(text=title, x=0.5, font=dict(size=20, family="Arial Black")),
         showlegend=False,
-        hovermode='closest',
+        hovermode="closest",
         margin=dict(b=20, l=5, r=5, t=40),
         annotations=[
             dict(
                 text="Drag nodes to rearrange • Hover for details",
                 showarrow=False,
-                xref="paper", yref="paper",
-                x=0.005, y=-0.002,
-                xanchor="left", yanchor="bottom",
-                font=dict(color="gray", size=12)
+                xref="paper",
+                yref="paper",
+                x=0.005,
+                y=-0.002,
+                xanchor="left",
+                yanchor="bottom",
+                font=dict(color="gray", size=12),
             )
         ],
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        plot_bgcolor='white',
+        plot_bgcolor="white",
         width=width,
-        height=height
+        height=height,
     )
 
     return fig
 
 
-def visualize_dag_matplotlib_stylish(G, title="Stylistic DAG Visualization",
-                                     figsize=(14, 10), style='modern'):
+def visualize_dag_matplotlib_stylish(G, title="Stylistic DAG Visualization", figsize=(14, 10), style="modern"):
     """
     Create a highly stylistic DAG visualization using matplotlib.
     """
     # Set style
-    plt.style.use('default')
-    if style == 'dark':
-        plt.style.use('dark_background')
+    plt.style.use("default")
+    if style == "dark":
+        plt.style.use("dark_background")
 
     pos, levels = get_hierarchical_positions(G, horizontal_spacing=3, vertical_spacing=2)
 
-    fig, ax = plt.subplots(figsize=figsize, facecolor='white' if style != 'dark' else 'black')
+    fig, ax = plt.subplots(figsize=figsize, facecolor="white" if style != "dark" else "black")
 
     # Color schemes
-    if style == 'modern':
-        node_colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8']
-        edge_color = '#2C3E50'
-        text_color = 'white'
-        bg_color = 'white'
-    elif style == 'dark':
-        node_colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8']
-        edge_color = '#BDC3C7'
-        text_color = 'white'
-        bg_color = 'black'
+    if style == "modern":
+        node_colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8"]
+        edge_color = "#2C3E50"
+        text_color = "white"
+    elif style == "dark":
+        node_colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8"]
+        edge_color = "#BDC3C7"
+        text_color = "white"
     else:  # pastel
-        node_colors = ['#FFB3BA', '#BAFFC9', '#BAE1FF', '#FFFFBA', '#FFDFBA', '#E0BBE4', '#D4F0D4']
-        edge_color = '#34495E'
-        text_color = 'black'
-        bg_color = 'white'
+        node_colors = ["#FFB3BA", "#BAFFC9", "#BAE1FF", "#FFFFBA", "#FFDFBA", "#E0BBE4", "#D4F0D4"]
+        edge_color = "#34495E"
+        text_color = "black"
 
     # Draw edges with style
     for edge in G.edges():
@@ -240,13 +239,22 @@ def visualize_dag_matplotlib_stylish(G, title="Stylistic DAG Visualization",
         x1, y1 = pos[edge[1]]
 
         # Draw edge with gradient effect
-        ax.annotate('', xy=(x1, y1), xytext=(x0, y0),
-                    arrowprops=dict(arrowstyle='->', lw=2.5, color=edge_color,
-                                    alpha=0.7, shrinkA=25, shrinkB=25,
-                                    connectionstyle="arc3,rad=0.1"))
+        ax.annotate(
+            "",
+            xy=(x1, y1),
+            xytext=(x0, y0),
+            arrowprops=dict(
+                arrowstyle="->",
+                lw=2.5,
+                color=edge_color,
+                alpha=0.7,
+                shrinkA=25,
+                shrinkB=25,
+                connectionstyle="arc3,rad=0.1",
+            ),
+        )
 
     # Draw nodes with fancy styling
-    max_level = max(levels.values())
     for node in G.nodes():
         x, y = pos[node]
         level = levels[node]
@@ -259,39 +267,51 @@ def visualize_dag_matplotlib_stylish(G, title="Stylistic DAG Visualization",
         color = node_colors[level % len(node_colors)]
 
         # Create fancy node
-        if style == 'modern':
+        if style == "modern":
             # Gradient-like effect with multiple circles
             for i, alpha in enumerate([0.3, 0.5, 0.7, 1.0]):
                 circle_size = size * (1.2 - i * 0.05)
-                circle = plt.Circle((x, y), np.sqrt(circle_size / np.pi) / 10,
-                                    color=color, alpha=alpha, zorder=2 - i * 0.1)
+                circle = plt.Circle(
+                    (x, y), np.sqrt(circle_size / np.pi) / 10, color=color, alpha=alpha, zorder=2 - i * 0.1
+                )
                 ax.add_patch(circle)
         else:
             # Standard styled circle
-            circle = plt.Circle((x, y), np.sqrt(size / np.pi) / 10,
-                                color=color, alpha=0.9, zorder=2)
+            circle = plt.Circle((x, y), np.sqrt(size / np.pi) / 10, color=color, alpha=0.9, zorder=2)
             ax.add_patch(circle)
 
             # Add border
-            border = plt.Circle((x, y), np.sqrt(size / np.pi) / 10,
-                                fill=False, edgecolor='white', linewidth=3, zorder=3)
+            border = plt.Circle(
+                (x, y), np.sqrt(size / np.pi) / 10, fill=False, edgecolor="white", linewidth=3, zorder=3
+            )
             ax.add_patch(border)
 
         # Add text with better styling
-        ax.text(x, y, str(node), ha='center', va='center',
-                fontsize=12, fontweight='bold', color=text_color, zorder=4,
-                bbox=dict(boxstyle="round,pad=0.1", facecolor=color,
-                          alpha=0.8, edgecolor='none') if style != 'modern' else None)
+        ax.text(
+            x,
+            y,
+            str(node),
+            ha="center",
+            va="center",
+            fontsize=12,
+            fontweight="bold",
+            color=text_color,
+            zorder=4,
+            bbox=(
+                dict(boxstyle="round,pad=0.1", facecolor=color, alpha=0.8, edgecolor="none")
+                if style != "modern"
+                else None
+            ),
+        )
 
     # Styling
     ax.set_xlim(min(x for x, y in pos.values()) - 1, max(x for x, y in pos.values()) + 1)
     ax.set_ylim(min(y for x, y in pos.values()) - 1, max(y for x, y in pos.values()) + 1)
-    ax.set_aspect('equal')
-    ax.axis('off')
+    ax.set_aspect("equal")
+    ax.axis("off")
 
     # Title with style
-    plt.suptitle(title, fontsize=20, fontweight='bold',
-                 color=text_color if style == 'dark' else 'black', y=0.95)
+    plt.suptitle(title, fontsize=20, fontweight="bold", color=text_color if style == "dark" else "black", y=0.95)
 
     # Add level indicators
     level_y_positions = {}
@@ -301,10 +321,15 @@ def visualize_dag_matplotlib_stylish(G, title="Stylistic DAG Visualization",
             level_y_positions[level] = y
 
     for level, y_pos in level_y_positions.items():
-        ax.text(min(x for x, y in pos.values()) - 0.8, y_pos,
-                f'Level {level}', fontsize=10, alpha=0.7,
-                color=text_color if style == 'dark' else 'gray',
-                verticalalignment='center')
+        ax.text(
+            min(x for x, y in pos.values()) - 0.8,
+            y_pos,
+            f"Level {level}",
+            fontsize=10,
+            alpha=0.7,
+            color=text_color if style == "dark" else "gray",
+            verticalalignment="center",
+        )
 
     plt.tight_layout()
     return fig
@@ -314,32 +339,32 @@ def visualize_dag_matplotlib_stylish(G, title="Stylistic DAG Visualization",
 if __name__ == "__main__":
 
     root_edges = [
-        ('rtx-kg2', 'kraken'),
-        ('spoke', 'kraken'),
-        ('umls', 'kraken'),
-        ('lipidmaps', 'kraken'),
-        ('refmet', 'kraken')
+        ("rtx-kg2", "kraken"),
+        ("spoke", "kraken"),
+        ("umls", "kraken"),
+        ("lipidmaps", "kraken"),
+        ("refmet", "kraken"),
     ]
     # Load KG2 edge sources
-    logging.info(f"Loading KG2 sources..")
+    logging.info("Loading KG2 sources..")
     kg2_edges_path = f"{PROJECT_ROOT_PATH}/artifacts/harmonized/kg2/edges.jsonl"
     kg2_sources = set()
     for edge in stream_edges_from_jsonl(kg2_edges_path):
         primary_ks = edge[PRIMARY_KS]
-        kg2_sources.add(primary_ks.removeprefix('infores:'))
-    kg2_edges = [(source, 'rtx-kg2') for source in kg2_sources]
+        kg2_sources.add(primary_ks.removeprefix("infores:"))
+    kg2_edges = [(source, "rtx-kg2") for source in kg2_sources]
 
     # Load SPOKE edge sources
-    logging.info(f"Loading SPOKE sources..")
+    logging.info("Loading SPOKE sources..")
     spoke_edges_path = f"{PROJECT_ROOT_PATH}/artifacts/harmonized/spoke/edges.jsonl"
     spoke_sources = set()
     for edge in stream_edges_from_jsonl(spoke_edges_path):
         primary_ks = edge[PRIMARY_KS]
-        spoke_sources.add(primary_ks.removeprefix('infores:'))
-    spoke_edges = [(source, 'spoke') for source in spoke_sources]
+        spoke_sources.add(primary_ks.removeprefix("infores:"))
+    spoke_edges = [(source, "spoke") for source in spoke_sources]
 
     # Create the DAG
-    logging.info(f"Creating DAG...")
+    logging.info("Creating DAG...")
     edges = root_edges + kg2_edges + spoke_edges
     dag = create_dag_from_edges(edges)
 
@@ -352,29 +377,26 @@ if __name__ == "__main__":
     logging.info("Creating presentation-ready matplotlib visualizations...")
 
     # Modern style - vibrant and professional
-    fig1 = visualize_dag_matplotlib_stylish(dag, "ML Pipeline DAG - Modern Style",
-                                            style='modern')
+    fig1 = visualize_dag_matplotlib_stylish(dag, "ML Pipeline DAG - Modern Style", style="modern")
     plt.show()
 
     # Professional style - corporate-friendly
-    fig2 = visualize_dag_matplotlib_stylish(dag, "ML Pipeline DAG - Professional Style",
-                                            style='professional')
+    fig2 = visualize_dag_matplotlib_stylish(dag, "ML Pipeline DAG - Professional Style", style="professional")
     plt.show()
 
     # Pastel style - soft and elegant
-    fig3 = visualize_dag_matplotlib_stylish(dag, "ML Pipeline DAG - Pastel Style",
-                                            style='pastel')
+    fig3 = visualize_dag_matplotlib_stylish(dag, "ML Pipeline DAG - Pastel Style", style="pastel")
     plt.show()
 
     # Save figures with transparent backgrounds for slides
     fig_plotly.write_html("dag_interactive.html")
-    fig1.savefig("dag_modern.png", dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
-    fig2.savefig("dag_professional.png", dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
-    fig3.savefig("dag_pastel.png", dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+    fig1.savefig("dag_modern.png", dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+    fig2.savefig("dag_professional.png", dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+    fig3.savefig("dag_pastel.png", dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
 
     # Also save with transparent backgrounds
-    fig1.savefig("dag_modern_transparent.png", dpi=300, bbox_inches='tight', facecolor='none', edgecolor='none')
-    fig2.savefig("dag_professional_transparent.png", dpi=300, bbox_inches='tight', facecolor='none', edgecolor='none')
-    fig3.savefig("dag_pastel_transparent.png", dpi=300, bbox_inches='tight', facecolor='none', edgecolor='none')
+    fig1.savefig("dag_modern_transparent.png", dpi=300, bbox_inches="tight", facecolor="none", edgecolor="none")
+    fig2.savefig("dag_professional_transparent.png", dpi=300, bbox_inches="tight", facecolor="none", edgecolor="none")
+    fig3.savefig("dag_pastel_transparent.png", dpi=300, bbox_inches="tight", facecolor="none", edgecolor="none")
 
     logging.info("Visualizations saved!")

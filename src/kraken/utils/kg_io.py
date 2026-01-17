@@ -4,13 +4,15 @@ Knowledge graph I/O utilities
 
 import csv
 import gzip
+import logging
 import os
 import shutil
 import sys
+from collections.abc import Iterable, Iterator
 from pathlib import Path
+from typing import Any
+
 import jsonlines
-import logging
-from typing import Iterator, Dict, Any, Iterable
 
 from kraken.utils.general import is_empty
 
@@ -26,12 +28,12 @@ def get_harmonized_file_paths(source_name: str) -> tuple[Path, Path]:
     return nodes_path, edges_path
 
 
-def _strip_key_prefixes(d: Dict[str, Any]) -> Dict[str, Any]:
+def _strip_key_prefixes(d: dict[str, Any]) -> dict[str, Any]:
     """Strip common prefixes like 'biolink:' from dict keys"""
     return {k.removeprefix("biolink:"): v for k, v in d.items()}
 
 
-def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
+def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[dict[str, Any]]:
     """Stream nodes from JSONL file without loading into memory"""
     logging.info(f"Streaming nodes from {nodes_file}")
 
@@ -42,7 +44,7 @@ def stream_nodes_from_jsonl(nodes_file: Path) -> Iterator[Dict[str, Any]]:
             yield _strip_key_prefixes(node)
 
 
-def stream_edges_from_jsonl(edges_file: Path) -> Iterator[Dict[str, Any]]:
+def stream_edges_from_jsonl(edges_file: Path) -> Iterator[dict[str, Any]]:
     """Stream edges from JSONL file without loading into memory"""
     logging.info(f"Streaming edges from {edges_file}")
 
@@ -57,11 +59,11 @@ def stream_nodes_from_tsv(
     nodes_file: Path,
     list_delimiter: str | None,
     exclude_from_list_parsing: set[str],
-) -> Iterator[Dict[str, Any]]:
+) -> Iterator[dict[str, Any]]:
     """Stream nodes from TSV file without loading into memory"""
     logging.info(f"Streaming nodes from {nodes_file}")
 
-    with open(nodes_file, "r", newline="", encoding="utf-8") as f:
+    with open(nodes_file, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for line_num, node in enumerate(reader, 1):
             if line_num % 1000000 == 0:
@@ -87,11 +89,11 @@ def stream_nodes_from_tsv(
 
 def stream_edges_from_tsv(
     edges_file: Path, list_delimiter: str | None, exclude_from_list_parsing: set[str]
-) -> Iterator[Dict[str, Any]]:
+) -> Iterator[dict[str, Any]]:
     """Stream edges from TSV file without loading into memory"""
     logging.info(f"Streaming edges from {edges_file}")
 
-    with open(edges_file, "r", newline="", encoding="utf-8") as f:
+    with open(edges_file, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for line_num, edge in enumerate(reader, 1):
             if line_num % 5000000 == 0:
@@ -115,7 +117,7 @@ def stream_edges_from_tsv(
             yield edge
 
 
-def stream_mixed_jsonl(input_file: Path) -> Iterator[Dict[str, Any]]:
+def stream_mixed_jsonl(input_file: Path) -> Iterator[dict[str, Any]]:
     """Stream items from mixed JSONL file (nodes and edges together)"""
     logging.info(f"Streaming mixed JSONL from {input_file}")
 
@@ -136,7 +138,7 @@ def remove_file(file_path: Path):
         os.remove(file_path)
 
 
-def load_equivalency_mappings(nodes_file: Path) -> Dict[str, str]:
+def load_equivalency_mappings(nodes_file: Path) -> dict[str, str]:
     """Load equivalency mappings for entity resolution"""
     logging.info(f"Loading equivalency mappings from {nodes_file}")
 
@@ -166,7 +168,7 @@ def load_csv_to_dict_list(filename: Path):
     """
     records = []
 
-    with open(filename, "r", encoding="utf-8") as file:
+    with open(filename, encoding="utf-8") as file:
         # Create a CSV reader that automatically uses the first row as headers
         csv_reader = csv.DictReader(file)
 
@@ -211,14 +213,14 @@ def ensure_unzipped(filepath: Path) -> Path:
 
     # If unzipped exists, we're done
     if unzipped_path.exists():
-        logging.info(f"File is already unzipped")
+        logging.info("File is already unzipped")
         return unzipped_path
 
     # Otherwise, need to unzip from gz
     if not gz_path.exists():
         raise FileNotFoundError(f"Neither {unzipped_path} nor {gz_path} exists")
 
-    logging.info(f"File is zipped - unzipping..")
+    logging.info("File is zipped - unzipping..")
     with gzip.open(gz_path, "rb") as f_in, open(unzipped_path, "wb") as f_out:
         shutil.copyfileobj(f_in, f_out)
 
@@ -257,7 +259,7 @@ def ensure_gzipped(filepath: Path, remove_original: bool = True) -> Path:
     if not unzipped_path.exists():
         raise FileNotFoundError(f"Neither {unzipped_path} nor {gz_path} exists")
 
-    logging.info(f"File is unzipped - zipping..")
+    logging.info("File is unzipped - zipping..")
     with open(unzipped_path, "rb") as f_in, gzip.open(gz_path, "wb") as f_out:
         shutil.copyfileobj(f_in, f_out)
 

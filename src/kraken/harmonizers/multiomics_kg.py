@@ -1,5 +1,5 @@
-from kraken.utils.constants import MULTIOMICS_KG_INFORES
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.constants import MULTIOMICS_KG_INFORES
 
 
 class MultiomicsKGHarmonizer(BaseHarmonizer):

@@ -2,26 +2,25 @@
 Main orchestration functions for KRAKEN build
 """
 
-from pathlib import Path
 import logging
+from pathlib import Path
 
 from kraken.harmonizers.clingen import ClinGenHarmonizer
-from kraken.harmonizers.molepro import MoleProHarmonizer
+from kraken.harmonizers.kg2 import KG2Harmonizer
+from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
 from kraken.harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
+from kraken.harmonizers.molepro import MoleProHarmonizer
 from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
 from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
-from kraken.harmonizers.kg2 import KG2Harmonizer
-from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
 from kraken.harmonizers.spoke import SpokeHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
-
 from kraken.integration.entity_resolution import integrate_sources
-from kraken.utils.biolink_client import BiolinkClient
-from kraken.utils.kg_io import unzip_files, zip_files, get_harmonized_file_paths, PROJECT_ROOT
-from kraken.utils.metagraph import generate_metagraph_for_source, compare_metagraphs
-from kraken.utils.general import to_list
 from kraken.post_processing.test_file_generator import create_test_kg_files
+from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils.general import to_list
+from kraken.utils.kg_io import PROJECT_ROOT, get_harmonized_file_paths, unzip_files, zip_files
+from kraken.utils.metagraph import compare_metagraphs, generate_metagraph_for_source
 
 
 def run_kg_build(config: dict) -> tuple[Path, Path]:
@@ -55,23 +54,23 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
     source_configs = {source: config["sources"][source] for source in sources_to_use}
     if config["steps"].get("harmonize"):
-        logging.info(f"-------------------------- HARMONIZING SOURCES -----------------------------------------------")
+        logging.info("-------------------------- HARMONIZING SOURCES -----------------------------------------------")
         harmonize_sources(source_configs, biolink_version, create_metagraphs, zip_inputs_after)
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config["steps"].get("integrate"):
-        logging.info(f"-------------------------- INTEGRATING SOURCES -----------------------------------------------")
+        logging.info("-------------------------- INTEGRATING SOURCES -----------------------------------------------")
         integrate_sources(sources_to_use, unified_dir_path, unified_nodes_path, unified_edges_path, config)
 
         if create_metagraphs:
             logging.info(
-                f"---------------------- GENERATING UNIFIED METAGRAPH ------------------------------------------"
+                "---------------------- GENERATING UNIFIED METAGRAPH ------------------------------------------"
             )
             generate_unified_metagraph(unified_nodes_path, unified_edges_path, sources_to_use)
 
     # Phase 3: Post-processing steps
     if config["steps"].get("postprocess"):
-        logging.info(f"------------------------------ POST-PROCESSING -----------------------------------------------")
+        logging.info("------------------------------ POST-PROCESSING -----------------------------------------------")
         post_process_unified_kg(
             unified_nodes_path, unified_edges_path, config["post_processing"], biolink_version, kraken_version
         )

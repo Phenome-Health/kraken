@@ -5,18 +5,17 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import requests
 from biomapper2.core.normalizer import Normalizer
 from bs4 import BeautifulSoup
 
-from kraken.utils.constants import CLINGEN_INFORES, ID
-from kraken.utils.kg_io import save_to_jsonl
-from kraken.utils.general import create_edge_key
-from kraken.utils.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
-
+from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils.constants import CLINGEN_INFORES, ID
+from kraken.utils.general import create_edge_key
+from kraken.utils.kg_io import save_to_jsonl
 
 CLINGEN_ACMG_API_URL = "https://actionability.clinicalgenome.org/ac/api/summ/brief"
 
@@ -54,8 +53,8 @@ class ClinGenHarmonizer:
         """
         logging.info(f"Harmonizing {self.source_name}: {input_file} -> {nodes_output}, {edges_output}")
 
-        nodes: Dict[str, Dict[str, Any]] = {}
-        edges: Dict[str, Dict[str, Any]] = {}
+        nodes: dict[str, dict[str, Any]] = {}
+        edges: dict[str, dict[str, Any]] = {}
 
         # Load the data (either from pre-downloaded file or fetch from API)
         data = self._load_or_fetch_data(input_file)
@@ -70,11 +69,11 @@ class ClinGenHarmonizer:
 
         logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, {len(edges)} edges")
 
-    def _load_or_fetch_data(self, input_file: Path) -> List[Dict[str, Any]]:
+    def _load_or_fetch_data(self, input_file: Path) -> list[dict[str, Any]]:
         """Load data from file or fetch from API if file doesn't exist."""
         if input_file.exists():
             logging.info(f"Loading ClinGen ACMG data from {input_file}")
-            with open(input_file, "r") as f:
+            with open(input_file) as f:
                 return json.load(f)
         else:
             logging.info(f"Fetching ClinGen ACMG data from {CLINGEN_ACMG_API_URL}")
@@ -91,7 +90,7 @@ class ClinGenHarmonizer:
             return data
 
     def _process_record(
-        self, record: Dict[str, Any], nodes: Dict[str, Dict[str, Any]], edges: Dict[str, Dict[str, Any]]
+        self, record: dict[str, Any], nodes: dict[str, dict[str, Any]], edges: dict[str, dict[str, Any]]
     ) -> None:
         """Process a single ClinGen record."""
         doc_id = record.get("docId")
@@ -144,7 +143,7 @@ class ClinGenHarmonizer:
                         edge_key = create_edge_key(edge)
                         edges[edge_key] = edge
 
-    def _process_disease(self, disease_info: Dict[str, Any], gene_omim: str) -> Optional[Dict[str, Any]]:
+    def _process_disease(self, disease_info: dict[str, Any], gene_omim: str) -> dict[str, Any] | None:
         """
         Process a disease/condition into a harmonized node.
         Uses the omim and preferredMondo identifiers from the disease_info.
@@ -191,7 +190,7 @@ class ClinGenHarmonizer:
             synonyms=[disease_label] if disease_label else None,
         )
 
-    def _process_gene(self, gene_symbol: str, gene_omim: str) -> Dict[str, Any]:
+    def _process_gene(self, gene_symbol: str, gene_omim: str) -> dict[str, Any]:
         """Process a gene into a harmonized node."""
         # Build a dict of identifiers to normalize
         id_dict = {"omim": gene_omim}
@@ -223,13 +222,13 @@ class ClinGenHarmonizer:
         gene_id: str,
         disease_id: str,
         gene_symbol: str,
-        disease_local_ids: List[str],
+        disease_local_ids: list[str],
         doc_id: str,
         context_type: str,
-        modes_of_inheritance: List[str],
-        outcome_intervention_pairs: List[Dict[str, Any]],
-        assertions_by_gene: Dict[str, List[Dict[str, str]]],
-    ) -> Optional[Dict[str, Any]]:
+        modes_of_inheritance: list[str],
+        outcome_intervention_pairs: list[dict[str, Any]],
+        assertions_by_gene: dict[str, list[dict[str, str]]],
+    ) -> dict[str, Any] | None:
         """
         Create an edge representing a gene-disease association.
 
@@ -279,7 +278,7 @@ class ClinGenHarmonizer:
 
     def _scrape_actionability_scores(
         self, url: str, doc_id: str, debug: bool = False
-    ) -> Tuple[Dict[str, List[Dict[str, str]]], List[Dict[str, Any]]]:
+    ) -> tuple[dict[str, list[dict[str, str]]], list[dict[str, Any]]]:
         """
         Scrape actionability scores and final assertions from a ClinGen HTML page.
 
@@ -304,8 +303,8 @@ class ClinGenHarmonizer:
 
             soup = BeautifulSoup(response.content, "html.parser")
 
-            final_assertions: List[Dict[str, str]] = []
-            outcome_intervention_pairs: List[Dict[str, Any]] = []
+            final_assertions: list[dict[str, str]] = []
+            outcome_intervention_pairs: list[dict[str, Any]] = []
 
             # Scrape Final Assertions
             page_text = soup.get_text()
@@ -321,8 +320,8 @@ class ClinGenHarmonizer:
                     if container:
                         current = container.find_next_sibling()
 
-                        gene_condition_pattern: List[str] = []
-                        assertion_pattern: List[str] = []
+                        gene_condition_pattern: list[str] = []
+                        assertion_pattern: list[str] = []
 
                         # Walk through siblings collecting data
                         while current and "Final Consensus Scores" not in current.get_text():
@@ -391,7 +390,7 @@ class ClinGenHarmonizer:
                 print("WARNING: No final assertions found")
 
             # Organize assertions by gene symbol
-            assertions_by_gene: Dict[str, List[Dict[str, str]]] = {}
+            assertions_by_gene: dict[str, list[dict[str, str]]] = {}
             for assertion in final_assertions:
                 gene_condition_pair = assertion.get("gene_condition_pair", "")
 
@@ -440,7 +439,7 @@ class ClinGenHarmonizer:
                     total_score = row.find("div", class_=lambda x: x and "totalScore" in x and "scrData" in x)
 
                     if debug:
-                        print(f"\nProcessing row:")
+                        print("\nProcessing row:")
                         print(f"  oi_pair: {oi_pair.get_text(strip=True) if oi_pair else 'None'}")
                         print(f"  severity: {severity.get_text(strip=True) if severity else 'None'}")
                         print(f"  likelihood: {likelihood.get_text(strip=True) if likelihood else 'None'}")
@@ -485,7 +484,8 @@ class ClinGenHarmonizer:
 
             logging.info(
                 f"Successfully scraped {sum(len(v) for v in assertions_by_gene.values())} gene-condition assertions "
-                f"and {len(outcome_intervention_pairs)} outcome-intervention pairs from doc {doc_id} (took {elapsed_time:.2f}s)"
+                f"and {len(outcome_intervention_pairs)} outcome-intervention pairs from doc "
+                f"{doc_id} (took {elapsed_time:.2f}s)"
             )
             return assertions_by_gene, outcome_intervention_pairs
 
@@ -495,8 +495,8 @@ class ClinGenHarmonizer:
             return {}, []
 
     def _find_matching_assertion(
-        self, gene_symbol: str, disease_ids: List[str], assertions_by_gene: Dict[str, List[Dict[str, str]]]
-    ) -> Optional[Dict[str, str]]:
+        self, gene_symbol: str, disease_ids: list[str], assertions_by_gene: dict[str, list[dict[str, str]]]
+    ) -> dict[str, str] | None:
         """
         Find the assertion that matches the current gene-condition edge.
 

@@ -1,16 +1,26 @@
 import html
 import json
 import logging
-import math
 import unicodedata
 from numbers import Number
 from pathlib import Path
-from typing import Union, List, Set, Optional, Dict, Any, Collection
+from typing import Any
 
 import requests
 import yaml
 
-from kraken.utils.constants import *
+from kraken.utils.constants import (
+    CONTEXT_QUALIFIER,
+    NONE_STRINGS,
+    OBJ_ASPECT_QUALIFIER,
+    OBJ_DIRECTION_QUALIFIER,
+    OBJECT,
+    PREDICATE,
+    PRIMARY_KS,
+    QUALIFIED_PREDICATE,
+    SUBJECT,
+    SUPPORTING_SOURCES,
+)
 
 
 def create_edge_key(edge: dict) -> str:
@@ -44,7 +54,7 @@ def clean_text(text: any) -> str:
     return cleaned_text
 
 
-def to_list(item: Any) -> List[Any]:
+def to_list(item: Any) -> list[Any]:
     if isinstance(item, list):
         return item
     elif isinstance(item, (set, tuple)):
@@ -94,6 +104,6 @@ def load_biolink_file(url: str, biolink_version: str) -> dict:
             json.dump(response_json, cache_file, indent=2)
 
     # Read and return the cached JSON
-    with open(local_path, "r") as cache_file:
+    with open(local_path) as cache_file:
         contents = json.load(cache_file)
         return contents

@@ -1,18 +1,46 @@
+import logging
 from abc import ABC
 from pathlib import Path
 from typing import Any
-import jsonlines
-import logging
 
+import jsonlines
+
+from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils.constants import (
+    AGENT_TYPE,
+    AGGREGATOR_KS,
+    ATTRIBUTES,
+    CATEGORIES,
+    CHEMICAL_FORMULA,
+    CONTEXT_QUALIFIER,
+    DESCRIPTION,
+    EQUIVALENT_IDS,
+    EXACT_MASS,
+    ID,
+    KNOWLEDGE_LEVEL,
+    NAME,
+    NOT_PROVIDED,
+    OBJ_ASPECT_QUALIFIER,
+    OBJ_DIRECTION_QUALIFIER,
+    OBJECT,
+    PREDICATE,
+    PRIMARY_KS,
+    PROVIDED_BY,
+    PUBLICATIONS,
+    PUBLICATIONS_INFO,
+    QUALIFIED_PREDICATE,
+    SUBJECT,
+    SUPPORTING_SOURCES,
+    SYNONYMS,
+    URLS,
+)
+from kraken.utils.general import clean_text, is_empty, to_list
 from kraken.utils.kg_io import (
     stream_edges_from_jsonl,
+    stream_edges_from_tsv,
     stream_nodes_from_jsonl,
     stream_nodes_from_tsv,
-    stream_edges_from_tsv,
 )
-from kraken.utils.general import to_list, clean_text, is_empty
-from kraken.utils.biolink_client import BiolinkClient
-from kraken.utils.constants import *
 
 
 class BaseHarmonizer(ABC):
@@ -116,7 +144,7 @@ class BaseHarmonizer(ABC):
                 harmonized = self.harmonize_node(node)
                 writer.write(harmonized)
                 count += 1
-        logging.info(f"Finished harmonizing nodes")
+        logging.info("Finished harmonizing nodes")
         return count
 
     def _harmonize_edges(self, input_path: Path, output_path: Path) -> int:
@@ -126,7 +154,7 @@ class BaseHarmonizer(ABC):
                 harmonized = self.harmonize_edge(edge)
                 writer.write(harmonized)
                 count += 1
-        logging.info(f"Finished harmonizing edges")
+        logging.info("Finished harmonizing edges")
         return count
 
     def collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any]:

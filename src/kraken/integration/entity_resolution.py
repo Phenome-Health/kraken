@@ -3,23 +3,36 @@ Entity resolution and graph integration functions
 """
 
 import copy
-from collections import defaultdict, Counter
-from pathlib import Path
-import sys
-from typing import Dict, Optional, List, Set, Tuple, Any
 import logging
+import sys
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any
+
 import jsonlines
 
-from kraken.utils.kg_io import (
-    stream_nodes_from_jsonl,
-    stream_edges_from_jsonl,
-    load_equivalency_mappings,
-    save_to_jsonl,
-    remove_file,
-    get_harmonized_file_paths,
+from kraken.utils.constants import (
+    AGENT_TYPE,
+    CATEGORIES,
+    CORE_EDGE_PROPERTIES,
+    EQUIVALENT_IDS,
+    ID,
+    KNOWLEDGE_LEVEL,
+    NOT_PROVIDED,
+    OBJECT,
+    ROOT_CATEGORY,
+    SUBJECT,
+    SYNONYMS,
 )
 from kraken.utils.general import create_edge_key, to_list
-from kraken.utils.constants import *
+from kraken.utils.kg_io import (
+    get_harmonized_file_paths,
+    load_equivalency_mappings,
+    remove_file,
+    save_to_jsonl,
+    stream_edges_from_jsonl,
+    stream_nodes_from_jsonl,
+)
 
 
 def integrate_sources(
@@ -49,7 +62,7 @@ def integrate_sources(
 def integrate_nodes(
     source_names: set[str],
     primary_source: str,
-    equivalency_index: Dict[str, str],
+    equivalency_index: dict[str, str],
     output_dir: Path,
     unified_nodes_path: Path,
     config: dict,
@@ -114,7 +127,7 @@ def integrate_nodes(
                     existing_canonical_node = current_canonical_nodes[canonical_id]
                     _ = merge_two_nodes(node, existing_canonical_node, equivalency_index, current_canonical_nodes)
                 else:
-                    # We have a one-to-many match; merge all canonical nodes for this new node into the majority canonical node
+                    # one-to-many match; merge all canonical nodes for this new node into majority canonical node
                     canonical_id_counts = Counter(canonical_ids_list)
                     most_common_canonical_id = canonical_id_counts.most_common(1)[0][0]
                     other_canonical_ids = canonical_ids.difference({most_common_canonical_id})
@@ -166,7 +179,7 @@ def integrate_nodes(
 
     logging.info(f"Formed {len(current_canonical_nodes)} merged nodes")
 
-    logging.info(f"Verifying we have disjoint equivalent_id sets..")
+    logging.info("Verifying we have disjoint equivalent_id sets..")
     seen_ids = set()
     for unified_node in current_canonical_nodes.values():
         equiv_ids = set(unified_node[EQUIVALENT_IDS])
@@ -184,7 +197,7 @@ def integrate_nodes(
 
 
 def integrate_edges(
-    unified_edges_path: Path, source_names: set[str], equivalency_index: Dict[str, str], output_dir: Path
+    unified_edges_path: Path, source_names: set[str], equivalency_index: dict[str, str], output_dir: Path
 ):
     assert equivalency_index
     all_merged_edges = []
@@ -231,8 +244,8 @@ def integrate_edges(
 
 
 def find_majority_canonical_id(
-    node: dict, equivalency_index: Dict[str, str], one_to_many_log: Path
-) -> Tuple[str, Set[str]]:
+    node: dict, equivalency_index: dict[str, str], one_to_many_log: Path
+) -> tuple[str, set[str]]:
     """Find canonical ID for this node using equivalency mappings"""
     # Tally up votes for the canonical node from all the equivalent ids
     node_id = node["id"]
@@ -277,11 +290,11 @@ def find_majority_canonical_id(
 def merge_two_nodes(
     new_node: dict,
     existing_node: dict,
-    equivalency_index: Dict[str, str],
-    current_canonical_nodes: Dict[str, dict],
-    new_equiv_ids: Optional[Set[str]] = None,
+    equivalency_index: dict[str, str],
+    current_canonical_nodes: dict[str, dict],
+    new_equiv_ids: set[str] | None = None,
     new_can_dominate: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Merge data from new node into existing node (edits in place)"""
     merged_node = copy.deepcopy(existing_node)
 
@@ -325,11 +338,11 @@ def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
     # NOTE: If edges are being merged, they must match on all properties included in the edge key
 
     # Merge knowledge_level, favoring values that aren't not_provided
-    if existing_edge[KNOWLEDGE_LEVEL] == UNKNOWN_KNOWLEDGE_LEVEL:
+    if existing_edge[KNOWLEDGE_LEVEL] == NOT_PROVIDED:
         existing_edge[KNOWLEDGE_LEVEL] = new_edge[KNOWLEDGE_LEVEL]
 
     # Merge agent_type, favoring values that aren't not_provided
-    if existing_edge[AGENT_TYPE] == UNKNOWN_AGENT_TYPE:
+    if existing_edge[AGENT_TYPE] == NOT_PROVIDED:
         existing_edge[AGENT_TYPE] = new_edge[AGENT_TYPE]
 
     # Merge any other properties (all core properties except above 2 are incorporated into key, so must be identical)
@@ -338,7 +351,7 @@ def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
             merge_property_into_existing(new_edge, existing_edge, property_name)
 
 
-def resolve_to_canonical(edge: dict, equivalency_index: Dict[str, str]):
+def resolve_to_canonical(edge: dict, equivalency_index: dict[str, str]):
     subj_id = edge[SUBJECT]
     obj_id = edge[OBJECT]
     if subj_id in equivalency_index and obj_id in equivalency_index:
@@ -348,7 +361,7 @@ def resolve_to_canonical(edge: dict, equivalency_index: Dict[str, str]):
         logging.warning(f"Skipping orphan edge: Edge between {subj_id} and {obj_id} is missing equivalency mappings")
 
 
-def merge_two_lists(list_a: list, list_b: list) -> List[Any]:
+def merge_two_lists(list_a: list, list_b: list) -> list[Any]:
     # Merges two lists, retaining distinct values if hashable or otherwise just concatenating
     try:
         return list(set(list_a) | set(list_b))

@@ -1,14 +1,14 @@
 # refmet.py
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from biomapper2.core.normalizer import Normalizer
 
-from kraken.utils.constants import REFMET_INFORES
-from kraken.utils.kg_io import save_to_jsonl, load_csv_to_dict_list
-from kraken.utils.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils.constants import REFMET_INFORES
+from kraken.utils.kg_io import load_csv_to_dict_list, save_to_jsonl
 
 
 class RefMetHarmonizer:
@@ -45,7 +45,7 @@ class RefMetHarmonizer:
 
         logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, 0 edges")
 
-    def _harmonize_row(self, row: Dict[str, Any]) -> Dict[str, Any] | None:
+    def _harmonize_row(self, row: dict[str, Any]) -> dict[str, Any] | None:
         # Transform the 'canonical' ID into standard curie form
         # Note: original has ' refmet_id' with leading space
         rm_curie_dict, _ = self.normalizer.get_curies({"refmet": row[" refmet_id"]}, stop_on_invalid_id=True)

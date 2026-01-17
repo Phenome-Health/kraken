@@ -1,9 +1,9 @@
 # biolink_client.py
 import logging
 
-from kraken.utils.general import to_list
-
 from bmt import Toolkit
+
+from kraken.utils.general import to_list
 
 
 class BiolinkClient:

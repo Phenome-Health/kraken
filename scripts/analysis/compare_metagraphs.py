@@ -7,7 +7,6 @@ and help inform graph selection decisions.
 """
 
 import json
-from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
@@ -17,6 +16,7 @@ from typing import Any
 @dataclass
 class KGMetaGraph:
     """Parsed representation of a KG meta graph."""
+
     name: str
     total_nodes: int = 0
     total_edges: int = 0
@@ -44,6 +44,7 @@ class KGMetaGraph:
 @dataclass
 class KGComparison:
     """Results of comparing multiple KG meta graphs."""
+
     graphs: dict[str, KGMetaGraph]
 
     # Source analysis
@@ -60,10 +61,9 @@ class KGComparison:
         if kg_name not in self.graphs:
             return set()
         this_sources = set(self.graphs[kg_name].knowledge_sources.keys())
-        other_sources = set().union(*(
-            set(g.knowledge_sources.keys())
-            for name, g in self.graphs.items() if name != kg_name
-        ))
+        other_sources = set().union(
+            *(set(g.knowledge_sources.keys()) for name, g in self.graphs.items() if name != kg_name)
+        )
         return this_sources - other_sources
 
     def sources_shared_by_pair(self, kg1: str, kg2: str) -> set[str]:
@@ -80,9 +80,9 @@ class KGComparison:
             return set()
         shared = self.sources_shared_by_pair(kg1, kg2)
         other_names = [n for n in self.graphs.keys() if n not in (kg1, kg2)]
-        other_sources = set().union(*(
-            set(self.graphs[n].knowledge_sources.keys()) for n in other_names
-        )) if other_names else set()
+        other_sources = (
+            set().union(*(set(self.graphs[n].knowledge_sources.keys()) for n in other_names)) if other_names else set()
+        )
         return shared - other_sources
 
     # Category analysis
@@ -99,10 +99,7 @@ class KGComparison:
         if kg_name not in self.graphs:
             return set()
         this_cats = set(self.graphs[kg_name].node_categories.keys())
-        other_cats = set().union(*(
-            set(g.node_categories.keys())
-            for name, g in self.graphs.items() if name != kg_name
-        ))
+        other_cats = set().union(*(set(g.node_categories.keys()) for name, g in self.graphs.items() if name != kg_name))
         return this_cats - other_cats
 
     # Predicate analysis
@@ -119,10 +116,9 @@ class KGComparison:
         if kg_name not in self.graphs:
             return set()
         this_preds = set(self.graphs[kg_name].edge_predicates.keys())
-        other_preds = set().union(*(
-            set(g.edge_predicates.keys())
-            for name, g in self.graphs.items() if name != kg_name
-        ))
+        other_preds = set().union(
+            *(set(g.edge_predicates.keys()) for name, g in self.graphs.items() if name != kg_name)
+        )
         return this_preds - other_preds
 
     # Meta triple analysis
@@ -148,10 +144,7 @@ class KGComparison:
 
     def meta_triples_unique_to(self, kg_name: str) -> set[tuple[str, str, str]]:
         this_triples = self.meta_triples_for(kg_name)
-        other_triples = set().union(*(
-            self.meta_triples_for(name)
-            for name in self.graphs.keys() if name != kg_name
-        ))
+        other_triples = set().union(*(self.meta_triples_for(name) for name in self.graphs.keys() if name != kg_name))
         return this_triples - other_triples
 
 
@@ -198,8 +191,7 @@ def print_source_analysis(comparison: KGComparison) -> None:
     if comparison.shared_sources:
         print("\nShared sources (all KGs):")
         for src in sorted(comparison.shared_sources):
-            counts = [f"{name}: {g.knowledge_sources.get(src, 0):,}"
-                      for name, g in comparison.graphs.items()]
+            counts = [f"{name}: {g.knowledge_sources.get(src, 0):,}" for name, g in comparison.graphs.items()]
             print(f"  {src}: {', '.join(counts)}")
 
     # Pairwise analysis (only when 3+ KGs)
@@ -218,12 +210,13 @@ def print_source_analysis(comparison: KGComparison) -> None:
             print(f"  Exclusive to this pair (not in others): {len(exclusive)}")
 
             if exclusive:
-                print(f"  Exclusive sources:")
+                print("  Exclusive sources:")
                 g1, g2 = comparison.graphs[kg1], comparison.graphs[kg2]
-                for src in sorted(exclusive,
-                                  key=lambda s: g1.knowledge_sources.get(s, 0) +
-                                                g2.knowledge_sources.get(s, 0),
-                                  reverse=True)[:10]:
+                for src in sorted(
+                    exclusive,
+                    key=lambda s: g1.knowledge_sources.get(s, 0) + g2.knowledge_sources.get(s, 0),
+                    reverse=True,
+                )[:10]:
                     c1 = g1.knowledge_sources.get(src, 0)
                     c2 = g2.knowledge_sources.get(src, 0)
                     print(f"    {src}: {kg1}={c1:,}, {kg2}={c2:,}")
@@ -256,8 +249,7 @@ def print_category_analysis(comparison: KGComparison) -> None:
 
     print("\nCategory coverage (top 20 by max count):")
     all_cats = comparison.all_categories
-    cat_max = {cat: max(g.node_categories.get(cat, 0) for g in comparison.graphs.values())
-               for cat in all_cats}
+    cat_max = {cat: max(g.node_categories.get(cat, 0) for g in comparison.graphs.values()) for cat in all_cats}
     top_cats = sorted(all_cats, key=lambda c: cat_max[c], reverse=True)[:20]
 
     print(f"\n{'Category':<40} " + " ".join(f"{name:>12}" for name in comparison.graphs.keys()))
@@ -286,8 +278,7 @@ def print_predicate_analysis(comparison: KGComparison) -> None:
 
     print("\nPredicate coverage (top 20 by max count):")
     all_preds = comparison.all_predicates
-    pred_max = {pred: max(g.edge_predicates.get(pred, 0) for g in comparison.graphs.values())
-                for pred in all_preds}
+    pred_max = {pred: max(g.edge_predicates.get(pred, 0) for g in comparison.graphs.values()) for pred in all_preds}
     top_preds = sorted(all_preds, key=lambda p: pred_max[p], reverse=True)[:20]
 
     print(f"\n{'Predicate':<45} " + " ".join(f"{name:>12}" for name in comparison.graphs.keys()))
@@ -341,9 +332,15 @@ def recommend_kg_for_task(comparison: KGComparison) -> None:
 
     print("\nBest KG for specific node types (by count):")
     categories_of_interest = [
-        "biolink:Gene", "biolink:Disease", "biolink:ChemicalEntity",
-        "biolink:Protein", "biolink:Pathway", "biolink:PhenotypicFeature",
-        "biolink:SequenceVariant", "biolink:Drug", "biolink:AnatomicalEntity"
+        "biolink:Gene",
+        "biolink:Disease",
+        "biolink:ChemicalEntity",
+        "biolink:Protein",
+        "biolink:Pathway",
+        "biolink:PhenotypicFeature",
+        "biolink:SequenceVariant",
+        "biolink:Drug",
+        "biolink:AnatomicalEntity",
     ]
 
     for cat in categories_of_interest:
@@ -354,9 +351,14 @@ def recommend_kg_for_task(comparison: KGComparison) -> None:
 
     print("\nBest KG for specific relationship types (by count):")
     predicates_of_interest = [
-        "biolink:treats", "biolink:interacts_with", "biolink:associated_with",
-        "biolink:causes", "biolink:regulates", "biolink:expressed_in",
-        "biolink:has_phenotype", "biolink:gene_associated_with_condition"
+        "biolink:treats",
+        "biolink:interacts_with",
+        "biolink:associated_with",
+        "biolink:causes",
+        "biolink:regulates",
+        "biolink:expressed_in",
+        "biolink:has_phenotype",
+        "biolink:gene_associated_with_condition",
     ]
 
     for pred in predicates_of_interest:
@@ -422,26 +424,22 @@ def export_comparison_data(comparison: KGComparison) -> dict[str, Any]:
         "sources": {
             "all": sorted(comparison.all_sources),
             "shared": sorted(comparison.shared_sources),
-            "unique_per_kg": {name: sorted(comparison.sources_unique_to(name))
-                              for name in comparison.graphs.keys()},
+            "unique_per_kg": {name: sorted(comparison.sources_unique_to(name)) for name in comparison.graphs.keys()},
             "pairwise": pairwise_sources,
         },
         "categories": {
             "all": sorted(comparison.all_categories),
             "shared": sorted(comparison.shared_categories),
-            "unique_per_kg": {name: sorted(comparison.categories_unique_to(name))
-                              for name in comparison.graphs.keys()},
+            "unique_per_kg": {name: sorted(comparison.categories_unique_to(name)) for name in comparison.graphs.keys()},
         },
         "predicates": {
             "all": sorted(comparison.all_predicates),
             "shared": sorted(comparison.shared_predicates),
-            "unique_per_kg": {name: sorted(comparison.predicates_unique_to(name))
-                              for name in comparison.graphs.keys()},
+            "unique_per_kg": {name: sorted(comparison.predicates_unique_to(name)) for name in comparison.graphs.keys()},
         },
         "meta_triples": {
             "total_unique": len(comparison.all_meta_triples),
-            "unique_per_kg": {name: len(comparison.meta_triples_unique_to(name))
-                              for name in comparison.graphs.keys()},
+            "unique_per_kg": {name: len(comparison.meta_triples_unique_to(name)) for name in comparison.graphs.keys()},
         },
     }
 
@@ -462,8 +460,7 @@ def export_source_matrix_tsv(comparison: KGComparison, path: str | Path) -> None
 
         # Data rows
         for src in all_sources:
-            counts = [str(comparison.graphs[name].knowledge_sources.get(src, 0))
-                      for name in kg_names]
+            counts = [str(comparison.graphs[name].knowledge_sources.get(src, 0)) for name in kg_names]
             f.write(f"{src}\t" + "\t".join(counts) + "\n")
 
 
@@ -489,33 +486,17 @@ Examples:
   %(prog)s --export comparison.json spoke_meta.json kg2_meta.json
   %(prog)s --export-sources-tsv sources.tsv spoke_meta.json kg2_meta.json robokop_meta.json
   %(prog)s --names SPOKE KG2 ROBOKOP -- spoke.json kg2.json robokop.json
-        """
+        """,
     )
-    parser.add_argument(
-        "metagraphs",
-        nargs="+",
-        help="Paths to meta graph JSON files"
-    )
-    parser.add_argument(
-        "--names",
-        nargs="+",
-        help="Custom names for the KGs (must match number of input files)"
-    )
-    parser.add_argument(
-        "--export",
-        metavar="FILE",
-        help="Export structured comparison data to JSON file"
-    )
+    parser.add_argument("metagraphs", nargs="+", help="Paths to meta graph JSON files")
+    parser.add_argument("--names", nargs="+", help="Custom names for the KGs (must match number of input files)")
+    parser.add_argument("--export", metavar="FILE", help="Export structured comparison data to JSON file")
     parser.add_argument(
         "--export-sources-tsv",
         metavar="FILE",
-        help="Export source coverage matrix as TSV (sources × KGs with edge counts)"
+        help="Export source coverage matrix as TSV (sources × KGs with edge counts)",
     )
-    parser.add_argument(
-        "--quiet", "-q",
-        action="store_true",
-        help="Suppress printed report (useful with --export)"
-    )
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress printed report (useful with --export)")
 
     args = parser.parse_args()
 

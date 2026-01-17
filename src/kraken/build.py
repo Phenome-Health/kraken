@@ -5,8 +5,9 @@ Main entry point for building the unified knowledge graph
 """
 
 import logging
-from pathlib import Path
 import time
+from pathlib import Path
+
 import yaml
 
 from kraken.orchestrator import run_kg_build

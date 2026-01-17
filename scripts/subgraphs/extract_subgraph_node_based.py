@@ -1,12 +1,10 @@
 import os
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-from utils.constants import PRIMARY_KS, SUPPORTING_SOURCES, SUBJECT, OBJECT, ID, EQUIVALENT_IDS
-from utils.kg_io import get_harmonized_file_paths, PROJECT_ROOT, stream_edges_from_jsonl, stream_nodes_from_jsonl
-from utils.metagraph import generate_metagraph_for_source
-
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 import jsonlines
+from utils.constants import EQUIVALENT_IDS, ID
+from utils.kg_io import PROJECT_ROOT, get_harmonized_file_paths, stream_nodes_from_jsonl
 
 target_kg_name = "spoke"
 target_prefixes = {"ENVO"}
@@ -19,7 +17,7 @@ subgraph_dir.mkdir(parents=True, exist_ok=True)
 subgraph_nodes_path = subgraph_dir / "spoke_envo_nodes.jsonl"
 
 
-print(f"Extracting nodes..")
+print("Extracting nodes..")
 num_subgraph_nodes = 0
 target_node_ids = set()
 with jsonlines.open(subgraph_nodes_path, "w") as subgraph_writer:

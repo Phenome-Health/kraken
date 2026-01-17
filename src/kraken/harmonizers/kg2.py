@@ -18,4 +18,3 @@ class KG2Harmonizer(BaseHarmonizer):
     object_aspect_qualifier_prop = "qualified_object_aspect"
     ignore_edge_props = {"domain_range_exclusion"}
     rename_edge_attrs = {"id": "kg2c_ids", "kg2_ids": "kg2pre_ids"}
-

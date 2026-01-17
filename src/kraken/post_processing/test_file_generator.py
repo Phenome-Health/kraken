@@ -2,17 +2,15 @@ import logging
 import random
 from pathlib import Path
 
-import jsonlines
-
 from kraken.utils.general import create_edge_key
-from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, save_to_jsonl
+from kraken.utils.kg_io import save_to_jsonl, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
 def create_test_kg_files(nodes_path: Path, edges_path: Path, output_dir: Path, num_edges: int = 1000):
     logging.info(f"Creating test versions of the KG JSON Lines files at {nodes_path} and {edges_path}...")
     logging.info(f"Number of edges to includes is {num_edges}")
 
-    logging.info(f"Loading all edge IDs")
+    logging.info("Loading all edge IDs")
     edge_ids = [create_edge_key(edge) for edge in stream_edges_from_jsonl(edges_path)]
     logging.info(f"Loaded {len(edge_ids)} edge IDs")
 
@@ -22,7 +20,7 @@ def create_test_kg_files(nodes_path: Path, edges_path: Path, output_dir: Path, n
     logging.info(f"Grabbed {len(test_edges)} random test edges")
     assert len(test_edges) == len(test_edge_ids)
 
-    logging.info(f"Grabbing nodes that are used by those edges")
+    logging.info("Grabbing nodes that are used by those edges")
     node_ids_used = {edge["subject"] for edge in test_edges}.union({edge["object"] for edge in test_edges})
     test_nodes = [node for node in stream_nodes_from_jsonl(nodes_path) if node["id"] in node_ids_used]
     logging.info(f"Grabbed the {len(test_nodes)} nodes used by the selected edges.")

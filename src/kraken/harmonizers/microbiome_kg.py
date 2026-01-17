@@ -1,5 +1,5 @@
-from kraken.utils.constants import MICROBIOME_KG_INFORES
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.constants import MICROBIOME_KG_INFORES
 
 
 class MicrobiomeKGHarmonizer(BaseHarmonizer):

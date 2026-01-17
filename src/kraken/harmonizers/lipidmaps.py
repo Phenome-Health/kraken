@@ -1,15 +1,15 @@
 # lipidmaps.py
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
-from rdkit import Chem
 from biomapper2.core.normalizer import Normalizer
+from rdkit import Chem
 
+from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.biolink_client import BiolinkClient
 from kraken.utils.constants import LIPIDMAPS_ID
 from kraken.utils.kg_io import save_to_jsonl
-from kraken.utils.biolink_client import BiolinkClient
-from kraken.harmonizers.base import BaseHarmonizer
 
 
 class LipidMapsHarmonizer:
@@ -61,7 +61,7 @@ class LipidMapsHarmonizer:
 
         logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, 0 edges")
 
-    def _harmonize_molecule(self, molecule) -> Dict[str, Any] | None:
+    def _harmonize_molecule(self, molecule) -> dict[str, Any] | None:
         properties = molecule.GetPropsAsDict()
 
         # Transform the 'canonical' ID into standard curie form
