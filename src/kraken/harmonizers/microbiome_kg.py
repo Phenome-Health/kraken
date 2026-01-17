@@ -1,4 +1,4 @@
-from src.utils.constants import MICROBIOME_KG_INFORES
+from kraken.utils.constants import MICROBIOME_KG_INFORES
 from .base import BaseHarmonizer
 
 

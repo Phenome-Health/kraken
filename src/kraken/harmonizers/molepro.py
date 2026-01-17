@@ -1,5 +1,5 @@
-from src.harmonizers.base import BaseHarmonizer
-from ..utils.constants import MOLEPRO_INFORES, AGGREGATOR_KS
+from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.constants import MOLEPRO_INFORES, AGGREGATOR_KS
 
 
 class MoleProHarmonizer(BaseHarmonizer):

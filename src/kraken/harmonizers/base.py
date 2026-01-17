@@ -4,10 +4,9 @@ from typing import Any
 import jsonlines
 import logging
 
-from ..utils.constants import *
-from ..utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, stream_nodes_from_tsv, stream_edges_from_tsv
-from ..utils.general import to_list, clean_text, is_empty
-from ..utils.biolink_client import BiolinkClient
+from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, stream_nodes_from_tsv, stream_edges_from_tsv
+from kraken.utils.general import to_list, clean_text, is_empty
+from kraken.utils.biolink_client import BiolinkClient
 
 
 class BaseHarmonizer(ABC):

@@ -2,18 +2,12 @@
 Simplified identifier normalization for SPOKE - focuses on case normalization and simple heuristics
 """
 
-import json
 import logging
-import re
-from pathlib import Path
 import sys
-from typing import Any, List, Dict, Set, Tuple, Union, Callable, Optional
+from typing import Any, List, Dict, Tuple, Union
 
 import requests
 from biomapper2.core.normalizer import Normalizer
-
-from ..utils.constants import *
-from ..utils.general import load_biolink_file
 
 
 class SpokeIDNormalizer:

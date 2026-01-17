@@ -1,5 +1,5 @@
-from src.harmonizers.base import BaseHarmonizer
-from ..utils.constants import KG2_INFORES
+from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.constants import KG2_INFORES
 
 
 class KG2Harmonizer(BaseHarmonizer):

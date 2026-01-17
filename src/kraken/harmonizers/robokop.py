@@ -1,5 +1,5 @@
 from .base import BaseHarmonizer
-from ..utils.constants import ROBOKOP_INFORES
+from kraken.utils.constants import ROBOKOP_INFORES
 
 
 class RobokopHarmonizer(BaseHarmonizer):

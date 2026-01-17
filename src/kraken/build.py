@@ -9,14 +9,14 @@ from pathlib import Path
 import time
 import yaml
 
-from src.orchestrator import run_kg_build
-from src.utils.logging_config import setup_logging
+from kraken.orchestrator import run_kg_build
+from kraken.utils import setup_logging
 
 
 def main():
     setup_logging()
 
-    config_path = Path("config/build_config.yaml")
+    config_path = Path("../../config/build_config.yaml")
     with open(config_path) as f:
         config = yaml.safe_load(f)
 

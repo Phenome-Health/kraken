@@ -4,9 +4,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ..utils.constants import UMLS_INFORES, ROOT_CATEGORY, ROOT_PREDICATE, ID, NOT_PROVIDED
-from ..utils.kg_io import save_to_jsonl
-from ..utils.biolink_client import BiolinkClient
+from kraken.utils.constants import UMLS_INFORES, ROOT_CATEGORY, ROOT_PREDICATE, ID, NOT_PROVIDED
+from kraken.utils.kg_io import save_to_jsonl
+from kraken.utils.biolink_client import BiolinkClient
 from .base import BaseHarmonizer
 
 

@@ -5,14 +5,13 @@ SPOKE harmonizer - converts SPOKE format to unified Biolink schema
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import jsonlines
 
-from ..utils.constants import *
-from ..utils.general import load_biolink_file
-from ..utils.kg_io import stream_mixed_jsonl
-from ..utils.biolink_client import BiolinkClient
+from kraken.utils.general import load_biolink_file
+from kraken.utils.kg_io import stream_mixed_jsonl
+from kraken.utils.biolink_client import BiolinkClient
 from .base import BaseHarmonizer
 from .spoke_id_utils import SpokeIDNormalizer
 

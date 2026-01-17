@@ -11,10 +11,10 @@ import requests
 from biomapper2.core.normalizer import Normalizer
 from bs4 import BeautifulSoup
 
-from ..utils.constants import CLINGEN_INFORES, ID
-from ..utils.kg_io import save_to_jsonl
-from ..utils.general import create_edge_key
-from ..utils.biolink_client import BiolinkClient
+from kraken.utils.constants import CLINGEN_INFORES, ID
+from kraken.utils.kg_io import save_to_jsonl
+from kraken.utils.general import create_edge_key
+from kraken.utils.biolink_client import BiolinkClient
 from .base import BaseHarmonizer
 
 

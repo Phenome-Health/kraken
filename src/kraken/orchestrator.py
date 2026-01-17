@@ -3,26 +3,25 @@ Main orchestration functions for KRAKEN build
 """
 
 from pathlib import Path
-from typing import Dict, List
 import logging
 
-from .harmonizers.clingen import ClinGenHarmonizer
-from .harmonizers.molepro import MoleProHarmonizer
-from .harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
-from .harmonizers.multiomics_kg import MultiomicsKGHarmonizer
-from .harmonizers.refmet import RefMetHarmonizer
-from .harmonizers.robokop import RobokopHarmonizer
-from .harmonizers.kg2 import KG2Harmonizer
-from .harmonizers.lipidmaps import LipidMapsHarmonizer
-from .harmonizers.spoke import SpokeHarmonizer
-from .harmonizers.umls import UMLSHarmonizer
+from kraken.harmonizers.clingen import ClinGenHarmonizer
+from kraken.harmonizers.molepro import MoleProHarmonizer
+from kraken.harmonizers import MicrobiomeKGHarmonizer
+from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
+from kraken.harmonizers.refmet import RefMetHarmonizer
+from kraken.harmonizers.robokop import RobokopHarmonizer
+from kraken.harmonizers.kg2 import KG2Harmonizer
+from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
+from kraken.harmonizers.spoke import SpokeHarmonizer
+from kraken.harmonizers.umls import UMLSHarmonizer
 
-from .integration.entity_resolution import integrate_sources
-from .utils.biolink_client import BiolinkClient
-from .utils.kg_io import unzip_files, zip_files, get_harmonized_file_paths, PROJECT_ROOT
-from .utils.metagraph import generate_metagraph_for_source, compare_metagraphs
-from .utils.general import to_list
-from .post_processing.test_file_generator import create_test_kg_files
+from kraken.integration import integrate_sources
+from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils import unzip_files, zip_files, get_harmonized_file_paths, PROJECT_ROOT
+from kraken.utils import generate_metagraph_for_source, compare_metagraphs
+from kraken.utils import to_list
+from kraken.post_processing import create_test_kg_files
 
 
 def run_kg_build(config: dict) -> tuple[Path, Path]:

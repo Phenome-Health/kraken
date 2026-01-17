@@ -5,19 +5,18 @@ import copy
 from collections import defaultdict, Counter
 from pathlib import Path
 import sys
-from typing import Dict, Optional, List, Iterator, Set, Tuple, Any
+from typing import Dict, Optional, List, Set, Tuple, Any
 import logging
 import jsonlines
 
-from ..utils.kg_io import (
+from kraken.utils.kg_io import (
     stream_nodes_from_jsonl,
     stream_edges_from_jsonl,
     load_equivalency_mappings,
     save_to_jsonl,
     remove_file, get_harmonized_file_paths
 )
-from ..utils.constants import *
-from ..utils.general import create_edge_key, to_list
+from kraken.utils.general import create_edge_key, to_list
 
 
 def integrate_sources(source_names: set[str],

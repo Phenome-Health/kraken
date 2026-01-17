@@ -6,9 +6,9 @@ from typing import Any, Dict
 from rdkit import Chem
 from biomapper2.core.normalizer import Normalizer
 
-from ..utils.constants import LIPIDMAPS_ID
-from ..utils.kg_io import save_to_jsonl
-from ..utils.biolink_client import BiolinkClient
+from kraken.utils.constants import LIPIDMAPS_ID
+from kraken.utils.kg_io import save_to_jsonl
+from kraken.utils.biolink_client import BiolinkClient
 from .base import BaseHarmonizer
 
 

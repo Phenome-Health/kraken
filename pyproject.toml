@@ -28,5 +28,15 @@ viz = [
     "wordcloud>=1.9.4",
 ]
 
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+package = true
+
 [tool.uv.sources]
 biomapper2 = { git = "https://github.com/arpanauts/biomapper2.git", rev = "c839abd" }

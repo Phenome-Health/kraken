@@ -1,4 +1,4 @@
-from src.utils.constants import MULTIOMICS_KG_INFORES
+from kraken.utils.constants import MULTIOMICS_KG_INFORES
 from .base import BaseHarmonizer
 
 
