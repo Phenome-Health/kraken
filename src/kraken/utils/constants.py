@@ -1,6 +1,6 @@
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parents[2]
+PROJECT_ROOT = Path(__file__).parents[3]
 
 # Define node property names
 ID = "id"
