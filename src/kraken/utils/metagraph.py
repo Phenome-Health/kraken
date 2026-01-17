@@ -160,20 +160,12 @@ def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir
 
     generated_files = []
 
-    # 1. Save main JSON statistics
+    # Save main JSON statistics
     json_file = output_dir / f"{source_name}_metagraph.json"
     save_metagraph(stats, json_file)
     generated_files.append(json_file)
 
-    # 2. Generate human-readable summary
-    summary = generate_metagraph_summary(stats)
-    summary_file = output_dir / f"{source_name}_metagraph_summary.txt"
-    with open(summary_file, "w") as f:
-        f.write(summary)
-    generated_files.append(summary_file)
-    logging.info(f"Summary saved: {summary_file}")
-
-    # 3. Generate Cytoscape files with different thresholds
+    # Generate Cytoscape files with different thresholds
     cytoscape_files = []
     thresholds = [1, 5, 10]
 
@@ -187,147 +179,12 @@ def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir
         cytoscape_files.append(cyto_file)
         generated_files.append(cyto_file)
 
-    # 4. Generate HTML viewer
+    # Generate HTML viewer
     html_file = create_html_viewer(output_dir, cytoscape_files, source_name)
     generated_files.append(html_file)
 
     logging.info(f"Metagraph suite generated for {source_name}: {len(generated_files)} files")
     return generated_files
-
-
-def compare_metagraphs(metagraph_files: list, output_file: Path):
-    """Compare multiple metagraphs and generate comparison report"""
-    logging.info(f"Comparing {len(metagraph_files)} metagraphs")
-
-    metagraphs = []
-    for file_path in metagraph_files:
-        with open(file_path) as f:
-            metagraphs.append(json.load(f))
-
-    comparison = {
-        "sources_compared": [mg["source"] for mg in metagraphs],
-        "summary_comparison": {},
-        "category_overlap": {},
-        "predicate_overlap": {},
-        "unique_to_source": {},
-    }
-
-    # Summary comparison
-    for mg in metagraphs:
-        source = mg["source"]
-        comparison["summary_comparison"][source] = mg["summary"]
-
-    # Find overlaps and unique elements
-    all_categories = set()
-    all_predicates = set()
-
-    for mg in metagraphs:
-        categories = set(mg["node_categories"].keys())
-        predicates = set(mg["edge_predicates"].keys())
-
-        all_categories.update(categories)
-        all_predicates.update(predicates)
-
-        source = mg["source"]
-        comparison["unique_to_source"][source] = {"categories": list(categories), "predicates": list(predicates)}
-
-    # Calculate overlaps
-    comparison["category_overlap"] = {
-        "total_unique_categories": len(all_categories),
-        "categories": list(all_categories),
-    }
-
-    comparison["predicate_overlap"] = {
-        "total_unique_predicates": len(all_predicates),
-        "predicates": list(all_predicates),
-    }
-
-    # Save comparison
-    with open(output_file, "w") as f:
-        json.dump(comparison, f, indent=2)
-
-    logging.info(f"Metagraph comparison saved to {output_file}")
-
-
-def generate_metagraph_summary(stats: MetagraphStats) -> str:
-    """Generate human-readable summary of metagraph"""
-    summary_lines = [
-        f"=== Metagraph Summary: {stats.source_name} ===",
-        f"Total Nodes: {stats.total_nodes:,}",
-        f"Total Edges: {stats.total_edges:,}",
-        f"Unique Node Categories: {len(stats.node_categories)}",
-        f"Unique Edge Predicates: {len(stats.edge_predicates)}",
-        f"Unique Category Pairs: {len(stats.meta_doubles)}",
-        f"Unique Meta-triples: {len(stats.meta_triples)}",
-        f"Distinct Node Prefixes: {len(stats.node_prefixes)}",
-        f"Distinct Primary Knowledge Sources: {len(stats.knowledge_sources)}",
-        f"Distinct Knowledge Levels: {len(stats.knowledge_levels)}",
-        f"Distinct Agent Types: {len(stats.agent_types)}",
-        "",
-        "Top Node Categories:",
-    ]
-
-    for category, count in stats.node_categories.most_common(10):
-        percentage = (count / stats.total_nodes) * 100
-        summary_lines.append(f"  {category}: {count:,} ({percentage:.1f}%)")
-
-    summary_lines.extend(
-        [
-            "",
-            "Top Edge Predicates:",
-        ]
-    )
-
-    for predicate, count in stats.edge_predicates.most_common(10):
-        percentage = (count / stats.total_edges) * 100
-        summary_lines.append(f"  {predicate}: {count:,} ({percentage:.1f}%)")
-
-    summary_lines.extend(
-        [
-            "",
-            "Top Category Pairs:",
-        ]
-    )
-
-    for (subj_cat, obj_cat), count in stats.meta_doubles.most_common(10):
-        percentage = (count / stats.total_edges) * 100
-        summary_lines.append(f"  {subj_cat} -> {obj_cat}: {count:,} ({percentage:.1f}%)")
-
-    # Add edge metadata statistics
-    if stats.knowledge_sources:
-        summary_lines.extend(
-            [
-                "",
-                "Knowledge Sources:",
-            ]
-        )
-        for source, count in stats.knowledge_sources.most_common(10):
-            percentage = (count / stats.total_edges) * 100
-            summary_lines.append(f"  {source}: {count:,} ({percentage:.1f}%)")
-
-    if stats.knowledge_levels:
-        summary_lines.extend(
-            [
-                "",
-                "Knowledge Levels:",
-            ]
-        )
-        for level, count in stats.knowledge_levels.most_common(10):
-            percentage = (count / stats.total_edges) * 100
-            summary_lines.append(f"  {level}: {count:,} ({percentage:.1f}%)")
-
-    if stats.agent_types:
-        summary_lines.extend(
-            [
-                "",
-                "Agent Types:",
-            ]
-        )
-        for agent_type, count in stats.agent_types.most_common(10):
-            percentage = (count / stats.total_edges) * 100
-            summary_lines.append(f"  {agent_type}: {count:,} ({percentage:.1f}%)")
-
-    return "\n".join(summary_lines)
 
 
 def create_cytoscape_metagraph(stats: MetagraphStats, output_file: Path, min_edge_count: int = 1):

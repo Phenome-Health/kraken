@@ -1,18 +1,28 @@
-biolink_version: 4.2.5
+# Base directory path to use for all input/output files (should be absolute path)
+# Leave empty to use kraken project root as base path
+base_path: null  # could be something like: /Volumes/MyExternalDrive/kraken-data
+
 kraken_version: 2.0.0
+biolink_version: 4.2.5
 steps:
   harmonize: True
   integrate: False
   postprocess: False
 options:
   metagraph_creation: True
-  include_sources: ["robokop"]
+  include_sources: ["multiomics-kg"]
   exclude_sources: []
-  zip_inputs_after: True
+
+harmonization:
+  output_directory: "artifacts/harmonized/"
+  zip_inputs_after: False
 
 integration:
   output_directory: "artifacts/integrated/"
   primary_source: "kg2"
+
+metagraph:
+  output_directory: "artifacts/metagraphs"
 
 post_processing:
   test_export:

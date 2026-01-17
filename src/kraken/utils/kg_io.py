@@ -14,16 +14,15 @@ from typing import Any
 
 import jsonlines
 
-from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.general import is_empty
 
 # Increase CSV field size limit for large fields (e.g., long lists of synonyms/xrefs)
 csv.field_size_limit(sys.maxsize)
 
 
-def get_harmonized_file_paths(source_name: str) -> tuple[Path, Path]:
-    nodes_path = PROJECT_ROOT / "artifacts" / "harmonized" / source_name / "nodes.jsonl"
-    edges_path = PROJECT_ROOT / "artifacts" / "harmonized" / source_name / "edges.jsonl"
+def get_harmonized_file_paths(source_name: str, harmonized_dir_path: Path) -> tuple[Path, Path]:
+    nodes_path = harmonized_dir_path / source_name / "nodes.jsonl"
+    edges_path = harmonized_dir_path / source_name / "edges.jsonl"
     return nodes_path, edges_path
 
 
@@ -178,13 +177,13 @@ def load_csv_to_dict_list(filename: Path):
     return records
 
 
-def unzip_files(file_paths: list[str | Path]):
+def unzip_files(file_paths: list[str | Path | None]):
     for file_path in file_paths:
         if file_path:
             ensure_unzipped(Path(file_path))
 
 
-def zip_files(file_paths: list[str | Path]):
+def zip_files(file_paths: list[str | Path | None]):
     for file_path in file_paths:
         if file_path:
             ensure_gzipped(Path(file_path))

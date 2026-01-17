@@ -21,16 +21,20 @@ from kraken.utils.biolink_client import BiolinkClient
 from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.general import to_list
 from kraken.utils.kg_io import get_harmonized_file_paths, unzip_files, zip_files
-from kraken.utils.metagraph import compare_metagraphs, generate_metagraph_for_source
+from kraken.utils.metagraph import generate_metagraph_for_source
 
 
 def run_kg_build(config: dict) -> tuple[Path, Path]:
     """Main orchestration function for building the KRAKEN"""
     biolink_version = config["biolink_version"]
     kraken_version = config["kraken_version"]
-    unified_dir_path = Path(config["integration"]["output_directory"])
-    unified_nodes_path = unified_dir_path / f"kraken_nodes_{kraken_version}.jsonl"
-    unified_edges_path = unified_dir_path / f"kraken_edges_{kraken_version}.jsonl"
+    base_path = Path(config["base_path"]) if config.get("base_path") else PROJECT_ROOT
+
+    harmonized_dir_path = base_path / Path(config["harmonization"]["output_directory"])
+    metagraph_dir_path = base_path / Path(config["metagraph"]["output_directory"])
+    integrated_dir_path = base_path / Path(config["integration"]["output_directory"])
+    integrated_nodes_path = integrated_dir_path / f"kraken_nodes_{kraken_version}.jsonl"
+    integrated_edges_path = integrated_dir_path / f"kraken_edges_{kraken_version}.jsonl"
 
     # Figure out which sources to use based on the build config settings
     all_sources = set(config["sources"])
@@ -50,51 +54,92 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
     logging.info(f"Will include {len(sources_to_use)} sources: {sources_to_use}")
 
     create_metagraphs = True if config["options"].get("metagraph_creation") else False
-    zip_inputs_after = True if config["options"].get("zip_inputs_after") else False
+    zip_inputs_after = True if config["harmonization"].get("zip_inputs_after") else False
 
     # Phase 1: Harmonize all sources to Biolink semantic layer/schema
     source_configs = {source: config["sources"][source] for source in sources_to_use}
     if config["steps"].get("harmonize"):
         logging.info("-------------------------- HARMONIZING SOURCES -----------------------------------------------")
-        harmonize_sources(source_configs, biolink_version, create_metagraphs, zip_inputs_after)
+        harmonize_sources(
+            source_configs,
+            biolink_version,
+            base_path,
+            harmonized_dir_path,
+            create_metagraphs,
+            metagraph_dir_path,
+            zip_inputs_after,
+        )
 
     # Phase 2: Integrate into unified KG with entity resolution
     if config["steps"].get("integrate"):
         logging.info("-------------------------- INTEGRATING SOURCES -----------------------------------------------")
-        integrate_sources(sources_to_use, unified_dir_path, unified_nodes_path, unified_edges_path, config)
+        integrate_sources(
+            sources_to_use,
+            integrated_dir_path,
+            integrated_nodes_path,
+            integrated_edges_path,
+            harmonized_dir_path,
+            config,
+        )
 
         if create_metagraphs:
-            logging.info(
-                "---------------------- GENERATING UNIFIED METAGRAPH ------------------------------------------"
-            )
-            generate_unified_metagraph(unified_nodes_path, unified_edges_path, sources_to_use)
+            generate_metagraph_for_source(integrated_nodes_path, integrated_edges_path, metagraph_dir_path, "kraken")
 
     # Phase 3: Post-processing steps
     if config["steps"].get("postprocess"):
         logging.info("------------------------------ POST-PROCESSING -----------------------------------------------")
-        post_process_unified_kg(
-            unified_nodes_path, unified_edges_path, config["post_processing"], biolink_version, kraken_version
+        post_process_integrated_kg(
+            integrated_nodes_path,
+            integrated_edges_path,
+            base_path,
+            config["post_processing"],
+            biolink_version,
+            kraken_version,
         )
 
-    return unified_nodes_path, unified_edges_path
+    return integrated_nodes_path, integrated_edges_path
 
 
-def harmonize_sources(sources_config: dict, biolink_version: str, build_metagraph: bool, zip_inputs_after: bool):
+def harmonize_sources(
+    sources_config: dict,
+    biolink_version: str,
+    base_path: Path,
+    harmonized_dir_path: Path,
+    create_metagraphs: bool,
+    metagraph_dir_path: Path,
+    zip_inputs_after: bool,
+):
     """Harmonize each source that needs it"""
     biolink_client = BiolinkClient(biolink_version)
     for source_name, source_config in sources_config.items():
-        # NOTE: for now, always re-harmonize with every build
-        harmonize_source(source_name, source_config, biolink_client, build_metagraph, zip_inputs_after)
+
+        harmonize_source(
+            source_name,
+            source_config,
+            biolink_client,
+            base_path,
+            create_metagraphs,
+            harmonized_dir_path,
+            metagraph_dir_path,
+            zip_inputs_after,
+        )
 
 
 def harmonize_source(
-    source_name: str, config: dict, biolink_client: BiolinkClient, build_metagraph: bool, zip_inputs_after: bool
+    source_name: str,
+    source_config: dict,
+    biolink_client: BiolinkClient,
+    base_path: Path,
+    create_metagraph: bool,
+    harmonized_dir_path: Path,
+    metagraph_dir_path: Path,
+    zip_inputs_after: bool,
 ):
     """Harmonize a single source to Biolink schema"""
     logging.info(f"Harmonizing {source_name}...")
 
     # Get output paths
-    nodes_output, edges_output = get_harmonized_file_paths(source_name)
+    nodes_output, edges_output = get_harmonized_file_paths(source_name, harmonized_dir_path)
 
     # Create output directory if it doesn't exist
     nodes_output.parent.mkdir(parents=True, exist_ok=True)
@@ -117,61 +162,44 @@ def harmonize_source(
     # Instantiate our harmonizer
     harmonizer = harmonizers[source_name](biolink_client)
 
+    # Construct full input file paths using base path as applicable
+    full_input_file_paths = {
+        file_slot: base_path / Path(source_config[file_slot])
+        for file_slot in ["input_file", "nodes_input", "edges_input"]
+        if source_config.get(file_slot)
+    }
+    logging.info(f"Full input file paths are: {full_input_file_paths}")
+
     # Unzip input files as needed
-    possible_input_file_fields = ["input_file", "nodes_input", "edges_input"]
-    input_file_paths = [config.get(field) for field in possible_input_file_fields]
-    unzip_files(input_file_paths)
+    unzip_files(list(full_input_file_paths.values()))
 
     # Harmonize input files
-    if config.get("input_file"):
+    if full_input_file_paths.get("input_file"):
         # Note: These are not compatible with the BaseHarmonizer - have separate harmonize() implementations
-        harmonizer.harmonize(config["input_file"], nodes_output, edges_output)
-    elif config.get("nodes_input") and config.get("edges_input"):
+        harmonizer.harmonize(full_input_file_paths["input_file"], nodes_output, edges_output)
+    elif full_input_file_paths.get("nodes_input") and full_input_file_paths.get("edges_input"):
         # Note: These (with split nodes/edges files) use the BaseHarmonizer
-        harmonizer.harmonize(config["nodes_input"], config["edges_input"], nodes_output, edges_output)
+        harmonizer.harmonize(
+            full_input_file_paths["nodes_input"], full_input_file_paths["edges_input"], nodes_output, edges_output
+        )
     else:
         raise ValueError(f"Unknown source type: {source_name}")
 
     if zip_inputs_after:
         # Zip input files back up
-        zip_files(input_file_paths)
+        zip_files(list(full_input_file_paths.values()))
 
-    if build_metagraph:
-        # Generate metagraph for harmonized output, stored in artifacts/metagraphs/harmonized/<source_name>/
-        artifacts_root = PROJECT_ROOT / "artifacts"
-        metagraph_dir = artifacts_root / "metagraphs" / "harmonized" / source_name
-        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir, source_name)
+    if create_metagraph:
+        generate_metagraph_for_source(nodes_output, edges_output, metagraph_dir_path / source_name, source_name)
 
 
-def generate_unified_metagraph(unified_nodes_path: Path, unified_edges_path: Path, source_names: set[str]):
-    # Store unified metagraphs in artifacts/metagraphs/unified/
-    artifacts_root = PROJECT_ROOT / "artifacts"
-    metagraph_dir = artifacts_root / "metagraphs" / "unified"
-
-    unified_metagraph_files = generate_metagraph_for_source(
-        unified_nodes_path, unified_edges_path, metagraph_dir, "unified"
-    )
-    logging.info("Unified metagraph generated")
-
-    # Compare with source metagraphs if they exist
-    source_metagraphs = []
-    for source_name in source_names:
-        source_metagraph = artifacts_root / "metagraphs" / "harmonized" / source_name / f"{source_name}_metagraph.json"
-        if source_metagraph.exists():
-            source_metagraphs.append(source_metagraph)
-
-    if source_metagraphs:
-        # Find the main JSON file from unified metagraph
-        unified_json = next((f for f in unified_metagraph_files if f.name.endswith("_metagraph.json")), None)
-        if unified_json:
-            source_metagraphs.append(unified_json)
-            comparison_file = metagraph_dir / "metagraph_comparison.json"
-            compare_metagraphs(source_metagraphs, comparison_file)
-            logging.info("Metagraph comparison generated")
-
-
-def post_process_unified_kg(
-    unified_nodes_path: Path, unified_edges_path: Path, config: dict, biolink_version: str, kraken_version: str
+def post_process_integrated_kg(
+    integrated_nodes_path: Path,
+    integrated_edges_path: Path,
+    base_path: Path,
+    config: dict,
+    biolink_version: str,
+    kraken_version: str,
 ):
     """Run all post-processing steps on the unified KG"""
     logging.info("Starting post-processing...")
@@ -179,9 +207,9 @@ def post_process_unified_kg(
     if config.get("test_export"):
         logging.info("Generating test files for this kraken build..")
         test_export_config = config["test_export"]
-        output_dir = Path(test_export_config["output_directory"])
+        output_dir = base_path / Path(test_export_config["output_directory"])
         create_test_kg_files(
-            unified_nodes_path, unified_edges_path, output_dir, num_edges=test_export_config["num_edges"]
+            integrated_nodes_path, integrated_edges_path, output_dir, num_edges=test_export_config["num_edges"]
         )
 
     logging.info("Post-processing complete")
