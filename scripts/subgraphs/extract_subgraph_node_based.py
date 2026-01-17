@@ -1,4 +1,3 @@
-
 import jsonlines
 
 from kraken.utils.constants import EQUIVALENT_IDS, ID, PROJECT_ROOT

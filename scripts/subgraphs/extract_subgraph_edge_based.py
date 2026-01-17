@@ -1,4 +1,3 @@
-
 import jsonlines
 
 from kraken.utils.constants import ID, OBJECT, PRIMARY_KS, PROJECT_ROOT, SUBJECT, SUPPORTING_SOURCES

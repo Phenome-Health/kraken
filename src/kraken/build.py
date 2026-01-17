@@ -11,13 +11,14 @@ from pathlib import Path
 import yaml
 
 from kraken.orchestrator import run_kg_build
+from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.logging_config import setup_logging
 
 
 def main():
     setup_logging()
 
-    config_path = Path("../../config/build_config.yaml")
+    config_path = Path(f"{PROJECT_ROOT}/config/build_config.yaml")
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
