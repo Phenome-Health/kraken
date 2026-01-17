@@ -75,7 +75,6 @@ def run_kg_build(config: dict) -> tuple[Path, Path]:
         logging.info("-------------------------- INTEGRATING SOURCES -----------------------------------------------")
         integrate_sources(
             sources_to_use,
-            integrated_dir_path,
             integrated_nodes_path,
             integrated_edges_path,
             harmonized_dir_path,

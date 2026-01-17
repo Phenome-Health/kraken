@@ -37,14 +37,14 @@ from kraken.utils.kg_io import (
 
 def integrate_sources(
     source_names: set[str],
-    output_dir: Path,
     integrated_nodes_path: Path,
     integrated_edges_path: Path,
     harmonized_dir_path: Path,
     config: dict,
 ):
     """Merge harmonized sources using streaming approach"""
-    output_dir.mkdir(parents=True, exist_ok=True)
+    integrated_dir = integrated_nodes_path.parent
+    integrated_dir.mkdir(parents=True, exist_ok=True)
 
     logging.info("Starting source integration...")
 
@@ -56,25 +56,24 @@ def integrate_sources(
     assert equivalency_index
 
     # Phase 2: Integrate all nodes, merging as we go
-    integrate_nodes(
-        source_names, primary_source, equivalency_index, output_dir, harmonized_dir_path, integrated_nodes_path, config
-    )
+    integrate_nodes(source_names, primary_source, equivalency_index, harmonized_dir_path, integrated_nodes_path, config)
 
     # Phase 3: Process all edges with node ID resolution (merge edges with the same key -- note aggregator is in key)
-    integrate_edges(integrated_edges_path, source_names, equivalency_index, output_dir, harmonized_dir_path)
+    integrate_edges(integrated_edges_path, source_names, equivalency_index, harmonized_dir_path)
 
-    logging.info(f"Integration complete! Unified KG saved to {output_dir}")
+    logging.info(f"Integration complete! Unified KG saved to {integrated_dir}")
 
 
 def integrate_nodes(
     source_names: set[str],
     primary_source: str,
     equivalency_index: dict[str, str],
-    output_dir: Path,
     harmonized_dir_path: Path,
     integrated_nodes_path: Path,
     config: dict,
 ):
+    integrated_dir = integrated_nodes_path.parent
+
     # Load the primary source as our starting point
     logging.info(f"Loading {primary_source} nodes as starting point")
     primary_nodes_path, _ = get_harmonized_file_paths(primary_source, harmonized_dir_path)
@@ -103,8 +102,8 @@ def integrate_nodes(
         source_allowed_to_merge_nodes = sources_config[source_name].get("can_merge_existing_nodes")
 
         # Set up logs for non-one-to-one mappings
-        one_to_many_log = output_dir / f"{source_name}_one_to_many.jsonl"
-        one_to_zero_log = output_dir / f"{source_name}_one_to_zero.jsonl"
+        one_to_many_log = integrated_dir / f"{source_name}_one_to_many.jsonl"
+        one_to_zero_log = integrated_dir / f"{source_name}_one_to_zero.jsonl"
         remove_file(one_to_many_log)
         remove_file(one_to_zero_log)
 
@@ -208,16 +207,17 @@ def integrate_edges(
     integrated_edges_path: Path,
     source_names: set[str],
     equivalency_index: dict[str, str],
-    output_dir: Path,
     harmonized_dir_path: Path,
 ):
+    integrated_dir = integrated_edges_path.parent
     assert equivalency_index
+
     all_merged_edges = []
     with jsonlines.open(integrated_edges_path, "w") as writer:
         for source_name in source_names:
             logging.info(f"Processing edges from {source_name}")
             nodes_file, edges_file = get_harmonized_file_paths(source_name, harmonized_dir_path)
-            mergers_log = output_dir / f"{source_name}_edge_mergers.jsonl"
+            mergers_log = integrated_dir / f"{source_name}_edge_mergers.jsonl"
 
             # First figure out which edges we're going to need to merge (based on keys)
             edge_key_counts = defaultdict(int)
