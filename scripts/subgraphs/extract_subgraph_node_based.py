@@ -1,10 +1,8 @@
-import os
-import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 import jsonlines
-from utils.constants import EQUIVALENT_IDS, ID
-from utils.kg_io import PROJECT_ROOT, get_harmonized_file_paths, stream_nodes_from_jsonl
+
+from kraken.utils.constants import EQUIVALENT_IDS, ID, PROJECT_ROOT
+from kraken.utils.kg_io import get_harmonized_file_paths, stream_nodes_from_jsonl
 
 target_kg_name = "spoke"
 target_prefixes = {"ENVO"}

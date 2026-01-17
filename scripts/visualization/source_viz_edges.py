@@ -3,8 +3,6 @@ A claude-generated script for visualizing the flow of sources to kraken (include
 """
 
 import logging
-import os
-import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -14,10 +12,9 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
-from utils.constants import PRIMARY_KS
-from utils.kg_io import stream_edges_from_jsonl
-from utils.logging_config import setup_logging
+from kraken.utils.constants import PRIMARY_KS
+from kraken.utils.kg_io import stream_edges_from_jsonl
+from kraken.utils.logging_config import setup_logging
 
 PROJECT_ROOT_PATH = Path(__file__).parents[1]
 

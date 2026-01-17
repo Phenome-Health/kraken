@@ -1,11 +1,9 @@
-import os
-import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 import jsonlines
-from utils.constants import ID, OBJECT, PRIMARY_KS, SUBJECT, SUPPORTING_SOURCES
-from utils.kg_io import PROJECT_ROOT, get_harmonized_file_paths, stream_edges_from_jsonl, stream_nodes_from_jsonl
-from utils.metagraph import generate_metagraph_for_source
+
+from kraken.utils.constants import ID, OBJECT, PRIMARY_KS, PROJECT_ROOT, SUBJECT, SUPPORTING_SOURCES
+from kraken.utils.kg_io import get_harmonized_file_paths, stream_edges_from_jsonl, stream_nodes_from_jsonl
+from kraken.utils.metagraph import generate_metagraph_for_source
 
 target_kg_name = "spoke"
 target_knowledge_sources = {

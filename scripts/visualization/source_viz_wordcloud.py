@@ -3,16 +3,13 @@ A claude-generated script for visualizing the flow of sources to kraken (include
 """
 
 import json
-import os
-import sys
 from collections import Counter
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
-from utils.logging_config import setup_logging
+from kraken.utils.logging_config import setup_logging
 
 PROJECT_ROOT_PATH = Path(__file__).parents[1]
 

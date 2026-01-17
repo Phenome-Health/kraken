@@ -1,12 +1,9 @@
 import argparse
 import json
-import os
-import sys
 from collections import defaultdict
 from pathlib import Path
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
-from utils.kg_io import stream_mixed_jsonl
+from kraken.utils.kg_io import stream_mixed_jsonl
 
 
 def main():

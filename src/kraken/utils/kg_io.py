@@ -14,12 +14,11 @@ from typing import Any
 
 import jsonlines
 
+from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.general import is_empty
 
 # Increase CSV field size limit for large fields (e.g., long lists of synonyms/xrefs)
 csv.field_size_limit(sys.maxsize)
-
-PROJECT_ROOT = Path(__file__).parents[2]
 
 
 def get_harmonized_file_paths(source_name: str) -> tuple[Path, Path]:

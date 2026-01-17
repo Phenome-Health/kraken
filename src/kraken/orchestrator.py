@@ -18,8 +18,9 @@ from kraken.harmonizers.umls import UMLSHarmonizer
 from kraken.integration.entity_resolution import integrate_sources
 from kraken.post_processing.test_file_generator import create_test_kg_files
 from kraken.utils.biolink_client import BiolinkClient
+from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.general import to_list
-from kraken.utils.kg_io import PROJECT_ROOT, get_harmonized_file_paths, unzip_files, zip_files
+from kraken.utils.kg_io import get_harmonized_file_paths, unzip_files, zip_files
 from kraken.utils.metagraph import compare_metagraphs, generate_metagraph_for_source
 
 
