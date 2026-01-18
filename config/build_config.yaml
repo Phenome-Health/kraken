@@ -17,6 +17,7 @@ base_path: null  # could be something like: "/Volumes/MyExternalDrive/kraken-dat
 harmonization:
   output_directory: "artifacts/harmonized/"
   zip_inputs_after: False
+  validate_output: True
 
 integration:
   output_directory: "artifacts/integrated/"

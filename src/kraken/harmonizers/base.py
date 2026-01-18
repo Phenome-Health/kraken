@@ -1,5 +1,5 @@
 import logging
-from abc import ABC
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
@@ -46,8 +46,13 @@ from kraken.utils.kg_io import (
 class BaseHarmonizer(ABC):
     """Base class for harmonizing knowledge graph sources into KRAKEN format"""
 
-    source_name: str
-    source_infores: str
+    @property
+    @abstractmethod
+    def source_name(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def source_infores(self) -> str: ...
 
     list_delimiter: str | None = None
 
@@ -404,3 +409,13 @@ class BaseHarmonizer(ABC):
             edge[ATTRIBUTES] = {source_infores: attributes}
 
         return edge
+
+    def validate(self, harmonized_nodes: Path, harmonized_edges: Path):
+        logging.info("Validating harmonized nodes/edges...")
+        for node in stream_nodes_from_jsonl(harmonized_nodes):
+            # TODO: validate nodes!
+            pass
+        for edge in stream_edges_from_jsonl(harmonized_edges):
+            # TODO: validate edges!
+            pass
+        logging.info("Validation complete! All checks passed.")

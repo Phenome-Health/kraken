@@ -104,6 +104,9 @@ class KrakenBuildOrchestrator:
             edges_input=source_config.edges_input_resolved,
         )
 
+        if self.config.harmonization.validate_output:
+            harmonizer.validate(nodes_output, edges_output)
+
         if self.config.zip_inputs_after:
             zip_files(self.config.all_source_input_paths_resolved[source_name])
 

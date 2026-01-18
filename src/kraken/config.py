@@ -14,6 +14,7 @@ from kraken.utils.general import to_list
 class HarmonizationConfig(BaseModel):
     output_directory: str
     zip_inputs_after: bool = False
+    validate_output: bool = True
 
 
 class IntegrationConfig(BaseModel):
