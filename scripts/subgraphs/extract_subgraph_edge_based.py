@@ -1,7 +1,8 @@
 import jsonlines
 
+from kraken.orchestrator import KrakenBuildOrchestrator
 from kraken.utils.constants import ID, OBJECT, PRIMARY_KS, PROJECT_ROOT, SUBJECT, SUPPORTING_SOURCES
-from kraken.utils.kg_io import get_harmonized_file_paths, stream_edges_from_jsonl, stream_nodes_from_jsonl
+from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
 from kraken.utils.metagraph import generate_metagraph_for_source
 
 target_kg_name = "spoke"
@@ -17,7 +18,8 @@ target_knowledge_sources = {
     "epa-air-quality-stats",
 }
 
-nodes_path, edges_path = get_harmonized_file_paths(target_kg_name)
+orchestrator = KrakenBuildOrchestrator()
+nodes_path, edges_path = orchestrator.config.all_harmonized_paths_resolved(target_kg_name)
 
 
 subgraph_dir = PROJECT_ROOT / "artifacts" / "subgraphs"

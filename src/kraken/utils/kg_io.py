@@ -21,12 +21,6 @@ from kraken.utils.general import is_empty
 csv.field_size_limit(sys.maxsize)
 
 
-def get_harmonized_file_paths(source_name: str, harmonized_dir_path: Path) -> tuple[Path, Path]:
-    nodes_path = harmonized_dir_path / source_name / "nodes.jsonl"
-    edges_path = harmonized_dir_path / source_name / "edges.jsonl"
-    return nodes_path, edges_path
-
-
 def form_tarball(file_paths: list[Path], output_dir: Path, tarball_name: str | None = None):
     # Determine what to name the tarball
     if not tarball_name:

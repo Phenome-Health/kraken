@@ -1,12 +1,14 @@
 import jsonlines
 
+from kraken.orchestrator import KrakenBuildOrchestrator
 from kraken.utils.constants import EQUIVALENT_IDS, ID, PROJECT_ROOT
-from kraken.utils.kg_io import get_harmonized_file_paths, stream_nodes_from_jsonl
+from kraken.utils.kg_io import stream_nodes_from_jsonl
 
 target_kg_name = "spoke"
 target_prefixes = {"ENVO"}
 
-nodes_path, edges_path = get_harmonized_file_paths(target_kg_name)
+orchestrator = KrakenBuildOrchestrator()
+nodes_path, edges_path = orchestrator.config.all_harmonized_paths_resolved(target_kg_name)
 
 
 subgraph_dir = PROJECT_ROOT / "artifacts" / "subgraphs"

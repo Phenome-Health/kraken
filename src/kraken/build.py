@@ -4,28 +4,11 @@ KRAKEN Build System
 Main entry point for building the unified knowledge graph
 """
 
-import logging
-import time
-from pathlib import Path
-
-import yaml
-
-from kraken.orchestrator import run_build
-from kraken.utils.constants import PROJECT_ROOT
-from kraken.utils.logging_config import setup_logging
+from kraken.orchestrator import KrakenBuildOrchestrator
 
 
 def main():
-    setup_logging()
-
-    config_path = Path(f"{PROJECT_ROOT}/config/build_config.yaml")
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
-
-    logging.info("Starting KRAKEN build...")
-    start = time.time()
-    _ = run_build(config)
-    logging.info(f"Build complete! Took {round((time.time() - start) / 60)} minutes.")
+    KrakenBuildOrchestrator().run()
 
 
 if __name__ == "__main__":

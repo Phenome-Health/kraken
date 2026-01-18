@@ -11,6 +11,7 @@ from typing import Any
 
 import jsonlines
 
+from kraken.config import KrakenConfig
 from kraken.utils.constants import (
     AGENT_TYPE,
     CATEGORIES,
@@ -26,7 +27,6 @@ from kraken.utils.constants import (
 )
 from kraken.utils.general import create_edge_key, to_list
 from kraken.utils.kg_io import (
-    get_harmonized_file_paths,
     load_equivalency_mappings,
     remove_file,
     save_to_jsonl,
@@ -35,75 +35,63 @@ from kraken.utils.kg_io import (
 )
 
 
-def integrate_sources(
-    source_names: set[str],
-    integrated_nodes_path: Path,
-    integrated_edges_path: Path,
-    harmonized_dir_path: Path,
-    config: dict,
-):
+def integrate_sources(config: KrakenConfig):
     """Merge harmonized sources using streaming approach"""
-    integrated_dir = integrated_nodes_path.parent
+    integrated_dir = config.integrated_dir
     integrated_dir.mkdir(parents=True, exist_ok=True)
 
     logging.info("Starting source integration...")
 
     # Phase 1: Build base equivalency mappings from primary source
-    primary_source = config["integration"]["primary_source"]
-    primary_nodes_path, _ = get_harmonized_file_paths(primary_source, harmonized_dir_path)
+    primary_source = config.integration.primary_source
+    primary_nodes_path, _ = config.all_harmonized_paths_resolved[primary_source]
     logging.info(f"Loading equivalency mappings from primary source ({primary_source})")
     equivalency_index = load_equivalency_mappings(primary_nodes_path)
     assert equivalency_index
 
     # Phase 2: Integrate all nodes, merging as we go
-    integrate_nodes(source_names, primary_source, equivalency_index, harmonized_dir_path, integrated_nodes_path, config)
+    integrate_nodes(equivalency_index, config)
 
-    # Phase 3: Process all edges with node ID resolution (merge edges with the same key -- note aggregator is in key)
-    integrate_edges(integrated_edges_path, source_names, equivalency_index, harmonized_dir_path)
+    # Phase 3: Process all edges with node ID resolution (merge edges with the same key)
+    integrate_edges(equivalency_index, config)
 
     logging.info(f"Integration complete! Unified KG saved to {integrated_dir}")
 
 
 def integrate_nodes(
-    source_names: set[str],
-    primary_source: str,
     equivalency_index: dict[str, str],
-    harmonized_dir_path: Path,
-    integrated_nodes_path: Path,
-    config: dict,
+    config: KrakenConfig,
 ):
-    integrated_dir = integrated_nodes_path.parent
-
     # Load the primary source as our starting point
+    primary_source = config.integration.primary_source
     logging.info(f"Loading {primary_source} nodes as starting point")
-    primary_nodes_path, _ = get_harmonized_file_paths(primary_source, harmonized_dir_path)
+    primary_nodes_path, _ = config.all_harmonized_paths_resolved[primary_source]
     current_canonical_nodes = {
         node[ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)
     }  # canonical_id -> merged_node_data
     assert current_canonical_nodes
 
     # Figure out what order to integrate sources in (save ones not allowed to merge entities for last)
-    sources_config = config["sources"]
     allowed_to_merge_existing = [
         source_name
-        for source_name in source_names
-        if sources_config[source_name].get("can_merge_existing_nodes") and source_name != primary_source
+        for source_name in config.sources_to_use
+        if config.sources[source_name].can_merge_existing_nodes and source_name != primary_source
     ]
     not_allowed_to_merge = [
         source_name
-        for source_name in source_names
-        if not sources_config[source_name].get("can_merge_existing_nodes") and source_name != primary_source
+        for source_name in config.sources_to_use
+        if not config.sources[source_name].can_merge_existing_nodes and source_name != primary_source
     ]
     ordered_sources = allowed_to_merge_existing + not_allowed_to_merge
     logging.info(f"Will integrate remaining sources into {primary_source} in this order: {ordered_sources}")
 
     for source_name in ordered_sources:
-        nodes_file, edges_file = get_harmonized_file_paths(source_name, harmonized_dir_path)
-        source_allowed_to_merge_nodes = sources_config[source_name].get("can_merge_existing_nodes")
+        nodes_file, edges_file = config.all_harmonized_paths_resolved[source_name]
+        source_allowed_to_merge_nodes = config.sources[source_name].can_merge_existing_nodes
 
         # Set up logs for non-one-to-one mappings
-        one_to_many_log = integrated_dir / f"{source_name}_one_to_many.jsonl"
-        one_to_zero_log = integrated_dir / f"{source_name}_one_to_zero.jsonl"
+        one_to_many_log = config.integrated_debug_dir / f"{source_name}_one_to_many.jsonl"
+        one_to_zero_log = config.integrated_debug_dir / f"{source_name}_one_to_zero.jsonl"
         remove_file(one_to_many_log)
         remove_file(one_to_zero_log)
 
@@ -200,24 +188,18 @@ def integrate_nodes(
         seen_ids |= equiv_ids
 
     # Save unified nodes
-    save_to_jsonl(current_canonical_nodes.values(), integrated_nodes_path, mode="w")
+    save_to_jsonl(current_canonical_nodes.values(), config.integrated_nodes_path, mode="w")
 
 
-def integrate_edges(
-    integrated_edges_path: Path,
-    source_names: set[str],
-    equivalency_index: dict[str, str],
-    harmonized_dir_path: Path,
-):
-    integrated_dir = integrated_edges_path.parent
+def integrate_edges(equivalency_index: dict[str, str], config: KrakenConfig):
     assert equivalency_index
 
     all_merged_edges = []
-    with jsonlines.open(integrated_edges_path, "w") as writer:
-        for source_name in source_names:
+    with jsonlines.open(config.integrated_edges_path, "w") as writer:
+        for source_name in config.sources_to_use:
             logging.info(f"Processing edges from {source_name}")
-            nodes_file, edges_file = get_harmonized_file_paths(source_name, harmonized_dir_path)
-            mergers_log = integrated_dir / f"{source_name}_edge_mergers.jsonl"
+            nodes_file, edges_file = config.all_harmonized_paths_resolved[source_name]
+            mergers_log = config.integrated_debug_dir / f"{source_name}_edge_mergers.jsonl"
 
             # First figure out which edges we're going to need to merge (based on keys)
             edge_key_counts = defaultdict(int)
@@ -252,7 +234,7 @@ def integrate_edges(
 
     # Add ALL the edges that had to be merged to our unified edges file (after we closed write mode on the file)
     logging.info(f"Saving {len(all_merged_edges)} total merged edges..")
-    save_to_jsonl(all_merged_edges, integrated_edges_path, mode="a")
+    save_to_jsonl(all_merged_edges, config.integrated_edges_path, mode="a")
 
 
 def find_majority_canonical_id(
