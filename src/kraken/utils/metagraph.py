@@ -147,23 +147,21 @@ def save_metagraph(stats: MetagraphStats, output_file: Path):
     logging.info(f"Metagraph saved: {stats.total_nodes} nodes, {stats.total_edges} edges")
 
 
-def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir: Path, source_name: str = None):
+def generate_metagraph_for_source(nodes_path: Path, edges_path: Path, output_dir: Path, graph_name: str) -> Path:
     """Generate and save complete metagraph suite for a single source"""
-    if source_name is None:
-        source_name = nodes_file.parent.name
-    logging.info(f"Generating metagraph for source {source_name}")
+    logging.info(f"Generating metagraph for source {graph_name}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate core statistics
-    stats = generate_metagraph_streaming(nodes_file, edges_file, source_name)
+    stats = generate_metagraph_streaming(nodes_path, edges_path, graph_name)
 
     generated_files = []
 
     # Save main JSON statistics
-    json_file = output_dir / f"{source_name}_metagraph.json"
-    save_metagraph(stats, json_file)
-    generated_files.append(json_file)
+    json_file_path = output_dir / f"{graph_name}_metagraph.json"
+    save_metagraph(stats, json_file_path)
+    generated_files.append(json_file_path)
 
     # Generate Cytoscape files with different thresholds
     cytoscape_files = []
@@ -171,20 +169,20 @@ def generate_metagraph_for_source(nodes_file: Path, edges_file: Path, output_dir
 
     for threshold in thresholds:
         if threshold == 1:
-            cyto_file = output_dir / f"{source_name}_cytoscape.json"
+            cyto_file = output_dir / f"{graph_name}_cytoscape.json"
         else:
-            cyto_file = output_dir / f"{source_name}_cytoscape_min{threshold}.json"
+            cyto_file = output_dir / f"{graph_name}_cytoscape_min{threshold}.json"
 
         create_cytoscape_metagraph(stats, cyto_file, min_edge_count=threshold)
         cytoscape_files.append(cyto_file)
         generated_files.append(cyto_file)
 
     # Generate HTML viewer
-    html_file = create_html_viewer(output_dir, cytoscape_files, source_name)
+    html_file = create_html_viewer(output_dir, cytoscape_files, graph_name)
     generated_files.append(html_file)
 
-    logging.info(f"Metagraph suite generated for {source_name}: {len(generated_files)} files")
-    return generated_files
+    logging.info(f"Metagraph suite generated for {graph_name}: {len(generated_files)} files")
+    return json_file_path
 
 
 def create_cytoscape_metagraph(stats: MetagraphStats, output_file: Path, min_edge_count: int = 1):

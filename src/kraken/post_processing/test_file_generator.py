@@ -6,7 +6,12 @@ from kraken.utils.general import create_edge_key
 from kraken.utils.kg_io import save_to_jsonl, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
-def create_test_kg_files(nodes_path: Path, edges_path: Path, output_dir: Path, num_edges: int = 1000):
+def create_test_kg_files(
+    nodes_path: Path,
+    edges_path: Path,
+    output_dir: Path,
+    num_edges: int = 1000,
+) -> tuple[Path, Path]:
     logging.info(f"Creating test versions of the KG JSON Lines files at {nodes_path} and {edges_path}...")
     logging.info(f"Number of edges to includes is {num_edges}")
 
@@ -34,3 +39,5 @@ def create_test_kg_files(nodes_path: Path, edges_path: Path, output_dir: Path, n
     logging.info(f"Saving {len(test_edges)} test edges to {test_edges_path}")
     save_to_jsonl(test_nodes, test_nodes_path, mode="w")
     save_to_jsonl(test_edges, test_edges_path, mode="w")
+
+    return test_nodes_path, test_edges_path

@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import sys
+import tarfile
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,32 @@ def get_harmonized_file_paths(source_name: str, harmonized_dir_path: Path) -> tu
     nodes_path = harmonized_dir_path / source_name / "nodes.jsonl"
     edges_path = harmonized_dir_path / source_name / "edges.jsonl"
     return nodes_path, edges_path
+
+
+def form_tarball(file_paths: list[Path], output_dir: Path, tarball_name: str | None = None):
+    # Determine what to name the tarball
+    if not tarball_name:
+        file_name_words = [set(file_path.stem.split("_")) for file_path in file_paths]
+        overlapping_words = set.intersection(*file_name_words)
+        first_file_name_words = file_paths[0].stem.split("_")
+        tarball_root_name = "_".join([word for word in first_file_name_words if word in overlapping_words])
+        if not tarball_root_name:
+            raise ValueError(
+                "Could not determine name for tarball! Input files did not share any words. "
+                "Please specify a 'tarball_name'."
+            )
+        tarball_name = f"{tarball_root_name}.tar.gz"
+    else:
+        if not tarball_name.endswith(".tar.gz"):
+            tarball_name = f"{tarball_name}.tar.gz"
+
+    # Actually create the tarball
+    logging.info(f"Forming tarball '{tarball_name}' out of {len(file_paths)} files...")
+    tarball_path = output_dir / tarball_name
+    with tarfile.open(tarball_path, "w:gz") as tar:
+        for file_path in file_paths:
+            tar.add(file_path, arcname=file_path.name)
+    logging.info(f"Done creating tarball. Saved to {tarball_path}")
 
 
 def _strip_key_prefixes(d: dict[str, Any]) -> dict[str, Any]:

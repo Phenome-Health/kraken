@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from kraken.orchestrator import run_kg_build
+from kraken.orchestrator import run_build
 from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.logging_config import setup_logging
 
@@ -24,7 +24,7 @@ def main():
 
     logging.info("Starting KRAKEN build...")
     start = time.time()
-    _ = run_kg_build(config)
+    _ = run_build(config)
     logging.info(f"Build complete! Took {round((time.time() - start) / 60)} minutes.")
 
 
