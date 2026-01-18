@@ -10,21 +10,27 @@ from kraken.utils.constants import ID, NOT_PROVIDED, ROOT_CATEGORY, ROOT_PREDICA
 from kraken.utils.kg_io import save_to_jsonl
 
 
-class UMLSHarmonizer:
-    """Harmonizer for UMLS TSV files - doesn't use base class due to unique format"""
+class UMLSHarmonizer(BaseHarmonizer):
+    """Harmonizer for UMLS TSV files"""
 
     source_name = "umls"
     source_infores = UMLS_INFORES
 
     def __init__(self, biolink_client: BiolinkClient):
-        self.biolink = biolink_client
+        super().__init__(biolink_client)
 
     def harmonize(
         self,
-        input_file: Path,
         nodes_output: Path,
         edges_output: Path,
+        *,
+        input_file: Path | None = None,
+        nodes_input: Path | None = None,
+        edges_input: Path | None = None,
     ):
+        if not input_file:
+            raise ValueError(f"{self.source_name} requires input_file")
+
         logging.info(f"Harmonizing {self.source_name}: {input_file} -> {nodes_output}, {edges_output}")
 
         nodes = {}
@@ -52,7 +58,7 @@ class UMLSHarmonizer:
         # Add a LOINC node for the observable (e.g., clinical lab test), if one doesn't yet exist
         loinc_observable_curie = f"LOINC:{loinc_observable_id}"
         if loinc_observable_curie not in existing_nodes:
-            observable_node = BaseHarmonizer.create_node(
+            observable_node = self.create_node(
                 source_infores=self.source_infores,
                 curie=loinc_observable_curie,
                 equivalent_ids=[loinc_observable_curie],
@@ -65,7 +71,7 @@ class UMLSHarmonizer:
         loinc_part_curie = f"LOINC:{loinc_part_id}"
         umls_part_curie = f"UMLS:{umls_part_id}"
         if umls_part_curie not in existing_nodes:
-            part_node = BaseHarmonizer.create_node(
+            part_node = self.create_node(
                 source_infores=self.source_infores,
                 curie=umls_part_curie,
                 equivalent_ids=[umls_part_curie, loinc_part_curie],
@@ -75,7 +81,7 @@ class UMLSHarmonizer:
             new_nodes[part_node[ID]] = part_node
 
         # Add an edge connecting the observable node to its parts
-        edge = BaseHarmonizer.create_edge(
+        edge = self.create_edge(
             source_infores=self.source_infores,
             subject_id=loinc_observable_curie,
             object_id=umls_part_curie,

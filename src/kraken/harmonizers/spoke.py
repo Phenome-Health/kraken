@@ -46,19 +46,16 @@ EXCLUDE_PROPS = {
 }
 
 
-class SpokeHarmonizer:
+class SpokeHarmonizer(BaseHarmonizer):
     """
     Harmonizer for SPOKE mixed JSONL files.
-
-    Doesn't use base class due to unique format (mixed nodes/edges in single file,
-    custom ID normalization, edge type mapping, source normalization).
     """
 
     source_name = "spoke"
     source_infores = SPOKE_INFORES
 
     def __init__(self, biolink_client: BiolinkClient):
-        self.biolink = biolink_client
+        super().__init__(biolink_client)
         self.id_norm = SpokeIDNormalizer(biolink_version=biolink_client.version)
 
         # Load infores info for knowledge_level/agent_type mapping
@@ -79,11 +76,17 @@ class SpokeHarmonizer:
 
     def harmonize(
         self,
-        input_file: Path,
         nodes_output: Path,
         edges_output: Path,
-    ) -> None:
+        *,
+        input_file: Path | None = None,
+        nodes_input: Path | None = None,
+        edges_input: Path | None = None,
+    ):
         """Harmonize SPOKE mixed JSONL to unified Biolink schema using streaming"""
+        if not input_file:
+            raise ValueError(f"{self.source_name} requires input_file")
+
         logging.info(f"Harmonizing {self.source_name}: {input_file} -> {nodes_output}, {edges_output}")
 
         # Keep track of normalized node IDs for edge mapping
@@ -97,7 +100,7 @@ class SpokeHarmonizer:
                 item_type = item.get("type")
 
                 if item_type == "node":
-                    harmonized_node = self._harmonize_node(item)
+                    harmonized_node = self._harmonize_spoke_node(item)
 
                     if harmonized_node:  # Occasionally we skip nodes (if invalid identifier, etc...)
                         # Store mapping for edge processing
@@ -107,14 +110,14 @@ class SpokeHarmonizer:
                         node_count += 1
 
                 elif item_type == "relationship":
-                    harmonized_edge = self._harmonize_edge(item, spoke_to_normalized_id)
+                    harmonized_edge = self._harmonize_spoke_edge(item, spoke_to_normalized_id)
                     if harmonized_edge:
                         edges_writer.write(harmonized_edge)
                         edge_count += 1
 
         logging.info(f"{self.source_name} harmonization complete: {node_count} nodes, {edge_count} edges")
 
-    def _harmonize_node(self, node_item: dict) -> dict | None:
+    def _harmonize_spoke_node(self, node_item: dict) -> dict | None:
         """Harmonize a single SPOKE node"""
         properties = node_item.get("properties", {})
         labels = node_item.get("labels", [])
@@ -148,7 +151,7 @@ class SpokeHarmonizer:
             additional_equivalent_ids = self.id_norm.extract_equivalent_identifiers(node_type, properties)
             all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
 
-            harmonized_node = BaseHarmonizer.create_node(
+            harmonized_node = self.create_node(
                 source_infores=self.source_infores,
                 curie=normalized_id,
                 categories=self._map_spoke_labels_to_biolink(labels, primary_source, normalized_id),
@@ -166,7 +169,7 @@ class SpokeHarmonizer:
             logging.error(f"Failed to convert SPOKE 'identifier' to a proper curie. {node_item}")
             sys.exit(1)
 
-    def _harmonize_edge(self, edge_item: dict, spoke_to_normalized_id: dict) -> dict | None:
+    def _harmonize_spoke_edge(self, edge_item: dict, spoke_to_normalized_id: dict) -> dict | None:
         """Harmonize a single SPOKE edge"""
         edge_type = edge_item.get("label")
         if not edge_type:
@@ -196,7 +199,7 @@ class SpokeHarmonizer:
 
         normalized_primary_ks = self._normalize_source(primary_source, edge_item)
 
-        harmonized_edge = BaseHarmonizer.create_edge(
+        harmonized_edge = self.create_edge(
             source_infores=self.source_infores,
             subject_id=normalized_subject_id,
             object_id=normalized_object_id,

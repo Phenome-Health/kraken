@@ -82,10 +82,10 @@ class KrakenBuildOrchestrator:
     def _harmonize_source(self, source_name: str):
         """Harmonize a single source to Biolink schema"""
         logging.info(f"Harmonizing {source_name}...")
+        source_config = self.config.sources[source_name]
 
         # Get paths
         nodes_output, edges_output = self.config.all_harmonized_paths_resolved[source_name]
-        input_paths = self.config.all_source_input_paths_resolved[source_name]
 
         # Create output directory if it doesn't exist
         nodes_output.parent.mkdir(parents=True, exist_ok=True)
@@ -93,21 +93,19 @@ class KrakenBuildOrchestrator:
         # Instantiate our harmonizer
         harmonizer = self.HARMONIZERS[source_name](self.biolink_client)
 
-        logging.info(f"Full input file paths are: {input_paths}")
-
         # Unzip input files as needed
-        unzip_files(list(input_paths.values()))
+        unzip_files(self.config.all_source_input_paths_resolved[source_name])
 
-        # Harmonize input files
-        if input_paths.get("input_file"):
-            harmonizer.harmonize(input_paths["input_file"], nodes_output, edges_output)
-        elif input_paths.get("nodes_input") and input_paths.get("edges_input"):
-            harmonizer.harmonize(input_paths["nodes_input"], input_paths["edges_input"], nodes_output, edges_output)
-        else:
-            raise ValueError(f"Unknown source type: {source_name}")
+        harmonizer.harmonize(
+            nodes_output=nodes_output,
+            edges_output=edges_output,
+            input_file=source_config.input_file_resolved,
+            nodes_input=source_config.nodes_input_resolved,
+            edges_input=source_config.edges_input_resolved,
+        )
 
         if self.config.zip_inputs_after:
-            zip_files(list(input_paths.values()))
+            zip_files(self.config.all_source_input_paths_resolved[source_name])
 
         if self.config.create_metagraphs:
             generate_metagraph_for_source(

@@ -20,37 +20,36 @@ from kraken.utils.kg_io import save_to_jsonl
 CLINGEN_ACMG_API_URL = "https://actionability.clinicalgenome.org/ac/api/summ/brief"
 
 
-class ClinGenHarmonizer:
+class ClinGenHarmonizer(BaseHarmonizer):
     """
     Harmonizer for ClinicalGenome ACMG actionability data.
 
     Processes gene-disease and variant-disease associations from the
     ACMG Clinical Genome Resource (ClinGen) Actionability Working Group.
-
-    Doesn't use base class due to unique format (JSON + web scraping).
     """
 
     source_name = "clingen"
     source_infores = CLINGEN_INFORES
 
     def __init__(self, biolink_client: BiolinkClient):
-        self.biolink = biolink_client
+        super().__init__(biolink_client)
         self.normalizer = Normalizer(biolink_version=biolink_client.version)
 
     def harmonize(
         self,
-        input_file: Path,
         nodes_output: Path,
         edges_output: Path,
-    ) -> None:
+        *,
+        input_file: Path | None = None,
+        nodes_input: Path | None = None,
+        edges_input: Path | None = None,
+    ):
         """
         Harmonize ClinGen ACMG actionability data.
-
-        Args:
-            input_file: Path to the downloaded JSON file from the ACMG API
-            nodes_output: Path where the harmonized nodes.jsonl will be saved
-            edges_output: Path where the harmonized edges.jsonl will be saved
         """
+        if not input_file:
+            raise ValueError(f"{self.source_name} requires input_file")
+
         logging.info(f"Harmonizing {self.source_name}: {input_file} -> {nodes_output}, {edges_output}")
 
         nodes: dict[str, dict[str, Any]] = {}
@@ -179,7 +178,7 @@ class ClinGenHarmonizer:
             )
             sys.exit(1)
 
-        return BaseHarmonizer.create_node(
+        return self.create_node(
             source_infores=self.source_infores,
             curie=disease_curie,
             categories=["biolink:Disease"],
@@ -207,7 +206,7 @@ class ClinGenHarmonizer:
             logging.error(f"Could not normalize gene: {gene_symbol} - gene omim: {gene_omim}")
             sys.exit(1)
 
-        return BaseHarmonizer.create_node(
+        return self.create_node(
             curie=gene_curie,
             categories=["biolink:Gene"],
             equivalent_ids=equivalent_ids,
@@ -264,7 +263,7 @@ class ClinGenHarmonizer:
         if outcome_intervention_pairs:
             attributes["outcome_intervention_pairs"] = outcome_intervention_pairs
 
-        return BaseHarmonizer.create_edge(
+        return self.create_edge(
             source_infores=self.source_infores,
             subject_id=gene_id,
             object_id=disease_id,

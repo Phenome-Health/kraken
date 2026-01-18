@@ -53,10 +53,10 @@ class BaseHarmonizer(ABC):
 
     # Node property name mappings - override when source uses different names
     id_prop: str = ID
-    category_prop: str  # Varies a lot, harmonizer required to set
-    equivalent_ids_prop: str  # Varies a lot, harmonizer required to set
-    synonyms_props: set[str]  # Varies a lot, harmonizer required to set
-    url_prop: str  # Varies a lot, harmonizer required to set
+    category_prop: str = "category"
+    equivalent_ids_prop: str = "xref"
+    synonyms_props: set[str] = "synonym"
+    url_prop: str = "iri"
     name_prop: str = NAME
     description_prop: str = DESCRIPTION
     chemical_formula_prop: str = CHEMICAL_FORMULA
@@ -106,6 +106,7 @@ class BaseHarmonizer(ABC):
             self.exact_mass_prop,
             self.publications_prop,
         }.union(self.synonyms_props)
+
         self.core_edge_props = {
             self.subject_prop,
             self.object_prop,
@@ -124,24 +125,45 @@ class BaseHarmonizer(ABC):
 
     def harmonize(
         self,
-        nodes_input: Path,
-        edges_input: Path,
         nodes_output: Path,
         edges_output: Path,
+        *,
+        input_file: Path | None = None,
+        nodes_input: Path | None = None,
+        edges_input: Path | None = None,
     ):
-        """Run full harmonization pipeline"""
-        logging.info(f"Harmonizing {self.source_name}: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
+        """
+        Run full harmonization pipeline.
 
+        Default implementation handles split nodes/edges files.
+        Single-file harmonizers should override this method.
+        """
+        # Validate inputs
+        has_separate = nodes_input is not None or edges_input is not None
+        has_combined = input_file is not None
+
+        if has_separate and has_combined:
+            raise ValueError(f"{self.source_name}: Specify either nodes_input/edges_input OR input_file, not both")
+        if has_separate and not (nodes_input and edges_input):
+            raise ValueError(f"{self.source_name}: Must specify both nodes_input and edges_input")
+        if not has_separate and not has_combined:
+            raise ValueError(f"{self.source_name}: Must specify either nodes_input/edges_input or input_file")
+
+        if input_file:
+            raise NotImplementedError(
+                f"{self.source_name} was called with input_file but does not override harmonize()"
+            )
+
+        logging.info(f"Harmonizing {self.source_name}: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
         node_count = self._harmonize_nodes(nodes_input, nodes_output)
         edge_count = self._harmonize_edges(edges_input, edges_output)
-
         logging.info(f"{self.source_name} harmonization complete: {node_count} nodes, {edge_count} edges")
 
     def _harmonize_nodes(self, input_path: Path, output_path: Path) -> int:
         count = 0
         with jsonlines.open(output_path, "w") as writer:
             for node in self._stream_nodes(input_path):
-                harmonized = self.harmonize_node(node)
+                harmonized = self._harmonize_node(node)
                 writer.write(harmonized)
                 count += 1
         logging.info("Finished harmonizing nodes")
@@ -151,13 +173,13 @@ class BaseHarmonizer(ABC):
         count = 0
         with jsonlines.open(output_path, "w") as writer:
             for edge in self._stream_edges(input_path):
-                harmonized = self.harmonize_edge(edge)
+                harmonized = self._harmonize_edge(edge)
                 writer.write(harmonized)
                 count += 1
         logging.info("Finished harmonizing edges")
         return count
 
-    def collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any]:
+    def _collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any]:
         attributes = {}
         for k, v in node.items():
             if k in self.core_node_props or k in self.ignore_node_props or is_empty(v):
@@ -166,7 +188,7 @@ class BaseHarmonizer(ABC):
             attributes[key] = v
         return attributes
 
-    def collect_edge_attributes(self, edge: dict[str, Any]) -> dict[str, Any]:
+    def _collect_edge_attributes(self, edge: dict[str, Any]) -> dict[str, Any]:
         attributes = {}
         for k, v in edge.items():
             if k in self.core_edge_props or k in self.ignore_edge_props or is_empty(v):
@@ -175,7 +197,7 @@ class BaseHarmonizer(ABC):
             attributes[key] = v
         return attributes
 
-    def harmonize_node(self, node: dict[str, Any]) -> dict[str, Any]:
+    def _harmonize_node(self, node: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single node. Override for source-specific logic."""
         synonyms = set()
         for synonym_prop in self.synonyms_props:
@@ -196,10 +218,10 @@ class BaseHarmonizer(ABC):
             chemical_formula=node.get(self.chemical_formula_prop),
             exact_mass=node.get(self.exact_mass_prop),
             publications=node.get(self.publications_prop),
-            attributes=self.collect_node_attributes(node),
+            attributes=self._collect_node_attributes(node),
         )
 
-    def harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
+    def _harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single edge. Override for source-specific logic."""
         primary_ks = edge[self.primary_ks_prop] if edge.get(self.primary_ks_prop) else self.primary_ks_default_value
         supporting_sources = (
@@ -223,7 +245,7 @@ class BaseHarmonizer(ABC):
             supporting_sources=to_list(supporting_sources),
             publications=to_list(edge.get(self.publications_prop, [])),
             publications_info=edge.get(self.publications_info_prop),
-            attributes=self.collect_edge_attributes(edge),
+            attributes=self._collect_edge_attributes(edge),
         )
 
     def _stream_nodes(self, input_path: Path | str):

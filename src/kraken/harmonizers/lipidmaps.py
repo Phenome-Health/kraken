@@ -12,8 +12,8 @@ from kraken.utils.constants import LIPIDMAPS_ID
 from kraken.utils.kg_io import save_to_jsonl
 
 
-class LipidMapsHarmonizer:
-    """Harmonizer for LIPID MAPS SDF files - doesn't use base class due to unique format"""
+class LipidMapsHarmonizer(BaseHarmonizer):
+    """Harmonizer for LIPID MAPS SDF files"""
 
     source_name = "lipidmaps"
     source_infores = LIPIDMAPS_ID
@@ -32,15 +32,21 @@ class LipidMapsHarmonizer:
     }
 
     def __init__(self, biolink_client: BiolinkClient):
-        self.biolink = biolink_client
+        super().__init__(biolink_client)
         self.normalizer = Normalizer(biolink_version=biolink_client.version)
 
     def harmonize(
         self,
-        input_file: Path,
         nodes_output: Path,
         edges_output: Path,
+        *,
+        input_file: Path | None = None,
+        nodes_input: Path | None = None,
+        edges_input: Path | None = None,
     ):
+        if not input_file:
+            raise ValueError(f"{self.source_name} requires input_file")
+
         logging.info(f"Harmonizing {self.source_name}: {input_file} -> {nodes_output}, {edges_output}")
 
         nodes = {}
@@ -85,7 +91,7 @@ class LipidMapsHarmonizer:
         # Collect attributes
         attributes = {k: properties[k] for k in self.attribute_props if k in properties}
 
-        return BaseHarmonizer.create_node(
+        return self.create_node(
             source_infores=self.source_infores,
             curie=lm_curie,
             categories=["biolink:SmallMolecule"],

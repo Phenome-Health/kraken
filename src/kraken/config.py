@@ -52,6 +52,20 @@ class SourceConfig(BaseModel):
     edges_input: str | None = None
     can_merge_existing_nodes: bool
 
+    # Computed (set by KrakenConfig validator)
+    input_file_resolved: Path | None = Field(default=None, init=False)
+    nodes_input_resolved: Path | None = Field(default=None, init=False)
+    edges_input_resolved: Path | None = Field(default=None, init=False)
+
+    def resolve(self, base_path: Path) -> None:
+        """Resolve paths against base_path (mutates in place)"""
+        if self.input_file:
+            self.input_file_resolved = base_path / self.input_file
+        if self.nodes_input:
+            self.nodes_input_resolved = base_path / self.nodes_input
+        if self.edges_input:
+            self.edges_input_resolved = base_path / self.edges_input
+
 
 class KrakenConfig(BaseModel):
     biolink_version: str
@@ -93,6 +107,11 @@ class KrakenConfig(BaseModel):
 
         source_pool = include_sources if include_sources else all_sources
         self.sources_to_use = source_pool - exclude_sources
+
+        # Resolve paths for each source
+        for source_name in self.sources_to_use:
+            self.sources[source_name].resolve(self.base_path_resolved)
+
         return self
 
     # Computed path properties
@@ -145,17 +164,17 @@ class KrakenConfig(BaseModel):
         }
 
     @property
-    def all_source_input_paths_resolved(self) -> dict[str, dict[str, Path]]:
-        """Get full input file paths for all sources to use"""
-        result = {}
-        for source_name in self.sources_to_use:
-            source_config = self.sources[source_name]
-            paths = {}
-            if source_config.input_file:
-                paths["input_file"] = self.base_path_resolved / source_config.input_file
-            if source_config.nodes_input:
-                paths["nodes_input"] = self.base_path_resolved / source_config.nodes_input
-            if source_config.edges_input:
-                paths["edges_input"] = self.base_path_resolved / source_config.edges_input
-            result[source_name] = paths
-        return result
+    def all_source_input_paths_resolved(self) -> dict[str, list[Path]]:
+        """Get resolved input paths for all sources to use"""
+        return {
+            source: [
+                p
+                for p in [
+                    self.sources[source].input_file_resolved,
+                    self.sources[source].nodes_input_resolved,
+                    self.sources[source].edges_input_resolved,
+                ]
+                if p
+            ]
+            for source in self.sources_to_use
+        }

@@ -11,8 +11,8 @@ from kraken.utils.constants import REFMET_INFORES
 from kraken.utils.kg_io import load_csv_to_dict_list, save_to_jsonl
 
 
-class RefMetHarmonizer:
-    """Harmonizer for RefMet CSV files - doesn't use base class due to unique format"""
+class RefMetHarmonizer(BaseHarmonizer):
+    """Harmonizer for RefMet CSV files"""
 
     source_name = "refmet"
     source_infores = REFMET_INFORES
@@ -21,15 +21,21 @@ class RefMetHarmonizer:
     equiv_id_props = {"pubchem_cid", "chebi_id", "hmdb_id", "lipidmaps_id", "kegg_id", "inchi_key"}
 
     def __init__(self, biolink_client: BiolinkClient):
-        self.biolink = biolink_client
+        super().__init__(biolink_client)
         self.normalizer = Normalizer(biolink_version=biolink_client.version)
 
     def harmonize(
         self,
-        input_file: Path,
         nodes_output: Path,
         edges_output: Path,
+        *,
+        input_file: Path | None = None,
+        nodes_input: Path | None = None,
+        edges_input: Path | None = None,
     ):
+        if not input_file:
+            raise ValueError(f"{self.source_name} requires input_file")
+
         logging.info(f"Harmonizing {self.source_name}: {input_file} -> {nodes_output}, {edges_output}")
 
         nodes = {}
@@ -62,7 +68,7 @@ class RefMetHarmonizer:
         # Put together our node
         name = row["refmet_name"]
 
-        return BaseHarmonizer.create_node(
+        return self.create_node(
             source_infores=self.source_infores,
             curie=rm_curie,
             categories=["biolink:SmallMolecule"],
