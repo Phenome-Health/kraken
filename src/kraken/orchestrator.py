@@ -26,6 +26,7 @@ from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.kg_io import form_tarball, unzip_files, zip_files
 from kraken.utils.logging_config import setup_logging
 from kraken.utils.metagraph import generate_metagraph_for_source
+from kraken.validator import KrakenValidator
 
 
 class KrakenBuildOrchestrator:
@@ -53,6 +54,7 @@ class KrakenBuildOrchestrator:
         setup_logging(self.config.log_level)
 
         self.biolink_client = BiolinkClient(self.config.biolink_version)
+        self.validator = KrakenValidator(self.biolink_client)
 
     def run(self) -> tuple[Path, Path]:
         """Main entry point for building the KRAKEN"""
@@ -104,8 +106,8 @@ class KrakenBuildOrchestrator:
             edges_input=source_config.edges_input_resolved,
         )
 
-        if self.config.harmonization.validate_output:
-            harmonizer.validate(nodes_output, edges_output)
+        if self.config.options.validate_output:
+            self.validator.validate(nodes_output, edges_output, harmonizer.source_infores)
 
         if self.config.zip_inputs_after:
             zip_files(self.config.all_source_input_paths_resolved[source_name])
@@ -122,6 +124,9 @@ class KrakenBuildOrchestrator:
         """Integrate sources into unified KG with entity resolution"""
         logging.info("-------------------------- INTEGRATING SOURCES -----------------------------------------------")
         integrate_sources(self.config)
+
+        if self.config.options.validate_output:
+            self.validator.validate(self.config.integrated_nodes_path, self.config.integrated_edges_path)
 
         tarball_component_paths = [self.config.integrated_nodes_path, self.config.integrated_edges_path]
 

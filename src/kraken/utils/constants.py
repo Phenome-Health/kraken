@@ -16,16 +16,16 @@ EXACT_MASS = "exact_mass"
 ATTRIBUTES = "attributes"
 
 CORE_NODE_PROPERTIES = {
-    ID,
-    NAME,
-    URLS,
-    CATEGORIES,
-    PROVIDED_BY,
-    SYNONYMS,
-    EQUIVALENT_IDS,
-    DESCRIPTION,
-    CHEMICAL_FORMULA,
-    EXACT_MASS,
+    ID: str,
+    NAME: str,
+    URLS: list,
+    CATEGORIES: list,
+    PROVIDED_BY: list,
+    SYNONYMS: list,
+    EQUIVALENT_IDS: list,
+    DESCRIPTION: str,
+    CHEMICAL_FORMULA: str,
+    EXACT_MASS: float,
 }
 
 # Define edge property names
@@ -43,23 +43,23 @@ OBJ_ASPECT_QUALIFIER = "object_aspect_qualifier"
 CONTEXT_QUALIFIER = "context_qualifier"
 
 CORE_EDGE_PROPERTIES = {
-    ID,
-    SUBJECT,
-    OBJECT,
-    PREDICATE,
-    PRIMARY_KS,
-    AGGREGATOR_KS,
-    SUPPORTING_SOURCES,
-    KNOWLEDGE_LEVEL,
-    AGENT_TYPE,
-    QUALIFIED_PREDICATE,
-    OBJ_DIRECTION_QUALIFIER,
-    OBJ_ASPECT_QUALIFIER,
+    ID: str,
+    SUBJECT: str,
+    OBJECT: str,
+    PREDICATE: str,
+    PRIMARY_KS: str,
+    AGGREGATOR_KS: list,
+    SUPPORTING_SOURCES: list,
+    KNOWLEDGE_LEVEL: str,
+    AGENT_TYPE: str,
+    QUALIFIED_PREDICATE: str,
+    OBJ_DIRECTION_QUALIFIER: str,
+    OBJ_ASPECT_QUALIFIER: str,
+    CONTEXT_QUALIFIER: str,
 }
 
 PUBLICATIONS = "publications"
 PUBLICATIONS_INFO = "publications_info"
-
 
 ROOT_CATEGORY = "biolink:NamedThing"
 ROOT_PREDICATE = "biolink:related_to"

@@ -14,7 +14,6 @@ from kraken.utils.general import to_list
 class HarmonizationConfig(BaseModel):
     output_directory: str
     zip_inputs_after: bool = False
-    validate_output: bool = True
 
 
 class IntegrationConfig(BaseModel):
@@ -36,6 +35,7 @@ class OptionsConfig(BaseModel):
     include_sources: str | list[str] | None = None
     exclude_sources: str | list[str] | None = None
     metagraph_creation: bool = False
+    validate_output: bool = True
 
 
 class TestExportConfig(BaseModel):

@@ -3,6 +3,7 @@ import logging
 
 from bmt import Toolkit
 
+from kraken.utils.constants import ROOT_CATEGORY, ROOT_PREDICATE
 from kraken.utils.general import to_list
 
 
@@ -16,12 +17,8 @@ class BiolinkClient:
         logging.info(f"Initializing Biolink Model Toolkit for version {biolink_version}...")
         self.toolkit = Toolkit(schema=biolink_url)
         self.version = biolink_version
-        self.categories = set(
-            self.toolkit.get_descendants("biolink:NamedThing", formatted=True, mixin=True, reflexive=True)
-        )
-        self.predicates = set(
-            self.toolkit.get_descendants("biolink:related_to", formatted=True, mixin=True, reflexive=True)
-        )
+        self.categories = set(self.toolkit.get_descendants(ROOT_CATEGORY, formatted=True, mixin=True, reflexive=True))
+        self.predicates = set(self.toolkit.get_descendants(ROOT_PREDICATE, formatted=True, mixin=True, reflexive=True))
         kl_enum = self.toolkit.view.schema.enums.get("KnowledgeLevelEnum")
         self.knowledge_levels = set(kl_enum.permissible_values.keys())
         at_enum = self.toolkit.view.schema.enums.get("AgentTypeEnum")

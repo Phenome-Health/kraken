@@ -409,13 +409,3 @@ class BaseHarmonizer(ABC):
             edge[ATTRIBUTES] = {source_infores: attributes}
 
         return edge
-
-    def validate(self, harmonized_nodes: Path, harmonized_edges: Path):
-        logging.info("Validating harmonized nodes/edges...")
-        for node in stream_nodes_from_jsonl(harmonized_nodes):
-            # TODO: validate nodes!
-            pass
-        for edge in stream_edges_from_jsonl(harmonized_edges):
-            # TODO: validate edges!
-            pass
-        logging.info("Validation complete! All checks passed.")
