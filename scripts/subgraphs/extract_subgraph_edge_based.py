@@ -5,27 +5,17 @@ from kraken.utils.constants import ID, OBJECT, PRIMARY_KS, PROJECT_ROOT, SUBJECT
 from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
 from kraken.utils.metagraph import generate_metagraph_for_source
 
-target_kg_name = "spoke"
-target_knowledge_sources = {
-    "us-zipcode",
-    "ucmr",
-    "tri",
-    "epa-superfund",
-    "who",
-    "epa-nei",
-    "who-air-quality",
-    "geonames",
-    "epa-air-quality-stats",
-}
+target_kg_name = "kg2"
+target_knowledge_sources = {"infores:icd10pcs-umls"}
 
 orchestrator = KrakenBuildOrchestrator()
-nodes_path, edges_path = orchestrator.config.all_harmonized_paths_resolved(target_kg_name)
+nodes_path, edges_path = orchestrator.config.all_harmonized_paths_resolved[target_kg_name]
 
-
+subgraph_name = "kg2_icd10pcsumls"
 subgraph_dir = PROJECT_ROOT / "artifacts" / "subgraphs"
 subgraph_dir.mkdir(parents=True, exist_ok=True)
-subgraph_nodes_path = subgraph_dir / "spoke_env_geo_nodes.jsonl"
-subgraph_edges_path = subgraph_dir / "spoke_env_geo_edges.jsonl"
+subgraph_nodes_path = subgraph_dir / f"{subgraph_name}_nodes.jsonl"
+subgraph_edges_path = subgraph_dir / f"{subgraph_name}_edges.jsonl"
 
 
 # First extract the edges, recording which nodes they involve
@@ -56,4 +46,4 @@ with jsonlines.open(subgraph_nodes_path, "w") as subgraph_writer:
             num_subgraph_nodes += 1
 print(f"Finished extracting {num_subgraph_nodes} subgraph nodes.")
 
-generate_metagraph_for_source(subgraph_nodes_path, subgraph_edges_path, subgraph_dir, "spoke_env_geo_subgraph")
+generate_metagraph_for_source(subgraph_nodes_path, subgraph_edges_path, subgraph_dir, subgraph_name)

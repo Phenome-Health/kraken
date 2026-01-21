@@ -8,7 +8,7 @@ target_kg_name = "spoke"
 target_prefixes = {"ENVO"}
 
 orchestrator = KrakenBuildOrchestrator()
-nodes_path, edges_path = orchestrator.config.all_harmonized_paths_resolved(target_kg_name)
+nodes_path, edges_path = orchestrator.config.all_harmonized_paths_resolved[target_kg_name]
 
 
 subgraph_dir = PROJECT_ROOT / "artifacts" / "subgraphs"
