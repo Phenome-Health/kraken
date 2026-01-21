@@ -90,9 +90,12 @@ class BaseHarmonizer(ABC):
     rename_node_attrs: dict[str, str] = {}
     rename_edge_attrs: dict[str, str] = {}
 
-    # Knowledge source overrides
+    # Knowledge source defaults
     primary_ks_default_value: str | None = None
     supporting_sources_default_value: str | None = None
+
+    # Predicate overrides
+    predicate_overrides: dict = dict()
 
     # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
     exclude_from_list_parsing: set[str] = set()
@@ -228,17 +231,20 @@ class BaseHarmonizer(ABC):
 
     def _harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single edge. Override for source-specific logic."""
+        # Apply default values for sources as applicable
         primary_ks = edge[self.primary_ks_prop] if edge.get(self.primary_ks_prop) else self.primary_ks_default_value
         supporting_sources = (
             edge[self.supporting_sources_prop]
             if edge.get(self.supporting_sources_prop)
             else self.supporting_sources_default_value
         )
+        # Override predicates as applicable
+        predicate = self.predicate_overrides.get(edge[self.predicate_prop], edge[self.predicate_prop])
         return self.create_edge(
             source_infores=self.source_infores,
             subject_id=edge[self.subject_prop],
             object_id=edge[self.object_prop],
-            predicate=edge[self.predicate_prop],
+            predicate=predicate,
             primary_ks=primary_ks,
             knowledge_level=edge.get(self.knowledge_level_prop, NOT_PROVIDED),
             agent_type=edge.get(self.agent_type_prop, NOT_PROVIDED),

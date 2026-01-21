@@ -7,9 +7,9 @@ steps:
   postprocess: False
 options:
   metagraph_creation: True
-  include_sources: ["microbiome-kg"]
-  exclude_sources: []
   validate_output: True
+  include_sources: ["kg2"]
+  exclude_sources: []
 
 # Base directory path to use for all input/output files (should be absolute path)
 # Leave empty to use kraken project root as base path
