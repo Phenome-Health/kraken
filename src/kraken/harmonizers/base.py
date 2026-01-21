@@ -316,7 +316,7 @@ class BaseHarmonizer(ABC):
             node[CHEMICAL_FORMULA] = chemical_formula
 
         if exact_mass:
-            node[EXACT_MASS] = exact_mass
+            node[EXACT_MASS] = float(exact_mass)
         if description:
             node[DESCRIPTION] = clean_text(description)
 
