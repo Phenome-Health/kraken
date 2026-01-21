@@ -51,7 +51,7 @@ class SourceConfig(BaseModel):
     input_file: str | None = None
     nodes_input: str | None = None
     edges_input: str | None = None
-    can_merge_existing_nodes: bool
+    can_merge_existing_nodes: bool = False
 
     # Computed (set by KrakenConfig validator)
     input_file_resolved: Path | None = Field(default=None, init=False)
