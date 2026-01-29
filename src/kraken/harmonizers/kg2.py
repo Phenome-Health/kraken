@@ -18,5 +18,6 @@ class KG2Harmonizer(BaseHarmonizer):
     object_aspect_qualifier_prop = "qualified_object_aspect"
     ignore_edge_props = {"domain_range_exclusion"}
     rename_edge_attrs = {"id": "kg2c_ids", "kg2_ids": "kg2pre_ids"}
+    primary_ks_exclusions = {"infores:semmeddb"}
     # KG2 uses an invalid predicate for NCIT 'regimen_has_accepted_use_for_disease' edges - remap those
     predicate_overrides = {"biolink:drug_regulatory_status_world_wide": "biolink:treats_or_applied_or_studied_to_treat"}

@@ -97,6 +97,9 @@ class BaseHarmonizer(ABC):
     # Predicate overrides
     predicate_overrides: dict = dict()
 
+    # Primary knowledge sources to skip (these edges will NOT be included)
+    primary_ks_exclusions: set = set()
+
     # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
     exclude_from_list_parsing: set[str] = set()
 
@@ -179,12 +182,21 @@ class BaseHarmonizer(ABC):
 
     def _harmonize_edges(self, input_path: Path, output_path: Path) -> int:
         count = 0
+        excluded_count = 0
         with jsonlines.open(output_path, "w") as writer:
             for edge in self._stream_edges(input_path):
-                harmonized = self._harmonize_edge(edge)
-                writer.write(harmonized)
-                count += 1
-        logging.info("Finished harmonizing edges")
+                if edge.get(self.primary_ks_prop) in self.primary_ks_exclusions:
+                    excluded_count += 1
+                else:
+                    harmonized = self._harmonize_edge(edge)
+                    writer.write(harmonized)
+                    count += 1
+        logging.info("Finished harmonizing edges.")
+        if excluded_count:
+            logging.info(
+                f"Excluded {excluded_count} edges that came from these primary "
+                f"knowledge sources: {self.primary_ks_exclusions}."
+            )
         return count
 
     def _collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any]:
