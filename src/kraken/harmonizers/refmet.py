@@ -5,8 +5,8 @@ from typing import Any
 
 from biomapper2.core.normalizer import Normalizer
 
+from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.biolink_client import BiolinkClient
 from kraken.utils.constants import REFMET_INFORES
 from kraken.utils.kg_io import load_csv_to_dict_list, save_to_jsonl
 

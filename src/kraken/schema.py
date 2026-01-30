@@ -6,8 +6,9 @@ class PropertyDef:
     """Metadata about a single property (not an instance of the property itself)."""
 
     name: str
-    type: type
+    dtype: type
     required: bool = False
+    inner_type: type | None = None
     in_key: bool = False
 
 
@@ -16,15 +17,15 @@ class NodeModel:
 
     id = PropertyDef("id", str, required=True)
     name = PropertyDef("name", str)
-    urls = PropertyDef("urls", list)
-    categories = PropertyDef("categories", list, required=True)
-    provided_by = PropertyDef("provided_by", list, required=True)
-    synonyms = PropertyDef("synonyms", list)
-    equivalent_ids = PropertyDef("equivalent_ids", list)
+    urls = PropertyDef("urls", list, inner_type=str)
+    categories = PropertyDef("categories", list, required=True, inner_type=str)
+    provided_by = PropertyDef("provided_by", list, required=True, inner_type=str)
+    synonyms = PropertyDef("synonyms", list, inner_type=str)
+    equivalent_ids = PropertyDef("equivalent_ids", list, inner_type=str)
     description = PropertyDef("description", str)
     chemical_formula = PropertyDef("chemical_formula", str)
     exact_mass = PropertyDef("exact_mass", float)
-    publications = PropertyDef("publications", list)
+    publications = PropertyDef("publications", list, inner_type=str)
     attributes = PropertyDef("attributes", dict)
 
     @classmethod
@@ -44,11 +45,11 @@ class EdgeModel:
     predicate = PropertyDef("predicate", str, required=True, in_key=True)
     qualifiers = PropertyDef("qualifiers", dict, in_key=True)
     primary_ks = PropertyDef("primary_knowledge_source", str, required=True, in_key=True)
-    aggregator_ks = PropertyDef("aggregator_knowledge_source", list, in_key=True)
-    supporting_sources = PropertyDef("supporting_data_sources", list, in_key=True)
+    aggregator_ks = PropertyDef("aggregator_knowledge_source", list, in_key=True, inner_type=str)
+    supporting_sources = PropertyDef("supporting_data_sources", list, in_key=True, inner_type=str)
     knowledge_level = PropertyDef("knowledge_level", str, required=True)
     agent_type = PropertyDef("agent_type", str, required=True)
-    publications = PropertyDef("publications", list, in_key=True)
+    publications = PropertyDef("publications", list, in_key=True, inner_type=str)
     publications_info = PropertyDef("publications_info", dict, in_key=True)
     attributes = PropertyDef("attributes", dict, in_key=True)
 

@@ -8,7 +8,9 @@ from pathlib import Path
 
 import yaml
 
+from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
+from kraken.entity_resolution import integrate_sources
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
@@ -19,13 +21,11 @@ from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
 from kraken.harmonizers.spoke import SpokeHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
-from kraken.integration.entity_resolution import integrate_sources
+from kraken.metagraph import generate_metagraph_for_source
 from kraken.post_processing.test_file_generator import create_test_kg_files
-from kraken.utils.biolink_client import BiolinkClient
 from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.kg_io import form_tarball, unzip_files, zip_files
 from kraken.utils.logging_config import setup_logging
-from kraken.utils.metagraph import generate_metagraph_for_source
 from kraken.validator import KrakenValidator
 
 

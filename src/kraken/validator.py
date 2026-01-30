@@ -6,8 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from kraken.schema import EdgeModel, NodeModel
-from kraken.utils.biolink_client import BiolinkClient
+from kraken.biolink_client import BiolinkClient
+from kraken.schema import EdgeModel, NodeModel, PropertyDef
 from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
@@ -108,12 +108,14 @@ class KrakenValidator:
             for prop in NodeModel.all_properties().values():
                 if prop.name in node:
                     value = node[prop.name]
-                    if not isinstance(value, prop.type):
+                    if not isinstance(value, prop.dtype):
                         self._add_error(
                             "invalid_type",
-                            f"Field node.{prop.name} has type {type(value).__name__}, expected {prop.type.__name__}",
+                            f"Field node.{prop.name} has type {type(value).__name__}, expected {prop.dtype.__name__}",
                             node,
                         )
+                    else:
+                        self._validate_inner_types(prop, value, node, "node")
 
             # ID must appear in equivalent_ids
             if NodeModel.equivalent_ids.name in node and NodeModel.id.name in node:
@@ -169,12 +171,14 @@ class KrakenValidator:
             for prop in EdgeModel.all_properties().values():
                 if prop.name in edge:
                     value = edge[prop.name]
-                    if not isinstance(value, prop.type):
+                    if not isinstance(value, prop.dtype):
                         self._add_error(
                             "invalid_type",
-                            f"Field edge.{prop.name} has type {type(value).__name__}, expected {prop.type.__name__}",
+                            f"Field edge.{prop.name} has type {type(value).__name__}, expected {prop.dtype.__name__}",
                             edge,
                         )
+                    else:
+                        self._validate_inner_types(prop, value, edge, "edge")
 
             # Predicate must be valid Biolink predicate
             if EdgeModel.predicate.name in edge:
@@ -229,3 +233,17 @@ class KrakenValidator:
     def is_valid_predicate_format(predicate: str) -> bool:
         """Check that predicate is in 'biolink:snake_case' format."""
         return bool(re.match(r"^biolink:[a-z][a-z_]*$", predicate))
+
+    def _validate_inner_types(self, prop: PropertyDef, value: any, item: dict, item_label: str) -> None:
+        """Validate types of items within a list."""
+        if prop.inner_type is None or not isinstance(value, list):
+            return
+
+        for i, inner_value in enumerate(value):
+            if not isinstance(inner_value, prop.inner_type):
+                self._add_error(
+                    "invalid_inner_type",
+                    f"Field {item_label}.{prop.name}[{i}] has type {type(inner_value).__name__}, "
+                    f"expected {prop.inner_type.__name__}",
+                    item,
+                )

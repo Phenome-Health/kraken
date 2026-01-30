@@ -1,9 +1,9 @@
 import jsonlines
 
+from kraken.metagraph import generate_metagraph_for_source
 from kraken.orchestrator import KrakenBuildOrchestrator
 from kraken.utils.constants import ID, OBJECT, PRIMARY_KS, PROJECT_ROOT, SUBJECT, SUPPORTING_SOURCES
 from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
-from kraken.utils.metagraph import generate_metagraph_for_source
 
 target_kg_name = "kg2"
 target_knowledge_sources = {"infores:icd10pcs-umls"}

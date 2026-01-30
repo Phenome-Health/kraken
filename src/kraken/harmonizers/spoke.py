@@ -9,9 +9,9 @@ from typing import Any
 
 import jsonlines
 
+from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import EdgeModel, NodeModel
-from kraken.utils.biolink_client import BiolinkClient
 from kraken.utils.constants import (
     BIOLINK_PREFIX,
     INFORES_PREFIX,

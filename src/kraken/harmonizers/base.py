@@ -5,31 +5,33 @@ from typing import Any
 
 import jsonlines
 
-from kraken.utils.biolink_client import BiolinkClient
+from kraken.biolink_client import BiolinkClient
 from kraken.utils.constants import (
-    AGENT_TYPE,
-    AGGREGATOR_KS,
-    ATTRIBUTES,
-    CATEGORIES,
-    CHEMICAL_FORMULA,
-    DESCRIPTION,
-    EQUIVALENT_IDS,
-    EXACT_MASS,
-    ID,
-    KNOWLEDGE_LEVEL,
-    NAME,
+    EDGE_AGENT_TYPE,
+    EDGE_AGGREGATOR_KS,
+    EDGE_ATTRIBUTES,
+    EDGE_KNOWLEDGE_LEVEL,
+    EDGE_OBJECT,
+    EDGE_PREDICATE,
+    EDGE_PRIMARY_KS,
+    EDGE_PUBLICATIONS,
+    EDGE_PUBLICATIONS_INFO,
+    EDGE_QUALIFIERS,
+    EDGE_SUBJECT,
+    EDGE_SUPPORTING_SOURCES,
+    NODE_ATTRIBUTES,
+    NODE_CATEGORIES,
+    NODE_CHEMICAL_FORMULA,
+    NODE_DESCRIPTION,
+    NODE_EQUIVALENT_IDS,
+    NODE_EXACT_MASS,
+    NODE_ID,
+    NODE_NAME,
+    NODE_PROVIDED_BY,
+    NODE_PUBLICATIONS,
+    NODE_SYNONYMS,
+    NODE_URLS,
     NOT_PROVIDED,
-    OBJECT,
-    PREDICATE,
-    PRIMARY_KS,
-    PROVIDED_BY,
-    PUBLICATIONS,
-    PUBLICATIONS_INFO,
-    QUALIFIERS,
-    SUBJECT,
-    SUPPORTING_SOURCES,
-    SYNONYMS,
-    URLS,
 )
 from kraken.utils.general import clean_text, is_empty, to_list
 from kraken.utils.kg_io import (
@@ -55,26 +57,26 @@ class BaseHarmonizer(ABC):
     is_aggregator: bool = False
 
     # Node property name mappings - override when source uses different names
-    id_prop: str = ID
+    id_prop: str = NODE_ID
     category_prop: str = "category"
     equivalent_ids_prop: str = "xref"
     synonyms_props: set[str] = {"synonym"}
     url_prop: str = "iri"
-    name_prop: str = NAME
-    description_prop: str = DESCRIPTION
-    chemical_formula_prop: str = CHEMICAL_FORMULA
-    exact_mass_prop: str = EXACT_MASS
+    name_prop: str = NODE_NAME
+    description_prop: str = NODE_DESCRIPTION
+    chemical_formula_prop: str = NODE_CHEMICAL_FORMULA
+    exact_mass_prop: str = NODE_EXACT_MASS
 
     # Edge property name mappings - override when source uses different names
-    subject_prop: str = SUBJECT
-    object_prop: str = OBJECT
-    predicate_prop: str = PREDICATE
-    primary_ks_prop: str = PRIMARY_KS
-    knowledge_level_prop: str = KNOWLEDGE_LEVEL
-    agent_type_prop: str = AGENT_TYPE
-    supporting_sources_prop: str = SUPPORTING_SOURCES
-    publications_prop: str = PUBLICATIONS  # NOTE: this one is also a node prop
-    publications_info_prop: str = PUBLICATIONS_INFO
+    subject_prop: str = EDGE_SUBJECT
+    object_prop: str = EDGE_OBJECT
+    predicate_prop: str = EDGE_PREDICATE
+    primary_ks_prop: str = EDGE_PRIMARY_KS
+    knowledge_level_prop: str = EDGE_KNOWLEDGE_LEVEL
+    agent_type_prop: str = EDGE_AGENT_TYPE
+    supporting_sources_prop: str = EDGE_SUPPORTING_SOURCES
+    publications_prop: str = EDGE_PUBLICATIONS  # NOTE: this one is also a node prop
+    publications_info_prop: str = EDGE_PUBLICATIONS_INFO
 
     # Properties to ignore (won't be stored in attributes)
     ignore_node_props: set[str] = set()
@@ -230,7 +232,7 @@ class BaseHarmonizer(ABC):
             curie=node[self.id_prop],
             categories=node[self.category_prop],
             provided_by=self.source_infores,
-            equivalent_ids=node.get(self.equivalent_ids_prop) if self.equivalent_ids_prop else [node[ID]],
+            equivalent_ids=node.get(self.equivalent_ids_prop) if self.equivalent_ids_prop else [node[NODE_ID]],
             name=node.get(self.name_prop),
             synonyms=synonyms,
             urls=node.get(self.url_prop),
@@ -307,9 +309,9 @@ class BaseHarmonizer(ABC):
             )
 
         # Assemble the node, with properties in a specific order (for convenient review)
-        node = {ID: curie}
+        node = {NODE_ID: curie}
         if name:
-            node[NAME] = clean_text(name)
+            node[NODE_NAME] = clean_text(name)
             # Make sure node's name is in our synonyms list
             if synonyms:
                 synonyms = list(set(synonyms) | {name})
@@ -318,10 +320,10 @@ class BaseHarmonizer(ABC):
 
         # Override categories as applicable and remove implied ancestor types
         categories = [self.category_overrides.get(category, category) for category in to_list(categories)]
-        node[CATEGORIES] = self.biolink.filter_to_leaf_categories(categories)
+        node[NODE_CATEGORIES] = self.biolink.filter_to_leaf_categories(categories)
 
         if urls:
-            node[URLS] = to_list(urls)
+            node[NODE_URLS] = to_list(urls)
 
         if chemical_formula:
             # Handle case where multiple chemical formulas are given (could be diff nomenclatures, etc.)
@@ -330,14 +332,14 @@ class BaseHarmonizer(ABC):
                     additional_chemical_formulas = chemical_formula[1:]
                     attributes["additional_chemical_formulas"] = additional_chemical_formulas
                 chemical_formula = chemical_formula[0]
-            node[CHEMICAL_FORMULA] = chemical_formula
+            node[NODE_CHEMICAL_FORMULA] = chemical_formula
 
         if exact_mass:
-            node[EXACT_MASS] = float(exact_mass)
+            node[NODE_EXACT_MASS] = float(exact_mass)
         if description:
-            node[DESCRIPTION] = clean_text(description)
+            node[NODE_DESCRIPTION] = clean_text(description)
 
-        node[PROVIDED_BY] = to_list(provided_by)  # Convert to list so these will merge
+        node[NODE_PROVIDED_BY] = to_list(provided_by)  # Convert to list so these will merge
 
         # Clean up equivalent IDs (remove INCHI, uppercase UNIIs - Molepro has some lowercase)
         cleaned_equiv_ids = set()
@@ -349,20 +351,20 @@ class BaseHarmonizer(ABC):
                 cleaned_equiv_ids.add(equiv_id)
         if not cleaned_equiv_ids:
             raise ValueError("Nodes must have an ID other than a raw 'INCHI' - could be an INCHIKEY, or other")
-        node[EQUIVALENT_IDS] = list(cleaned_equiv_ids)
+        node[NODE_EQUIVALENT_IDS] = list(cleaned_equiv_ids)
 
         # Make sure we don't have an INCHI as the overall ID
-        if node[ID].startswith("INCHI:"):
-            node[ID] = node[EQUIVALENT_IDS][0]
+        if node[NODE_ID].startswith("INCHI:"):
+            node[NODE_ID] = node[NODE_EQUIVALENT_IDS][0]
 
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
-            node[SYNONYMS] = [s for s in cleaned_synonyms if s]
+            node[NODE_SYNONYMS] = [s for s in cleaned_synonyms if s]
 
         if publications:
-            node[PUBLICATIONS] = to_list(publications)
+            node[NODE_PUBLICATIONS] = to_list(publications)
         if attributes:
-            node[ATTRIBUTES] = {self.source_infores: attributes}
+            node[NODE_ATTRIBUTES] = {self.source_infores: attributes}
 
         return node
 
@@ -387,10 +389,10 @@ class BaseHarmonizer(ABC):
         predicate = self.predicate_overrides.get(predicate, predicate)
 
         # Assemble the edge, with properties in a specific order (for convenient review)
-        edge = {SUBJECT: subject_id, OBJECT: object_id, PREDICATE: predicate}
+        edge = {EDGE_SUBJECT: subject_id, EDGE_OBJECT: object_id, EDGE_PREDICATE: predicate}
 
         if qualifiers:
-            edge[QUALIFIERS] = qualifiers
+            edge[EDGE_QUALIFIERS] = qualifiers
 
         # Handle case where multiple primary knowledge sources are given (move others to supporting)
         if isinstance(primary_ks, list):
@@ -420,18 +422,18 @@ class BaseHarmonizer(ABC):
         if agent_type == "unspecified":
             agent_type = NOT_PROVIDED
 
-        edge |= {PRIMARY_KS: primary_ks, KNOWLEDGE_LEVEL: knowledge_level, AGENT_TYPE: agent_type}
+        edge |= {EDGE_PRIMARY_KS: primary_ks, EDGE_KNOWLEDGE_LEVEL: knowledge_level, EDGE_AGENT_TYPE: agent_type}
 
         if supporting_sources:
-            edge[SUPPORTING_SOURCES] = supporting_sources
+            edge[EDGE_SUPPORTING_SOURCES] = supporting_sources
         if aggregator_ks:
-            edge[AGGREGATOR_KS] = to_list(aggregator_ks)  # Convert to list so these will merge
+            edge[EDGE_AGGREGATOR_KS] = to_list(aggregator_ks)  # Convert to list so these will merge
         if publications:
-            edge[PUBLICATIONS] = to_list(publications)
+            edge[EDGE_PUBLICATIONS] = to_list(publications)
         if publications_info:
-            edge[PUBLICATIONS_INFO] = publications_info
+            edge[EDGE_PUBLICATIONS_INFO] = publications_info
 
         if attributes:
-            edge[ATTRIBUTES] = {self.source_infores: attributes}
+            edge[EDGE_ATTRIBUTES] = {self.source_infores: attributes}
 
         return edge

@@ -11,16 +11,16 @@ from pathlib import Path
 from typing import Any
 
 from kraken.utils.constants import (
-    AGENT_TYPE,
-    CATEGORIES,
-    EQUIVALENT_IDS,
-    ID,
-    KNOWLEDGE_LEVEL,
-    OBJECT,
-    PREDICATE,
-    PRIMARY_KS,
-    SUBJECT,
-    SUPPORTING_SOURCES,
+    EDGE_AGENT_TYPE,
+    EDGE_KNOWLEDGE_LEVEL,
+    EDGE_OBJECT,
+    EDGE_PREDICATE,
+    EDGE_PRIMARY_KS,
+    EDGE_SUBJECT,
+    EDGE_SUPPORTING_SOURCES,
+    NODE_CATEGORIES,
+    NODE_EQUIVALENT_IDS,
+    NODE_ID,
 )
 from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
 
@@ -83,13 +83,13 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
 
     logging.info("Analyzing nodes...")
     for node in stream_nodes_from_jsonl(nodes_file):
-        node_id = node[ID]
-        categories = node[CATEGORIES]
+        node_id = node[NODE_ID]
+        categories = node[NODE_CATEGORIES]
         categories_map[node_id] = categories
         for category in categories:
             stats.node_categories[category] += 1
 
-        for equiv_id in node[EQUIVALENT_IDS]:
+        for equiv_id in node[NODE_EQUIVALENT_IDS]:
             prefix = equiv_id.split(":")[0]
             stats.node_prefixes[prefix] += 1
 
@@ -104,21 +104,21 @@ def generate_metagraph_streaming(nodes_file: Path, edges_file: Path, source_name
     # Phase 2: Analyze edges
     logging.info("Analyzing edges...")
     for edge in stream_edges_from_jsonl(edges_file):
-        subject_id = edge[SUBJECT]
-        object_id = edge[OBJECT]
-        predicate = edge[PREDICATE]
+        subject_id = edge[EDGE_SUBJECT]
+        object_id = edge[EDGE_OBJECT]
+        predicate = edge[EDGE_PREDICATE]
         if subject_id in categories_map and object_id in categories_map:
 
             # Collect edge metadata
-            if PRIMARY_KS in edge:
-                stats.knowledge_sources[edge[PRIMARY_KS]] += 1
-            if SUPPORTING_SOURCES in edge:
-                for supporting_source in edge[SUPPORTING_SOURCES]:
+            if EDGE_PRIMARY_KS in edge:
+                stats.knowledge_sources[edge[EDGE_PRIMARY_KS]] += 1
+            if EDGE_SUPPORTING_SOURCES in edge:
+                for supporting_source in edge[EDGE_SUPPORTING_SOURCES]:
                     stats.knowledge_sources[supporting_source] += 1
-            if KNOWLEDGE_LEVEL in edge:
-                stats.knowledge_levels[edge[KNOWLEDGE_LEVEL]] += 1
-            if AGENT_TYPE in edge:
-                stats.agent_types[edge[AGENT_TYPE]] += 1
+            if EDGE_KNOWLEDGE_LEVEL in edge:
+                stats.knowledge_levels[edge[EDGE_KNOWLEDGE_LEVEL]] += 1
+            if EDGE_AGENT_TYPE in edge:
+                stats.agent_types[edge[EDGE_AGENT_TYPE]] += 1
 
             # Update meta-triple related statistics
             subject_categories = categories_map[subject_id]

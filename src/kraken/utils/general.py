@@ -9,22 +9,30 @@ from typing import Any
 import requests
 import yaml
 
-from kraken.utils.constants import NONE_STRINGS, OBJECT, PREDICATE, PRIMARY_KS, QUALIFIERS, SUBJECT, SUPPORTING_SOURCES
+from kraken.utils.constants import (
+    EDGE_OBJECT,
+    EDGE_PREDICATE,
+    EDGE_PRIMARY_KS,
+    EDGE_QUALIFIERS,
+    EDGE_SUBJECT,
+    EDGE_SUPPORTING_SOURCES,
+    NONE_STRINGS,
+)
 
 
 def create_edge_key(edge: dict) -> str:
     sep = "---"
     placeholder = "|"
 
-    qualifiers = edge.get(QUALIFIERS, dict())
+    qualifiers = edge.get(EDGE_QUALIFIERS, dict())
     qualifier_strs = [f"{prop}:{qualifier}" for prop, qualifier in qualifiers.items()]
     qualifiers_str = "__".join(sorted(qualifier_strs)) if qualifier_strs else placeholder
-    subject_id = edge[SUBJECT]
-    object_id = edge[OBJECT]
+    subject_id = edge[EDGE_SUBJECT]
+    object_id = edge[EDGE_OBJECT]
     assert sep not in subject_id and sep not in object_id
-    predicate = edge[PREDICATE]
-    primary_ks = edge[PRIMARY_KS]
-    supporting_sources = edge.get(SUPPORTING_SOURCES)
+    predicate = edge[EDGE_PREDICATE]
+    primary_ks = edge[EDGE_PRIMARY_KS]
+    supporting_sources = edge.get(EDGE_SUPPORTING_SOURCES)
     supporting_ks_str = "__".join(sorted(supporting_sources)) if supporting_sources else placeholder
     key_raw = sep.join([subject_id, predicate, object_id, qualifiers_str, primary_ks, supporting_ks_str])
     return key_raw

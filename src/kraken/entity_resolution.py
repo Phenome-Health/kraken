@@ -12,18 +12,20 @@ from typing import Any
 import jsonlines
 
 from kraken.config import KrakenConfig
+from kraken.schema import EdgeModel
 from kraken.utils.constants import (
-    AGENT_TYPE,
-    CATEGORIES,
-    EDGE_KEY_PROPERTIES,
-    EQUIVALENT_IDS,
-    ID,
-    KNOWLEDGE_LEVEL,
+    EDGE_AGENT_TYPE,
+    EDGE_ATTRIBUTES,
+    EDGE_KNOWLEDGE_LEVEL,
+    EDGE_OBJECT,
+    EDGE_SUBJECT,
+    NODE_ATTRIBUTES,
+    NODE_CATEGORIES,
+    NODE_EQUIVALENT_IDS,
+    NODE_ID,
+    NODE_SYNONYMS,
     NOT_PROVIDED,
-    OBJECT,
     ROOT_CATEGORY,
-    SUBJECT,
-    SYNONYMS,
 )
 from kraken.utils.general import create_edge_key, to_list
 from kraken.utils.kg_io import (
@@ -67,7 +69,7 @@ def integrate_nodes(
     logging.info(f"Loading {primary_source} nodes as starting point")
     primary_nodes_path, _ = config.all_harmonized_paths_resolved[primary_source]
     current_canonical_nodes = {
-        node[ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)
+        node[NODE_ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)
     }  # canonical_id -> merged_node_data
     assert current_canonical_nodes
 
@@ -98,8 +100,8 @@ def integrate_nodes(
         logging.info(f"Integrating nodes from {source_name} (can_merge_existing_nodes={source_allowed_to_merge_nodes})")
 
         for node in stream_nodes_from_jsonl(nodes_file):
-            node_id = node[ID]
-            node_equiv_ids = node[EQUIVALENT_IDS]
+            node_id = node[NODE_ID]
+            node_equiv_ids = node[NODE_EQUIVALENT_IDS]
 
             if source_allowed_to_merge_nodes:
                 # Merge all pre-existing canonical nodes referenced by this node's equivalent IDs
@@ -110,11 +112,11 @@ def integrate_nodes(
 
                 if not canonical_ids:
                     # First time seeing this entity in any fashion
-                    canonical_id = node[ID]
+                    canonical_id = node[NODE_ID]
                     current_canonical_nodes[canonical_id] = node
                     save_to_jsonl([node], one_to_zero_log, mode="a")
                     # Update equivalency index appropriately
-                    for equiv_id in node[EQUIVALENT_IDS]:
+                    for equiv_id in node[NODE_EQUIVALENT_IDS]:
                         equivalency_index[equiv_id] = canonical_id
                 elif len(canonical_ids) == 1:
                     # We have a one-to-one match; merge this node with its canonical node
@@ -166,10 +168,10 @@ def integrate_nodes(
                     )
                 else:
                     # First time seeing this canonical entity
-                    current_canonical_nodes[node[ID]] = node
+                    current_canonical_nodes[node[NODE_ID]] = node
                     save_to_jsonl([node], one_to_zero_log, mode="a")
                     # Update equivalency index appropriately
-                    for equiv_id in node[EQUIVALENT_IDS]:
+                    for equiv_id in node[NODE_EQUIVALENT_IDS]:
                         equivalency_index[equiv_id] = canonical_id
 
     logging.info(f"Formed {len(current_canonical_nodes)} merged nodes")
@@ -177,10 +179,10 @@ def integrate_nodes(
     logging.info("Verifying we have disjoint equivalent_id sets..")
     seen_ids = set()
     for unified_node in current_canonical_nodes.values():
-        equiv_ids = set(unified_node[EQUIVALENT_IDS])
+        equiv_ids = set(unified_node[NODE_EQUIVALENT_IDS])
         if equiv_ids.intersection(seen_ids):
             logging.error(
-                f"Unified node {unified_node[ID]} has equiv IDs present on another unified node(s). "
+                f"Unified node {unified_node[NODE_ID]} has equiv IDs present on another unified node(s). "
                 f"Overlapping equiv IDs are: {equiv_ids.intersection(seen_ids)}. "
                 f"Unified node is: {unified_node}"
             )
@@ -245,7 +247,7 @@ def find_majority_canonical_id(
     node_id = node["id"]
     votes = defaultdict(list)
     equiv_ids_without_mappings = set()
-    for equiv_id in node[EQUIVALENT_IDS]:
+    for equiv_id in node[NODE_EQUIVALENT_IDS]:
         canonical_id_vote = equivalency_index.get(equiv_id)
         if canonical_id_vote:
             votes[canonical_id_vote].append(equiv_id)
@@ -276,7 +278,7 @@ def find_majority_canonical_id(
     else:
         # Can't find a node in the merged graph that this node corresponds to; add it as a new node
         canonical_id = node_id
-        new_equiv_ids = set(node[EQUIVALENT_IDS])
+        new_equiv_ids = set(node[NODE_EQUIVALENT_IDS])
 
     return canonical_id, new_equiv_ids
 
@@ -293,36 +295,36 @@ def merge_two_nodes(
     merged_node = copy.deepcopy(existing_node)
 
     # Figure out whether the new node's values for singular properties should override existing node's
-    new_dominates = new_can_dominate and len(new_node[EQUIVALENT_IDS]) > len(existing_node[EQUIVALENT_IDS])
+    new_dominates = new_can_dominate and len(new_node[NODE_EQUIVALENT_IDS]) > len(existing_node[NODE_EQUIVALENT_IDS])
 
     # Merge any equivalent IDs for this node as appropriate (not necessarily ALL equivalent_ids the source provides,
     #    due to one-to-manys when using majority approach)
-    equiv_ids_to_merge = new_equiv_ids if new_equiv_ids is not None else set(new_node[EQUIVALENT_IDS])
-    merged_node[EQUIVALENT_IDS] = list(set(existing_node[EQUIVALENT_IDS]) | equiv_ids_to_merge)
+    equiv_ids_to_merge = new_equiv_ids if new_equiv_ids is not None else set(new_node[NODE_EQUIVALENT_IDS])
+    merged_node[NODE_EQUIVALENT_IDS] = list(set(existing_node[NODE_EQUIVALENT_IDS]) | equiv_ids_to_merge)
 
     # Only merge in new synonyms if this is a 'full' merge
-    if SYNONYMS in new_node and (not new_equiv_ids or len(new_equiv_ids) == len(new_node[EQUIVALENT_IDS])):
-        merge_property_into_existing(new_node, merged_node, SYNONYMS)
+    if NODE_SYNONYMS in new_node and (not new_equiv_ids or len(new_equiv_ids) == len(new_node[NODE_EQUIVALENT_IDS])):
+        merge_property_into_existing(new_node, merged_node, NODE_SYNONYMS)
 
     # Merge all other properties appropriately
     for property_name, new_value in new_node.items():
-        if property_name not in {EQUIVALENT_IDS, SYNONYMS}:  # These are handled specially, above
+        if property_name not in {NODE_EQUIVALENT_IDS, NODE_SYNONYMS}:  # These are handled specially, above
             merge_property_into_existing(new_node, merged_node, property_name, new_dominates)
 
     # Remove NamedThing as a category if a more specific category is provided
-    if len(merged_node[CATEGORIES]) > 1 and ROOT_CATEGORY in merged_node[CATEGORIES]:
-        merged_node[CATEGORIES].remove(ROOT_CATEGORY)
+    if len(merged_node[NODE_CATEGORIES]) > 1 and ROOT_CATEGORY in merged_node[NODE_CATEGORIES]:
+        merged_node[NODE_CATEGORIES].remove(ROOT_CATEGORY)
 
     # Make sure our equivalency index is up to date with any new canonical mappings
-    updated_canonical_id = merged_node[ID]
-    for equiv_id in merged_node[EQUIVALENT_IDS]:
+    updated_canonical_id = merged_node[NODE_ID]
+    for equiv_id in merged_node[NODE_EQUIVALENT_IDS]:
         equivalency_index[equiv_id] = updated_canonical_id
 
     # Make sure our canonical nodes map is up to date in light of any changes to canonical ids
-    if existing_node[ID] in current_canonical_nodes:
-        del current_canonical_nodes[existing_node[ID]]
-    if new_node[ID] in current_canonical_nodes:
-        del current_canonical_nodes[new_node[ID]]
+    if existing_node[NODE_ID] in current_canonical_nodes:
+        del current_canonical_nodes[existing_node[NODE_ID]]
+    if new_node[NODE_ID] in current_canonical_nodes:
+        del current_canonical_nodes[new_node[NODE_ID]]
     current_canonical_nodes[updated_canonical_id] = merged_node
 
     return merged_node
@@ -332,25 +334,25 @@ def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
     # NOTE: If edges are being merged, they must match on all properties included in the edge key
 
     # Merge knowledge_level, favoring values that aren't not_provided
-    if existing_edge[KNOWLEDGE_LEVEL] == NOT_PROVIDED:
-        existing_edge[KNOWLEDGE_LEVEL] = new_edge[KNOWLEDGE_LEVEL]
+    if existing_edge[EDGE_KNOWLEDGE_LEVEL] == NOT_PROVIDED:
+        existing_edge[EDGE_KNOWLEDGE_LEVEL] = new_edge[EDGE_KNOWLEDGE_LEVEL]
 
     # Merge agent_type, favoring values that aren't not_provided
-    if existing_edge[AGENT_TYPE] == NOT_PROVIDED:
-        existing_edge[AGENT_TYPE] = new_edge[AGENT_TYPE]
+    if existing_edge[EDGE_AGENT_TYPE] == NOT_PROVIDED:
+        existing_edge[EDGE_AGENT_TYPE] = new_edge[EDGE_AGENT_TYPE]
 
     # Merge any other properties as applicable (note: props included in edge key must be identical)
     for property_name, value in new_edge.items():
-        if property_name not in EDGE_KEY_PROPERTIES | {KNOWLEDGE_LEVEL, AGENT_TYPE}:
+        if property_name not in EdgeModel.key_properties() | {EDGE_KNOWLEDGE_LEVEL, EDGE_AGENT_TYPE}:
             merge_property_into_existing(new_edge, existing_edge, property_name)
 
 
 def resolve_to_canonical(edge: dict, equivalency_index: dict[str, str]):
-    subj_id = edge[SUBJECT]
-    obj_id = edge[OBJECT]
+    subj_id = edge[EDGE_SUBJECT]
+    obj_id = edge[EDGE_OBJECT]
     if subj_id in equivalency_index and obj_id in equivalency_index:
-        edge[SUBJECT] = equivalency_index[edge[SUBJECT]]
-        edge[OBJECT] = equivalency_index[edge[OBJECT]]
+        edge[EDGE_SUBJECT] = equivalency_index[edge[EDGE_SUBJECT]]
+        edge[EDGE_OBJECT] = equivalency_index[edge[EDGE_OBJECT]]
     else:
         logging.warning(f"Skipping orphan edge: Edge between {subj_id} and {obj_id} is missing equivalency mappings")
 
@@ -401,7 +403,7 @@ def merge_property_into_existing(
     secondary_value = secondary_item.get(property_name)
 
     # Handle attributes slot specially so we can do nesting at the second level
-    if property_name == "attributes":
+    if property_name == NODE_ATTRIBUTES or property_name == EDGE_ATTRIBUTES:
         dominant_attributes = dominant_value if dominant_value else dict()
         secondary_attributes = secondary_value if secondary_value else dict()
         source_slots = set(dominant_attributes) | set(secondary_attributes)
@@ -412,7 +414,7 @@ def merge_property_into_existing(
     else:
         merged_value = merge_two_values(dominant_value, secondary_value)
 
-    if property_name == ID and isinstance(merged_value, list):
+    if property_name == NODE_ID and isinstance(merged_value, list):
         raise ValueError(f"uh oh! ids were merged... shouldn't be possible. {dominant_value}, {secondary_value}")
 
     existing_item[property_name] = merged_value

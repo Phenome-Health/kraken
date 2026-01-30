@@ -4,10 +4,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import NodeModel
-from kraken.utils.biolink_client import BiolinkClient
-from kraken.utils.constants import NOT_PROVIDED, ROOT_CATEGORY, ROOT_PREDICATE, UMLS_INFORES
+from kraken.utils.constants import ROOT_CATEGORY, ROOT_PREDICATE, UMLS_MTH_INFORES
 from kraken.utils.kg_io import save_to_jsonl
 
 
@@ -15,7 +15,7 @@ class UMLSHarmonizer(BaseHarmonizer):
     """Harmonizer for UMLS TSV files"""
 
     source_name = "umls"
-    source_infores = UMLS_INFORES
+    source_infores = UMLS_MTH_INFORES
 
     def __init__(self, biolink_client: BiolinkClient):
         super().__init__(biolink_client)
@@ -86,7 +86,7 @@ class UMLSHarmonizer(BaseHarmonizer):
             predicate=ROOT_PREDICATE,
             primary_ks=self.source_infores,
             knowledge_level="knowledge_assertion",
-            agent_type=NOT_PROVIDED,
+            agent_type="manual_agent",
         )
 
         return new_nodes, edge

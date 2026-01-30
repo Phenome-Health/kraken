@@ -6,8 +6,8 @@ from typing import Any
 from biomapper2.core.normalizer import Normalizer
 from rdkit import Chem
 
+from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.biolink_client import BiolinkClient
 from kraken.utils.constants import LIPIDMAPS_ID
 from kraken.utils.kg_io import save_to_jsonl
 
