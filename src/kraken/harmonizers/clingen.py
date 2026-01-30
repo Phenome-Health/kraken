@@ -12,8 +12,9 @@ from biomapper2.core.normalizer import Normalizer
 from bs4 import BeautifulSoup
 
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.schema import NodeModel
 from kraken.utils.biolink_client import BiolinkClient
-from kraken.utils.constants import CLINGEN_INFORES, ID
+from kraken.utils.constants import CLINGEN_INFORES
 from kraken.utils.general import create_edge_key
 from kraken.utils.kg_io import save_to_jsonl
 
@@ -116,7 +117,7 @@ class ClinGenHarmonizer(BaseHarmonizer):
 
             # Create gene node
             gene_node = self._process_gene(gene_symbol, gene_omim)
-            nodes[gene_node[ID]] = gene_node
+            nodes[gene_node[NodeModel.id.name]] = gene_node
 
             # Process diseases associated with this gene
             diseases = gene_info.get("diseases", [])
@@ -124,12 +125,12 @@ class ClinGenHarmonizer(BaseHarmonizer):
                 # Create disease node from omim and preferredMondo identifiers
                 disease_node = self._process_disease(disease_info, gene_omim)
                 if disease_node:
-                    nodes[disease_node[ID]] = disease_node
+                    nodes[disease_node[NodeModel.id.name]] = disease_node
 
                     # Create gene-disease edge with assertions specific to this gene-condition pair
                     edge = self._create_gene_disease_edge(
-                        gene_node[ID],
-                        disease_node[ID],
+                        gene_node[NodeModel.id.name],
+                        disease_node[NodeModel.id.name],
                         gene_symbol,
                         disease_info.get("omim"),
                         doc_id,

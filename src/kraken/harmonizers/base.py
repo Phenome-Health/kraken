@@ -58,7 +58,7 @@ class BaseHarmonizer(ABC):
     id_prop: str = ID
     category_prop: str = "category"
     equivalent_ids_prop: str = "xref"
-    synonyms_props: set[str] = "synonym"
+    synonyms_props: set[str] = {"synonym"}
     url_prop: str = "iri"
     name_prop: str = NAME
     description_prop: str = DESCRIPTION
@@ -88,9 +88,10 @@ class BaseHarmonizer(ABC):
     primary_ks_default_value: str | None = None
     supporting_sources_default_value: str | None = None
 
-    # Category/predicate overrides
-    predicate_overrides: dict = dict()
-    category_overrides: dict = dict()
+    # Overrides for specific categories, predicates, or agent types
+    predicate_overrides: dict[str, str] = dict()
+    category_overrides: dict[str, str] = dict()
+    agent_type_overrides: dict[str, dict[str, str]] = dict()  # Organized by primary KS
 
     # Primary knowledge sources to skip (these edges will NOT be included)
     primary_ks_exclusions: set = set()
@@ -176,10 +177,12 @@ class BaseHarmonizer(ABC):
         excluded_count = 0
         with jsonlines.open(output_path, "w") as writer:
             for edge in self._stream_edges(input_path):
+                # Skip edges from primary knowledge sources marked for exclusion
                 primary_kses = set(to_list(edge.get(self.primary_ks_prop)))
                 if self.primary_ks_exclusions and primary_kses.issubset(self.primary_ks_exclusions):
                     excluded_count += 1
                 else:
+                    # Add this edge
                     harmonized = self._harmonize_edge(edge)
                     writer.write(harmonized)
                     count += 1
@@ -214,18 +217,18 @@ class BaseHarmonizer(ABC):
 
     def _harmonize_node(self, node: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single node. Override for source-specific logic."""
+        # Grab all synonyms as applicable
         synonyms = set()
         for synonym_prop in self.synonyms_props:
             new_synonyms = to_list(node.get(synonym_prop))
             if new_synonyms:
                 synonyms |= set(new_synonyms)
-        # Override categories as applicable
-        categories = [self.category_overrides.get(category, category) for category in to_list(node[self.category_prop])]
-        # TODO: is it worth having a distinction between this and create_node/edge functions?
+
+        # TODO: is it worth having a distinction between these and create_node/edge functions?
 
         return self.create_node(
             curie=node[self.id_prop],
-            categories=self.biolink.filter_to_leaf_categories(categories),
+            categories=node[self.category_prop],
             provided_by=self.source_infores,
             equivalent_ids=node.get(self.equivalent_ids_prop) if self.equivalent_ids_prop else [node[ID]],
             name=node.get(self.name_prop),
@@ -247,13 +250,12 @@ class BaseHarmonizer(ABC):
             if edge.get(self.supporting_sources_prop)
             else self.supporting_sources_default_value
         )
-        # Override predicates as applicable
-        predicate = self.predicate_overrides.get(edge[self.predicate_prop], edge[self.predicate_prop])
         attributes, qualifiers = self._collect_edge_attributes_and_qualifiers(edge)
+
         return self.create_edge(
             subject_id=edge[self.subject_prop],
             object_id=edge[self.object_prop],
-            predicate=predicate,
+            predicate=edge[self.predicate_prop],
             primary_ks=primary_ks,
             knowledge_level=edge.get(self.knowledge_level_prop, NOT_PROVIDED),
             agent_type=edge.get(self.agent_type_prop, NOT_PROVIDED),
@@ -286,7 +288,7 @@ class BaseHarmonizer(ABC):
     def create_node(
         self,
         curie: str,
-        categories: list[str],
+        categories: str | list[str],
         provided_by: str | list[str],
         equivalent_ids: str | list[str] | None = None,
         name: str | None = None,
@@ -313,7 +315,11 @@ class BaseHarmonizer(ABC):
                 synonyms = list(set(synonyms) | {name})
             else:
                 synonyms = [name]
-        node[CATEGORIES] = categories
+
+        # Override categories as applicable and remove implied ancestor types
+        categories = [self.category_overrides.get(category, category) for category in to_list(categories)]
+        node[CATEGORIES] = self.biolink.filter_to_leaf_categories(categories)
+
         if urls:
             node[URLS] = to_list(urls)
 
@@ -377,6 +383,9 @@ class BaseHarmonizer(ABC):
     ) -> dict[str, Any]:
         assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
 
+        # Override predicate as applicable
+        predicate = self.predicate_overrides.get(predicate, predicate)
+
         # Assemble the edge, with properties in a specific order (for convenient review)
         edge = {SUBJECT: subject_id, OBJECT: object_id, PREDICATE: predicate}
 
@@ -388,6 +397,15 @@ class BaseHarmonizer(ABC):
             if len(primary_ks) > 1:
                 supporting_sources = list(set(to_list(supporting_sources) + primary_ks[1:]))
             primary_ks = primary_ks[0]
+
+        # Override agent type(s) as applicable
+        if self.agent_type_overrides:
+            raw_agent_types = to_list(agent_type)
+            agent_types = [
+                self.agent_type_overrides.get(raw_agent_type, dict()).get(primary_ks, raw_agent_type)
+                for raw_agent_type in raw_agent_types
+            ]
+            agent_type = list(dict.fromkeys(agent_types))  # Deduplicate while preserving order
 
         # Handle case where multiple agent types are given (just take first, throw others in attributes)
         if isinstance(agent_type, list):

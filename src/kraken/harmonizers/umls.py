@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.schema import NodeModel
 from kraken.utils.biolink_client import BiolinkClient
-from kraken.utils.constants import ID, NOT_PROVIDED, ROOT_CATEGORY, ROOT_PREDICATE, UMLS_INFORES
+from kraken.utils.constants import NOT_PROVIDED, ROOT_CATEGORY, ROOT_PREDICATE, UMLS_INFORES
 from kraken.utils.kg_io import save_to_jsonl
 
 
@@ -64,7 +65,7 @@ class UMLSHarmonizer(BaseHarmonizer):
                 categories=["biolink:ClinicalFinding"],
                 provided_by=self.source_infores,
             )
-            new_nodes[observable_node[ID]] = observable_node
+            new_nodes[observable_node[NodeModel.id.name]] = observable_node
 
         # Add a node representing the LOINC part captured in this row (e.g., compound measured), if one doesn't exist
         loinc_part_curie = f"LOINC:{loinc_part_id}"
@@ -76,7 +77,7 @@ class UMLSHarmonizer(BaseHarmonizer):
                 categories=[ROOT_CATEGORY],
                 provided_by=self.source_infores,
             )
-            new_nodes[part_node[ID]] = part_node
+            new_nodes[part_node[NodeModel.id.name]] = part_node
 
         # Add an edge connecting the observable node to its parts
         edge = self.create_edge(

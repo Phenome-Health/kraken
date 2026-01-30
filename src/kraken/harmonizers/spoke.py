@@ -10,13 +10,11 @@ from typing import Any
 import jsonlines
 
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.schema import EdgeModel, NodeModel
 from kraken.utils.biolink_client import BiolinkClient
 from kraken.utils.constants import (
-    AGENT_TYPE,
     BIOLINK_PREFIX,
-    ID,
     INFORES_PREFIX,
-    KNOWLEDGE_LEVEL,
     KNOWN_INVALID,
     NOT_PROVIDED,
     OBJ_ASPECT_QUALIFIER,
@@ -105,7 +103,7 @@ class SpokeHarmonizer(BaseHarmonizer):
 
                     if harmonized_node:  # Occasionally we skip nodes (if invalid identifier, etc...)
                         # Store mapping for edge processing
-                        spoke_to_normalized_id[item["id"]] = harmonized_node[ID]
+                        spoke_to_normalized_id[item["id"]] = harmonized_node[NodeModel.id.name]
 
                         nodes_writer.write(harmonized_node)
                         node_count += 1
@@ -153,7 +151,6 @@ class SpokeHarmonizer(BaseHarmonizer):
             all_equivalent_ids = list(set([normalized_id] + additional_equivalent_ids))
 
             harmonized_node = self.create_node(
-                source_infores=self.source_infores,
                 curie=normalized_id,
                 categories=self._map_spoke_labels_to_biolink(labels, primary_source, normalized_id),
                 provided_by=self.source_infores,
@@ -213,8 +210,10 @@ class SpokeHarmonizer(BaseHarmonizer):
             object_id=normalized_object_id,
             predicate=predicate,
             primary_ks=normalized_primary_ks,
-            knowledge_level=self.klat_map.get(normalized_primary_ks, dict()).get(KNOWLEDGE_LEVEL, NOT_PROVIDED),
-            agent_type=self.klat_map.get(normalized_primary_ks, dict()).get(AGENT_TYPE, NOT_PROVIDED),
+            knowledge_level=self.klat_map.get(normalized_primary_ks, dict()).get(
+                EdgeModel.knowledge_level.name, NOT_PROVIDED
+            ),
+            agent_type=self.klat_map.get(normalized_primary_ks, dict()).get(EdgeModel.agent_type.name, NOT_PROVIDED),
             aggregator_ks=self.source_infores,
             supporting_sources=list({self._normalize_source(s, edge_item) for s in secondary_sources}),
             publications=self._get_true_publications(properties.get("pubmedIDs", [])),

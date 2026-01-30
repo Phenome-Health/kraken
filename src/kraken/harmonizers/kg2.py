@@ -1,5 +1,5 @@
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import KG2_INFORES
+from kraken.utils.constants import KG2_INFORES, OBJ_ASPECT_QUALIFIER, OBJ_DIRECTION_QUALIFIER
 
 
 class KG2Harmonizer(BaseHarmonizer):
@@ -19,8 +19,8 @@ class KG2Harmonizer(BaseHarmonizer):
     rename_edge_attrs_or_quals = {
         "id": "kg2c_ids",
         "kg2_ids": "kg2pre_ids",
-        "qualified_object_direction": "object_direction_qualifier",
-        "qualified_object_aspect": "object_aspect_qualifier",
+        "qualified_object_direction": OBJ_DIRECTION_QUALIFIER,
+        "qualified_object_aspect": OBJ_ASPECT_QUALIFIER,
     }
     primary_ks_exclusions = {"infores:semmeddb"}
     # KG2 uses an invalid predicate for NCIT 'regimen_has_accepted_use_for_disease' edges - remap those

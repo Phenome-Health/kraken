@@ -1,5 +1,5 @@
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import AGGREGATOR_KS, MOLEPRO_INFORES
+from kraken.utils.constants import MOLEPRO_INFORES
 
 
 class MoleProHarmonizer(BaseHarmonizer):
@@ -19,10 +19,13 @@ class MoleProHarmonizer(BaseHarmonizer):
     category_overrides = {
         "biolink:ProteinComplex": "biolink:MacromolecularComplex",
         "biolink:MacromolecularComplexMixin": "biolink:MacromolecularComplex",
+        "biolink:PairwiseGeneToGeneInteraction": "biolink:MacromolecularComplex",
+        "biolink:Organism": "biolink:OrganismTaxon",
     }
 
     # Edge property config
-    ignore_edge_props = {"attributes", AGGREGATOR_KS}
+    ignore_edge_props = {"attributes", "aggregator_knowledge_source"}
+    agent_type_overrides = {"experimental_agent": {"infores:chembl": "manual_agent"}}
 
     # Note: Some of MolePro's names have pipes, but aren't meant to be delimited; TODO: check with them
     exclude_from_list_parsing = {"name"}
