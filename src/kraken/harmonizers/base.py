@@ -88,8 +88,9 @@ class BaseHarmonizer(ABC):
     primary_ks_default_value: str | None = None
     supporting_sources_default_value: str | None = None
 
-    # Predicate overrides
+    # Category/predicate overrides
     predicate_overrides: dict = dict()
+    category_overrides: dict = dict()
 
     # Primary knowledge sources to skip (these edges will NOT be included)
     primary_ks_exclusions: set = set()
@@ -218,10 +219,13 @@ class BaseHarmonizer(ABC):
             new_synonyms = to_list(node.get(synonym_prop))
             if new_synonyms:
                 synonyms |= set(new_synonyms)
+        # Override categories as applicable
+        categories = [self.category_overrides.get(category, category) for category in to_list(node[self.category_prop])]
+        # TODO: is it worth having a distinction between this and create_node/edge functions?
 
         return self.create_node(
             curie=node[self.id_prop],
-            categories=self.biolink.filter_to_leaf_categories(node[self.category_prop]),
+            categories=self.biolink.filter_to_leaf_categories(categories),
             provided_by=self.source_infores,
             equivalent_ids=node.get(self.equivalent_ids_prop) if self.equivalent_ids_prop else [node[ID]],
             name=node.get(self.name_prop),
@@ -337,7 +341,13 @@ class BaseHarmonizer(ABC):
                 if equiv_id_upper.startswith("UNII:"):
                     equiv_id = equiv_id_upper
                 cleaned_equiv_ids.add(equiv_id)
+        if not cleaned_equiv_ids:
+            raise ValueError("Nodes must have an ID other than a raw 'INCHI' - could be an INCHIKEY, or other")
         node[EQUIVALENT_IDS] = list(cleaned_equiv_ids)
+
+        # Make sure we don't have an INCHI as the overall ID
+        if node[ID].startswith("INCHI:"):
+            node[ID] = node[EQUIVALENT_IDS][0]
 
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]

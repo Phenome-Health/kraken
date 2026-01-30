@@ -45,7 +45,7 @@ REQUIRED = "required"
 TYPE = "type"
 IN_KEY = "in-key"
 
-# TODO: convert this to a little class and instantiate
+# TODO: convert this to a little class and instantiate (assign prop names to constants)
 EDGE_PROPERTIES = {
     SUBJECT: {REQUIRED: True, TYPE: str, IN_KEY: True},
     OBJECT: {REQUIRED: True, TYPE: str, IN_KEY: True},

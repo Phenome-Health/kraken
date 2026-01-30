@@ -15,6 +15,11 @@ class MoleProHarmonizer(BaseHarmonizer):
     url_prop = "url"
     chemical_formula_prop = "has_chemical_formula"
     ignore_node_props = {"attributes"}
+    # Fix some invalid node types that molepro uses
+    category_overrides = {
+        "biolink:ProteinComplex": "biolink:MacromolecularComplex",
+        "biolink:MacromolecularComplexMixin": "biolink:MacromolecularComplex",
+    }
 
     # Edge property config
     ignore_edge_props = {"attributes", AGGREGATOR_KS}
