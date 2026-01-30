@@ -1,5 +1,5 @@
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import MOLEPRO_INFORES
+from kraken.utils.constants import MOLEPRO_INFORES, NOT_PROVIDED
 
 
 class MoleProHarmonizer(BaseHarmonizer):
@@ -25,7 +25,8 @@ class MoleProHarmonizer(BaseHarmonizer):
 
     # Edge property config
     ignore_edge_props = {"attributes", "aggregator_knowledge_source"}
-    agent_type_overrides = {"experimental_agent": {"infores:chembl": "manual_agent"}}
+    predicate_overrides = {"biolink:is_active_metabolite_of": "biolink:is_metabolite_of"}
+    agent_type_overrides = {"experimental_agent": {"infores:chembl": "manual_agent", "infores:bindingdb": NOT_PROVIDED}}
 
     # Note: Some of MolePro's names have pipes, but aren't meant to be delimited; TODO: check with them
     exclude_from_list_parsing = {"name"}
