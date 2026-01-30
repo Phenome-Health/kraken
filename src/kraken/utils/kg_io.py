@@ -47,6 +47,22 @@ def form_tarball(file_paths: list[Path], output_dir: Path, tarball_name: str | N
     logging.info(f"Done creating tarball. Saved to {tarball_path}")
 
 
+def fix_repeated_prefix(type_curie: str) -> str:
+    """
+    Fix repeated prefixes in node/edge type CURIEs.
+
+    Examples:
+        biolink:biolink:related_to --> biolink:related_to
+        biolink:biolnk:related_to --> biolink:related_to
+        some_other_predicate --> some_other_predicate
+    """
+    parts = type_curie.split(":")
+    if len(parts) <= 2:
+        return type_curie
+    else:
+        return f"{parts[0]}:{parts[-1]}"
+
+
 def _strip_key_prefixes(d: dict[str, Any]) -> dict[str, Any]:
     """Strip common prefixes like 'biolink:' from dict keys"""
     return {k.removeprefix("biolink:"): v for k, v in d.items()}

@@ -39,6 +39,7 @@ from kraken.utils.kg_io import (
     stream_edges_from_tsv,
     stream_nodes_from_jsonl,
     stream_nodes_from_tsv,
+    fix_repeated_prefix,
 )
 
 
@@ -318,8 +319,9 @@ class BaseHarmonizer(ABC):
             else:
                 synonyms = [name]
 
-        # Override categories as applicable and remove implied ancestor types
-        categories = [self.category_overrides.get(category, category) for category in to_list(categories)]
+        # Clean categories and override as applicable
+        categories_cleaned = [fix_repeated_prefix(category) for category in to_list(categories)]
+        categories = [self.category_overrides.get(category, category) for category in categories_cleaned]
         node[NODE_CATEGORIES] = self.biolink.filter_to_leaf_categories(categories)
 
         if urls:
@@ -385,8 +387,9 @@ class BaseHarmonizer(ABC):
     ) -> dict[str, Any]:
         assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
 
-        # Override predicate as applicable
-        predicate = self.predicate_overrides.get(predicate, predicate)
+        # Clean predicate and override as applicable
+        predicate_cleaned = fix_repeated_prefix(predicate)
+        predicate = self.predicate_overrides.get(predicate_cleaned, predicate_cleaned)
 
         # Assemble the edge, with properties in a specific order (for convenient review)
         edge = {EDGE_SUBJECT: subject_id, EDGE_OBJECT: object_id, EDGE_PREDICATE: predicate}
