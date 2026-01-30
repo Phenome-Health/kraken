@@ -50,8 +50,7 @@ class ValidationSummary:
             for error in errors[: self.max_examples_per_type]:
                 lines.append(f"    • {error.message}")
                 if error.item:
-                    item_id = error.item.get("id") or error.item.get("subject", "unknown")
-                    lines.append(f"      Item ID: {item_id}")
+                    lines.append(f"      Item: {error.item}")
             if len(errors) > self.max_examples_per_type:
                 lines.append(f"    ... and {len(errors) - self.max_examples_per_type} more")
 
@@ -94,6 +93,7 @@ class KrakenValidator:
         self._check_file_suffix(nodes_path)
 
         required_props = [p for p in NodeModel.all_properties().values() if p.required]
+        all_props = {p.name for p in NodeModel.all_properties().values()}
 
         for node in stream_nodes_from_jsonl(nodes_path):
 
@@ -116,6 +116,15 @@ class KrakenValidator:
                         )
                     else:
                         self._validate_inner_types(prop, value, node, "node")
+
+            # Check for unexpected properties
+            for prop_name in node.keys():
+                if prop_name not in all_props:
+                    self._add_error(
+                        "unexpected_property",
+                        f"Unexpected property 'node.{prop_name}' not defined in NodeModel",
+                        node,
+                    )
 
             # ID must appear in equivalent_ids
             if NodeModel.equivalent_ids.name in node and NodeModel.id.name in node:
@@ -158,6 +167,7 @@ class KrakenValidator:
         self._check_file_suffix(edges_path)
 
         required_props = [p for p in EdgeModel.all_properties().values() if p.required]
+        all_props = {p.name for p in EdgeModel.all_properties().values()}
 
         for edge in stream_edges_from_jsonl(edges_path):
             # Required fields present and non-empty
@@ -179,6 +189,15 @@ class KrakenValidator:
                         )
                     else:
                         self._validate_inner_types(prop, value, edge, "edge")
+
+            # Check for unexpected properties
+            for prop_name in edge.keys():
+                if prop_name not in all_props:
+                    self._add_error(
+                        "unexpected_property",
+                        f"Unexpected property 'edge.{prop_name}' not defined in EdgeModel",
+                        edge,
+                    )
 
             # Predicate must be valid Biolink predicate
             if EdgeModel.predicate.name in edge:
