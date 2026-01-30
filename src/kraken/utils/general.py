@@ -9,39 +9,24 @@ from typing import Any
 import requests
 import yaml
 
-from kraken.utils.constants import (
-    CONTEXT_QUALIFIER,
-    NONE_STRINGS,
-    OBJ_ASPECT_QUALIFIER,
-    OBJ_DIRECTION_QUALIFIER,
-    OBJECT,
-    PREDICATE,
-    PRIMARY_KS,
-    QUALIFIED_PREDICATE,
-    SUBJECT,
-    SUPPORTING_SOURCES,
-)
+from kraken.utils.constants import NONE_STRINGS, OBJECT, PREDICATE, PRIMARY_KS, QUALIFIERS, SUBJECT, SUPPORTING_SOURCES
 
 
 def create_edge_key(edge: dict) -> str:
     sep = "---"
     placeholder = "|"
-    qualifiers = [
-        edge.get(QUALIFIED_PREDICATE, ""),  # e.g., biolink:causes
-        edge.get(OBJ_DIRECTION_QUALIFIER, ""),  # e.g., increased
-        edge.get(OBJ_ASPECT_QUALIFIER, ""),  # e.g., activity
-        edge.get(CONTEXT_QUALIFIER, ""),  # e.g., pediatric
-    ]
-    conglomerate_qualifiers = "__".join([qualifier for qualifier in qualifiers if qualifier])
-    qualifiers_str = conglomerate_qualifiers if conglomerate_qualifiers else placeholder
+
+    qualifiers = edge.get(QUALIFIERS, dict())
+    qualifier_strs = [f"{prop}:{qualifier}" for prop, qualifier in qualifiers.items()]
+    qualifiers_str = "__".join(sorted(qualifier_strs)) if qualifier_strs else placeholder
     subject_id = edge[SUBJECT]
     object_id = edge[OBJECT]
     assert sep not in subject_id and sep not in object_id
     predicate = edge[PREDICATE]
     primary_ks = edge[PRIMARY_KS]
     supporting_sources = edge.get(SUPPORTING_SOURCES)
-    supporting_str = "__".join(sorted(supporting_sources)) if supporting_sources else placeholder
-    key_raw = sep.join([subject_id, predicate, object_id, qualifiers_str, primary_ks, supporting_str])
+    supporting_ks_str = "__".join(sorted(supporting_sources)) if supporting_sources else placeholder
+    key_raw = sep.join([subject_id, predicate, object_id, qualifiers_str, primary_ks, supporting_ks_str])
     return key_raw
 
 

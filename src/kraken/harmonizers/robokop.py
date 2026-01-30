@@ -5,6 +5,7 @@ from kraken.utils.constants import ROBOKOP_INFORES
 class RobokopHarmonizer(BaseHarmonizer):
     source_name = "robokop"
     source_infores = ROBOKOP_INFORES
+    is_aggregator = True
 
     # Node property config
     category_prop = "category"

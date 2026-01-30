@@ -8,8 +8,8 @@ from kraken.utils.biolink_client import BiolinkClient
 from kraken.utils.constants import (
     AGENT_TYPE,
     CATEGORIES,
-    CORE_EDGE_PROPERTIES,
     CORE_NODE_PROPERTIES,
+    EDGE_PROPERTIES,
     EQUIVALENT_IDS,
     ID,
     KNOWLEDGE_LEVEL,
@@ -18,6 +18,7 @@ from kraken.utils.constants import (
     PRIMARY_KS,
     PROVIDED_BY,
     SUBJECT,
+    TYPE,
 )
 from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
 
@@ -103,9 +104,10 @@ class KrakenValidator:
                     self._raise(f"Field edge.{field} cannot be empty", edge)
 
             # Type checks
-            for prop, expected_type in CORE_EDGE_PROPERTIES.items():
+            for prop, info in EDGE_PROPERTIES.items():
                 if prop in edge:
                     value = edge[prop]
+                    expected_type = info[TYPE]
                     if not isinstance(value, expected_type):
                         self._raise(
                             f"Field edge.{prop} has type {type(value).__name__}, expected {expected_type.__name__}",

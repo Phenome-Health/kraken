@@ -15,7 +15,7 @@ from kraken.config import KrakenConfig
 from kraken.utils.constants import (
     AGENT_TYPE,
     CATEGORIES,
-    CORE_EDGE_PROPERTIES,
+    EDGE_KEY_PROPERTIES,
     EQUIVALENT_IDS,
     ID,
     KNOWLEDGE_LEVEL,
@@ -339,9 +339,9 @@ def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
     if existing_edge[AGENT_TYPE] == NOT_PROVIDED:
         existing_edge[AGENT_TYPE] = new_edge[AGENT_TYPE]
 
-    # Merge any other properties (all core properties except above 2 are incorporated into key, so must be identical)
+    # Merge any other properties as applicable (note: props included in edge key must be identical)
     for property_name, value in new_edge.items():
-        if property_name not in CORE_EDGE_PROPERTIES:
+        if property_name not in EDGE_KEY_PROPERTIES | {KNOWLEDGE_LEVEL, AGENT_TYPE}:
             merge_property_into_existing(new_edge, existing_edge, property_name)
 
 

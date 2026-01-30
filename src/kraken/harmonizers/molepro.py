@@ -6,6 +6,7 @@ class MoleProHarmonizer(BaseHarmonizer):
     source_name = "molepro"
     source_infores = MOLEPRO_INFORES
     list_delimiter = "|"
+    is_aggregator = True
 
     # Node property config
     category_prop = "category"

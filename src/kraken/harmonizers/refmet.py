@@ -69,7 +69,6 @@ class RefMetHarmonizer(BaseHarmonizer):
         name = row["refmet_name"]
 
         return self.create_node(
-            source_infores=self.source_infores,
             curie=rm_curie,
             categories=["biolink:SmallMolecule"],
             equivalent_ids=list(equivalent_ids),

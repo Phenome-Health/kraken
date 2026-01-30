@@ -179,7 +179,6 @@ class ClinGenHarmonizer(BaseHarmonizer):
             sys.exit(1)
 
         return self.create_node(
-            source_infores=self.source_infores,
             curie=disease_curie,
             categories=["biolink:Disease"],
             equivalent_ids=equivalent_ids,
@@ -264,14 +263,13 @@ class ClinGenHarmonizer(BaseHarmonizer):
             attributes["outcome_intervention_pairs"] = outcome_intervention_pairs
 
         return self.create_edge(
-            source_infores=self.source_infores,
             subject_id=gene_id,
             object_id=disease_id,
             predicate="biolink:contributes_to",
-            context_qualifier=context_type.lower(),
             primary_ks=self.source_infores,
             knowledge_level="knowledge_assertion",
             agent_type="manual_agent",
+            qualifiers={"context_qualifier": context_type.lower()},
             attributes=attributes,
         )
 

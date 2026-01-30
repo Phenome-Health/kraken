@@ -53,6 +53,7 @@ class SpokeHarmonizer(BaseHarmonizer):
 
     source_name = "spoke"
     source_infores = SPOKE_INFORES
+    is_aggregator = True
 
     def __init__(self, biolink_client: BiolinkClient):
         super().__init__(biolink_client)
@@ -199,8 +200,15 @@ class SpokeHarmonizer(BaseHarmonizer):
 
         normalized_primary_ks = self._normalize_source(primary_source, edge_item)
 
+        qualifiers = dict()
+        if qual_predicate:
+            qualifiers[QUALIFIED_PREDICATE] = qual_predicate
+        if qual_direction:
+            qualifiers[OBJ_DIRECTION_QUALIFIER] = qual_direction
+        if qual_aspect:
+            qualifiers[OBJ_ASPECT_QUALIFIER] = qual_aspect
+
         harmonized_edge = self.create_edge(
-            source_infores=self.source_infores,
             subject_id=normalized_subject_id,
             object_id=normalized_object_id,
             predicate=predicate,
@@ -209,10 +217,8 @@ class SpokeHarmonizer(BaseHarmonizer):
             agent_type=self.klat_map.get(normalized_primary_ks, dict()).get(AGENT_TYPE, NOT_PROVIDED),
             aggregator_ks=self.source_infores,
             supporting_sources=list({self._normalize_source(s, edge_item) for s in secondary_sources}),
-            qualified_predicate=qual_predicate,
-            object_direction_qualifier=qual_direction,
-            object_aspect_qualifier=qual_aspect,
             publications=self._get_true_publications(properties.get("pubmedIDs", [])),
+            qualifiers=qualifiers,
             attributes=self._get_attributes(edge_item),
         )
 

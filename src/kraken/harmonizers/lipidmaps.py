@@ -92,7 +92,6 @@ class LipidMapsHarmonizer(BaseHarmonizer):
         attributes = {k: properties[k] for k in self.attribute_props if k in properties}
 
         return self.create_node(
-            source_infores=self.source_infores,
             curie=lm_curie,
             categories=["biolink:SmallMolecule"],
             equivalent_ids=list(equivalent_ids),

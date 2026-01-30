@@ -59,7 +59,6 @@ class UMLSHarmonizer(BaseHarmonizer):
         loinc_observable_curie = f"LOINC:{loinc_observable_id}"
         if loinc_observable_curie not in existing_nodes:
             observable_node = self.create_node(
-                source_infores=self.source_infores,
                 curie=loinc_observable_curie,
                 equivalent_ids=[loinc_observable_curie],
                 categories=["biolink:ClinicalFinding"],
@@ -72,7 +71,6 @@ class UMLSHarmonizer(BaseHarmonizer):
         umls_part_curie = f"UMLS:{umls_part_id}"
         if umls_part_curie not in existing_nodes:
             part_node = self.create_node(
-                source_infores=self.source_infores,
                 curie=umls_part_curie,
                 equivalent_ids=[umls_part_curie, loinc_part_curie],
                 categories=[ROOT_CATEGORY],
@@ -82,7 +80,6 @@ class UMLSHarmonizer(BaseHarmonizer):
 
         # Add an edge connecting the observable node to its parts
         edge = self.create_edge(
-            source_infores=self.source_infores,
             subject_id=loinc_observable_curie,
             object_id=umls_part_curie,
             predicate=ROOT_PREDICATE,

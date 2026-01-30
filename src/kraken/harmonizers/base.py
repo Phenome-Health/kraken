@@ -12,7 +12,6 @@ from kraken.utils.constants import (
     ATTRIBUTES,
     CATEGORIES,
     CHEMICAL_FORMULA,
-    CONTEXT_QUALIFIER,
     DESCRIPTION,
     EQUIVALENT_IDS,
     EXACT_MASS,
@@ -20,15 +19,13 @@ from kraken.utils.constants import (
     KNOWLEDGE_LEVEL,
     NAME,
     NOT_PROVIDED,
-    OBJ_ASPECT_QUALIFIER,
-    OBJ_DIRECTION_QUALIFIER,
     OBJECT,
     PREDICATE,
     PRIMARY_KS,
     PROVIDED_BY,
     PUBLICATIONS,
     PUBLICATIONS_INFO,
-    QUALIFIED_PREDICATE,
+    QUALIFIERS,
     SUBJECT,
     SUPPORTING_SOURCES,
     SYNONYMS,
@@ -54,7 +51,8 @@ class BaseHarmonizer(ABC):
     @abstractmethod
     def source_infores(self) -> str: ...
 
-    list_delimiter: str | None = None
+    list_delimiter: str | None = None  # Relevant only for TSVs/CSVs
+    is_aggregator: bool = False
 
     # Node property name mappings - override when source uses different names
     id_prop: str = ID
@@ -74,10 +72,6 @@ class BaseHarmonizer(ABC):
     primary_ks_prop: str = PRIMARY_KS
     knowledge_level_prop: str = KNOWLEDGE_LEVEL
     agent_type_prop: str = AGENT_TYPE
-    qualified_predicate_prop: str = QUALIFIED_PREDICATE
-    object_direction_qualifier_prop: str = OBJ_DIRECTION_QUALIFIER
-    object_aspect_qualifier_prop: str = OBJ_ASPECT_QUALIFIER
-    context_qualifier_prop: str = CONTEXT_QUALIFIER
     supporting_sources_prop: str = SUPPORTING_SOURCES
     publications_prop: str = PUBLICATIONS  # NOTE: this one is also a node prop
     publications_info_prop: str = PUBLICATIONS_INFO
@@ -86,9 +80,9 @@ class BaseHarmonizer(ABC):
     ignore_node_props: set[str] = set()
     ignore_edge_props: set[str] = set()
 
-    # Rename properties when storing in attributes
+    # Rename properties when storing in attributes/qualifiers
     rename_node_attrs: dict[str, str] = {}
-    rename_edge_attrs: dict[str, str] = {}
+    rename_edge_attrs_or_quals: dict[str, str] = {}
 
     # Knowledge source defaults
     primary_ks_default_value: str | None = None
@@ -125,10 +119,6 @@ class BaseHarmonizer(ABC):
             self.primary_ks_prop,
             self.knowledge_level_prop,
             self.agent_type_prop,
-            self.qualified_predicate_prop,
-            self.object_direction_qualifier_prop,
-            self.object_aspect_qualifier_prop,
-            self.context_qualifier_prop,
             self.supporting_sources_prop,
             self.publications_prop,
             self.publications_info_prop,
@@ -185,7 +175,8 @@ class BaseHarmonizer(ABC):
         excluded_count = 0
         with jsonlines.open(output_path, "w") as writer:
             for edge in self._stream_edges(input_path):
-                if edge.get(self.primary_ks_prop) in self.primary_ks_exclusions:
+                primary_kses = set(to_list(edge.get(self.primary_ks_prop)))
+                if self.primary_ks_exclusions and primary_kses.issubset(self.primary_ks_exclusions):
                     excluded_count += 1
                 else:
                     harmonized = self._harmonize_edge(edge)
@@ -208,14 +199,17 @@ class BaseHarmonizer(ABC):
             attributes[key] = v
         return attributes
 
-    def _collect_edge_attributes(self, edge: dict[str, Any]) -> dict[str, Any]:
-        attributes = {}
+    def _collect_edge_attributes_and_qualifiers(self, edge: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        attributes, qualifiers = {}, {}
         for k, v in edge.items():
             if k in self.core_edge_props or k in self.ignore_edge_props or is_empty(v):
                 continue
-            key = self.rename_edge_attrs.get(k, k)
-            attributes[key] = v
-        return attributes
+            key = self.rename_edge_attrs_or_quals.get(k, k)
+            if "qualifie" in key.lower():
+                qualifiers[key.lower()] = v
+            else:
+                attributes[key] = v
+        return attributes, qualifiers
 
     def _harmonize_node(self, node: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single node. Override for source-specific logic."""
@@ -226,7 +220,6 @@ class BaseHarmonizer(ABC):
                 synonyms |= set(new_synonyms)
 
         return self.create_node(
-            source_infores=self.source_infores,
             curie=node[self.id_prop],
             categories=self.biolink.filter_to_leaf_categories(node[self.category_prop]),
             provided_by=self.source_infores,
@@ -252,23 +245,20 @@ class BaseHarmonizer(ABC):
         )
         # Override predicates as applicable
         predicate = self.predicate_overrides.get(edge[self.predicate_prop], edge[self.predicate_prop])
+        attributes, qualifiers = self._collect_edge_attributes_and_qualifiers(edge)
         return self.create_edge(
-            source_infores=self.source_infores,
             subject_id=edge[self.subject_prop],
             object_id=edge[self.object_prop],
             predicate=predicate,
             primary_ks=primary_ks,
             knowledge_level=edge.get(self.knowledge_level_prop, NOT_PROVIDED),
             agent_type=edge.get(self.agent_type_prop, NOT_PROVIDED),
-            aggregator_ks=self.source_infores,
-            qualified_predicate=edge.get(self.qualified_predicate_prop),
-            object_direction_qualifier=edge.get(self.object_direction_qualifier_prop),
-            object_aspect_qualifier=edge.get(self.object_aspect_qualifier_prop),
-            context_qualifier=edge.get(self.context_qualifier_prop),
+            aggregator_ks=self.source_infores if self.is_aggregator else None,
             supporting_sources=to_list(supporting_sources),
             publications=to_list(edge.get(self.publications_prop, [])),
             publications_info=edge.get(self.publications_info_prop),
-            attributes=self._collect_edge_attributes(edge),
+            qualifiers=qualifiers,
+            attributes=attributes,
         )
 
     def _stream_nodes(self, input_path: Path | str):
@@ -289,9 +279,8 @@ class BaseHarmonizer(ABC):
         else:
             raise ValueError(f"Unknown file format: {suffix}")
 
-    @staticmethod
     def create_node(
-        source_infores: str,
+        self,
         curie: str,
         categories: list[str],
         provided_by: str | list[str],
@@ -357,13 +346,12 @@ class BaseHarmonizer(ABC):
         if publications:
             node[PUBLICATIONS] = to_list(publications)
         if attributes:
-            node[ATTRIBUTES] = {source_infores: attributes}
+            node[ATTRIBUTES] = {self.source_infores: attributes}
 
         return node
 
-    @staticmethod
     def create_edge(
-        source_infores: str,
+        self,
         subject_id: str,
         object_id: str,
         predicate: str,
@@ -372,12 +360,9 @@ class BaseHarmonizer(ABC):
         agent_type: str | list[str],
         aggregator_ks: str | None = None,
         supporting_sources: list[str] | None = None,
-        qualified_predicate: str | None = None,
-        object_direction_qualifier: str | None = None,
-        object_aspect_qualifier: str | None = None,
-        context_qualifier: str | None = None,
         publications: str | list[str] | None = None,
         publications_info: dict[str, Any] | None = None,
+        qualifiers: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
@@ -385,14 +370,8 @@ class BaseHarmonizer(ABC):
         # Assemble the edge, with properties in a specific order (for convenient review)
         edge = {SUBJECT: subject_id, OBJECT: object_id, PREDICATE: predicate}
 
-        if qualified_predicate:
-            edge[QUALIFIED_PREDICATE] = qualified_predicate
-        if object_direction_qualifier:
-            edge[OBJ_DIRECTION_QUALIFIER] = object_direction_qualifier
-        if object_aspect_qualifier:
-            edge[OBJ_ASPECT_QUALIFIER] = object_aspect_qualifier
-        if context_qualifier:
-            edge[CONTEXT_QUALIFIER] = context_qualifier
+        if qualifiers:
+            edge[QUALIFIERS] = qualifiers
 
         # Handle case where multiple primary knowledge sources are given (move others to supporting)
         if isinstance(primary_ks, list):
@@ -423,7 +402,8 @@ class BaseHarmonizer(ABC):
             edge[PUBLICATIONS] = to_list(publications)
         if publications_info:
             edge[PUBLICATIONS_INFO] = publications_info
+
         if attributes:
-            edge[ATTRIBUTES] = {source_infores: attributes}
+            edge[ATTRIBUTES] = {self.source_infores: attributes}
 
         return edge
