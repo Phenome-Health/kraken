@@ -3,8 +3,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from biomapper2.core.normalizer import Normalizer
-
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.utils.constants import REFMET_INFORES

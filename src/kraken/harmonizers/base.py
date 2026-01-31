@@ -1,11 +1,11 @@
 import logging
-import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import jsonlines
+from biomapper2.core.normalizer import Normalizer
 
 from kraken.biolink_client import BiolinkClient
 from kraken.utils.constants import (
@@ -37,15 +37,13 @@ from kraken.utils.constants import (
 )
 from kraken.utils.general import clean_text, is_empty, to_list
 from kraken.utils.kg_io import (
+    fix_repeated_prefix,
+    split_curie,
     stream_edges_from_jsonl,
     stream_edges_from_tsv,
     stream_nodes_from_jsonl,
     stream_nodes_from_tsv,
-    fix_repeated_prefix,
-    split_curie,
 )
-
-from biomapper2.core.normalizer import Normalizer
 
 
 class BaseHarmonizer(ABC):
@@ -478,7 +476,7 @@ class BaseHarmonizer(ABC):
             return curie
 
         # Molepro and probably others sometimes mistakenly use KEGG prefix
-        #   instead of kEGG.COMPOUND... let biomapper figure it out
+        #   instead of kEGG.COMPOUND... let biomapper choose between these
         if prefix.lower() == "kegg":
             prefix = ("kegg", "kegg.compound", "kegg.target")
 

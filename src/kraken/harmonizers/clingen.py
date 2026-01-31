@@ -8,13 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from biomapper2.core.normalizer import Normalizer
 from bs4 import BeautifulSoup
 
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import NodeModel
-from kraken.utils.constants import CLINGEN_INFORES, MANUAL_AGENT, KNOWLEDGE_ASSERTION
+from kraken.utils.constants import CLINGEN_INFORES, KNOWLEDGE_ASSERTION, MANUAL_AGENT
 from kraken.utils.general import create_edge_key
 from kraken.utils.kg_io import save_to_jsonl
 

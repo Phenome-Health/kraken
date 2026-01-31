@@ -7,7 +7,7 @@ from typing import Any
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import NodeModel
-from kraken.utils.constants import ROOT_CATEGORY, ROOT_PREDICATE, UMLS_MTH_INFORES, MANUAL_AGENT, KNOWLEDGE_ASSERTION
+from kraken.utils.constants import KNOWLEDGE_ASSERTION, MANUAL_AGENT, ROOT_CATEGORY, ROOT_PREDICATE, UMLS_MTH_INFORES
 from kraken.utils.kg_io import save_to_jsonl
 
 

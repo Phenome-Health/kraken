@@ -1,5 +1,5 @@
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import MOLEPRO_INFORES, NOT_PROVIDED, MANUAL_AGENT
+from kraken.utils.constants import MANUAL_AGENT, MOLEPRO_INFORES, NOT_PROVIDED
 
 
 class MoleProHarmonizer(BaseHarmonizer):

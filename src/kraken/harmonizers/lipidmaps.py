@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from biomapper2.core.normalizer import Normalizer
 from rdkit import Chem
 
 from kraken.biolink_client import BiolinkClient
