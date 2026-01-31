@@ -10,7 +10,7 @@ import yaml
 
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
-from kraken.entity_resolution import integrate_sources
+from kraken.integrate import integrate_sources
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
