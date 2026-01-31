@@ -6,7 +6,7 @@ class PropertyDef:
     """Metadata about a single property (not an instance of the property itself)."""
 
     name: str
-    dtype: type
+    dtype: type | tuple[type, ...]
     required: bool = False
     inner_type: type | None = None
     in_key: bool = False
@@ -50,7 +50,7 @@ class EdgeModel:
     knowledge_level = PropertyDef("knowledge_level", str, required=True)
     agent_type = PropertyDef("agent_type", str, required=True)
     publications = PropertyDef("publications", list, in_key=True, inner_type=str)
-    publications_info = PropertyDef("publications_info", dict, in_key=True)
+    publications_info = PropertyDef("publications_info", (dict, str), in_key=True)
     attributes = PropertyDef("attributes", dict, in_key=True)
 
     @classmethod
