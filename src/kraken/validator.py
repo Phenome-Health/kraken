@@ -82,6 +82,7 @@ class KrakenValidator:
     def __init__(self, biolink_client: BiolinkClient):
         self.biolink = biolink_client
         self.summary = ValidationSummary()
+        self.node_ids = set()
 
     def validate(
         self, nodes_path: Path, edges_path: Path, source_infores: str | None = None, integrated: bool = False
@@ -118,6 +119,9 @@ class KrakenValidator:
         merged_node_count = 0
 
         for node in stream_nodes_from_jsonl(nodes_path):
+            # Record this node ID for use during edge validation
+            if node.get(NodeModel.id.name):
+                self.node_ids.add(node[NodeModel.id.name])
 
             # Required fields present and non-empty
             for prop in required_props:
@@ -230,6 +234,24 @@ class KrakenValidator:
                         )
                     else:
                         self._validate_inner_types(prop, value, edge, "edge")
+
+            # Orphan edge check
+            subject_id = edge.get(EdgeModel.subject.name)
+            object_id = edge.get(EdgeModel.object.name)
+            if subject_id and subject_id not in self.node_ids:
+                self._add_error(
+                    "orphan_edge",
+                    f"Edge subject '{subject_id}' does not exist in nodes",
+                    edge,
+                    subtype=EdgeModel.subject.name,
+                )
+            if object_id and object_id not in self.node_ids:
+                self._add_error(
+                    "orphan_edge",
+                    f"Edge object '{object_id}' does not exist in nodes",
+                    edge,
+                    subtype=EdgeModel.object.name,
+                )
 
             # Check for unexpected properties
             for prop_name in edge.keys():
