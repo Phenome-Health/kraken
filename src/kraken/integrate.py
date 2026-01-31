@@ -39,8 +39,8 @@ from kraken.utils.kg_io import (
 
 def integrate_sources(config: KrakenConfig):
     """Merge harmonized sources using streaming approach"""
-    integrated_dir = config.integrated_dir
-    integrated_dir.mkdir(parents=True, exist_ok=True)
+    config.integrated_dir.mkdir(parents=True, exist_ok=True)
+    config.integrated_debug_dir.mkdir(parents=True, exist_ok=True)
 
     logging.info("Starting source integration...")
 
@@ -57,7 +57,7 @@ def integrate_sources(config: KrakenConfig):
     # Phase 3: Process all edges with node ID resolution (merge edges with the same key)
     integrate_edges(equivalency_index, config)
 
-    logging.info(f"Integration complete! Unified KG saved to {integrated_dir}")
+    logging.info(f"Integration complete! Unified KG saved to {config.integrated_dir}")
 
 
 def integrate_nodes(
