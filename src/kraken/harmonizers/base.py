@@ -470,32 +470,37 @@ class BaseHarmonizer(ABC):
         return edge
 
     def normalize_curie(self, curie: str) -> str:
-        # Returned the cached mapping if we've seen this curie before
-        if curie in self.normalized_id_map:
-            return self.normalized_id_map[curie]
+        # TODO: Eventually run all curies through biomapper, but some bug fixes are needed first
+        # TODO: Temporarily we'll just run it on molepro's known problem curies
+        if ":" in curie and curie.split(":")[0].upper() in {"CHEMBL.COMPOUND", "CHEMBL.TARGET", "UNII", "KEGG"}:
+            # Returned the cached mapping if we've seen this curie before
+            if curie in self.normalized_id_map:
+                return self.normalized_id_map[curie]
 
-        try:
-            prefix, local_id = split_curie(curie)
-        except Exception:
-            self.invalid_curies.add(curie)
-            self.normalized_id_map[curie] = curie
+            try:
+                prefix, local_id = split_curie(curie)
+            except Exception:
+                self.invalid_curies.add(curie)
+                self.normalized_id_map[curie] = curie
+                return curie
+
+            # Molepro and probably others sometimes mistakenly use KEGG prefix
+            #   instead of kEGG.COMPOUND... let biomapper choose between these
+            if prefix.lower() == "kegg":
+                prefix = ("kegg", "kegg.compound", "kegg.target")
+
+            normalized_curie_dict, invalid_id_dict, unrecognized_vocabs = self.normalizer.get_curies(
+                local_ids_dict={prefix: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+            )
+            # Record curies it failed on
+            self.unrecognized_vocabs |= unrecognized_vocabs
+            if invalid_id_dict:
+                for prefix, invalid_ids in invalid_id_dict.items():
+                    self.prefixes_with_invalid_ids[prefix] += len(invalid_ids)
+
+            # If it failed to normalize the curie, just return the original curie, unedited
+            final_curie = list(normalized_curie_dict.keys())[0] if normalized_curie_dict else curie
+            self.normalized_id_map[curie] = final_curie  # Cache our mapping
+            return final_curie
+        else:
             return curie
-
-        # Molepro and probably others sometimes mistakenly use KEGG prefix
-        #   instead of kEGG.COMPOUND... let biomapper choose between these
-        if prefix.lower() == "kegg":
-            prefix = ("kegg", "kegg.compound", "kegg.target")
-
-        normalized_curie_dict, invalid_id_dict, unrecognized_vocabs = self.normalizer.get_curies(
-            local_ids_dict={prefix: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
-        )
-        # Record curies it failed on
-        self.unrecognized_vocabs |= unrecognized_vocabs
-        if invalid_id_dict:
-            for prefix, invalid_ids in invalid_id_dict.items():
-                self.prefixes_with_invalid_ids[prefix] += len(invalid_ids)
-
-        # If it failed to normalize the curie, just return the original curie, unedited
-        final_curie = list(normalized_curie_dict.keys())[0] if normalized_curie_dict else curie
-        self.normalized_id_map[curie] = final_curie  # Cache our mapping
-        return final_curie
