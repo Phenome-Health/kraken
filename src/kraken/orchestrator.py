@@ -10,7 +10,6 @@ import yaml
 
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
-from kraken.integrate import integrate_sources
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
@@ -21,6 +20,7 @@ from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
 from kraken.harmonizers.spoke import SpokeHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
+from kraken.integrate import integrate_sources
 from kraken.metagraph import generate_metagraph_for_source
 from kraken.post_processing.test_file_generator import create_test_kg_files
 from kraken.utils.constants import PROJECT_ROOT

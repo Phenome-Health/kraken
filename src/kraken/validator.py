@@ -8,7 +8,7 @@ from pathlib import Path
 
 from kraken.biolink_client import BiolinkClient
 from kraken.schema import EdgeModel, NodeModel, PropertyDef
-from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, split_curie
+from kraken.utils.kg_io import split_curie, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
 @dataclass
