@@ -112,6 +112,7 @@ class BaseHarmonizer(ABC):
         self.unrecognized_vocabs = set()
         self.prefixes_with_invalid_ids = defaultdict(int)
         self.invalid_curies = set()
+        self.node_id_map = dict()
 
         self.core_node_props = {
             self.id_prop,
@@ -469,10 +470,15 @@ class BaseHarmonizer(ABC):
         return edge
 
     def normalize_curie(self, curie: str) -> str:
+        # Returned the cached mapping if we've seen this curie before
+        if curie in self.node_id_map:
+            return self.node_id_map[curie]
+
         try:
             prefix, local_id = split_curie(curie)
         except Exception:
             self.invalid_curies.add(curie)
+            self.node_id_map[curie] = curie
             return curie
 
         # Molepro and probably others sometimes mistakenly use KEGG prefix
@@ -490,4 +496,6 @@ class BaseHarmonizer(ABC):
                 self.prefixes_with_invalid_ids[prefix] += len(invalid_ids)
 
         # If it failed to normalize the curie, just return the original curie, unedited
-        return list(normalized_curie_dict.keys())[0] if normalized_curie_dict else curie
+        normalized_curie = list(normalized_curie_dict.keys())[0] if normalized_curie_dict else curie
+        self.node_id_map[curie] = normalized_curie  # Cache our mapping
+        return normalized_curie

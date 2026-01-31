@@ -41,7 +41,7 @@ wheels = [
 [[package]]
 name = "biomapper2"
 version = "0.1.0"
-source = { git = "https://github.com/Phenome-Health/biomapper2.git?rev=99d823d#99d823dbcde9c86ee22078857f663957c79fa522" }
+source = { git = "https://github.com/Phenome-Health/biomapper2.git?rev=4519e39#4519e3994d591f216ed383bb199b0bab81379163" }
 dependencies = [
     { name = "bmt" },
     { name = "circuitbreaker" },
@@ -786,7 +786,7 @@ viz = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
-    { name = "biomapper2", git = "https://github.com/Phenome-Health/biomapper2.git?rev=99d823d" },
+    { name = "biomapper2", git = "https://github.com/Phenome-Health/biomapper2.git?rev=4519e39" },
     { name = "bmt", specifier = ">=1.4.5" },
     { name = "jsonlines", specifier = ">=4.0.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
