@@ -8,7 +8,7 @@ from pathlib import Path
 
 from kraken.biolink_client import BiolinkClient
 from kraken.schema import EdgeModel, NodeModel, PropertyDef
-from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
+from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl, split_curie
 
 
 @dataclass
@@ -83,6 +83,7 @@ class KrakenValidator:
         self.biolink = biolink_client
         self.summary = ValidationSummary()
         self.node_ids = set()
+        self.all_equiv_ids = set()
 
     def validate(
         self, nodes_path: Path, edges_path: Path, source_infores: str | None = None, integrated: bool = False
@@ -161,6 +162,27 @@ class KrakenValidator:
                         f"node.{NodeModel.id.name} must appear in node.{NodeModel.equivalent_ids.name}",
                         node,
                     )
+
+            # Equivalent ID set must be disjoint from other nodes' equivalent ID sets
+            equiv_ids = set(node.get(NodeModel.equivalent_ids.name))
+            if equiv_ids:
+                overlapping_ids = equiv_ids.intersection(self.all_equiv_ids)
+                if overlapping_ids:
+                    # Try to grab the prefixes of the IDs that are overlapping
+                    prefixes = set()
+                    for overlapper in overlapping_ids:
+                        try:
+                            prefix = split_curie(overlapper)[0]
+                            prefixes.add(prefix)
+                        except Exception:
+                            pass
+                    self._add_error(
+                        "overlapping_equiv_ids",
+                        f"Node's equivalent ID set overlaps with other node(s). Overlapping IDs are: {overlapping_ids}",
+                        node,
+                        subtype=f"{sorted(prefixes)}",
+                    )
+                self.all_equiv_ids |= equiv_ids
 
             # Source provenance check (if source_infores provided)
             if source_infores and NodeModel.provided_by.name in node:
