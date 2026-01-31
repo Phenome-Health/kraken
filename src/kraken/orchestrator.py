@@ -84,6 +84,9 @@ class KrakenBuildOrchestrator:
     def _harmonize_source(self, source_name: str):
         """Harmonize a single source to Biolink schema"""
         logging.info(f"Harmonizing {source_name}...")
+        if self.config.options.validation_only:
+            logging.warning("Skipping harmonization step because you selected validation_only=True in build config")
+
         source_config = self.config.sources[source_name]
 
         # Get paths
@@ -124,12 +127,16 @@ class KrakenBuildOrchestrator:
     def _integrate_sources(self):
         """Integrate sources into unified KG with entity resolution"""
         logging.info("-------------------------- INTEGRATING SOURCES -----------------------------------------------")
+        if self.config.options.validation_only:
+            logging.warning("Skipping integration step because you selected validation_only=True in build config")
 
         if not self.config.options.validation_only:
             integrate_sources(self.config)
 
         if self.config.options.validate_output or self.config.options.validation_only:
-            self.validator.validate(self.config.integrated_nodes_path, self.config.integrated_edges_path)
+            self.validator.validate(
+                self.config.integrated_nodes_path, self.config.integrated_edges_path, integrated=True
+            )
 
         if not self.config.options.validation_only:
 

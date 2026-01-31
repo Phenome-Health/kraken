@@ -83,7 +83,9 @@ class KrakenValidator:
         self.biolink = biolink_client
         self.summary = ValidationSummary()
 
-    def validate(self, nodes_path: Path, edges_path: Path, source_infores: str | None = None) -> None:
+    def validate(
+        self, nodes_path: Path, edges_path: Path, source_infores: str | None = None, integrated: bool = False
+    ) -> None:
         """
         Validate KRAKEN-harmonized node and edge files.
 
@@ -95,8 +97,8 @@ class KrakenValidator:
         # Reset summary for fresh validation run
         self.summary = ValidationSummary()
 
-        self.validate_nodes(nodes_path, source_infores)
-        self.validate_edges(edges_path)
+        self.validate_nodes(nodes_path, source_infores, integrated)
+        self.validate_edges(edges_path, integrated)
 
         # TODO: attributes (nodes and edges), types within lists, non-core edge props, aggregator ks.. qualifiers?
         # TODO: name, synonyms, none strings?
@@ -104,15 +106,16 @@ class KrakenValidator:
         if self.summary.has_errors:
             raise ValueError(self.summary.get_summary())
 
-        logging.info("Validation complete! All checks passed.")
+        logging.info("Validation complete! All checks passed. ✅")
 
-    def validate_nodes(self, nodes_path: Path, source_infores: str | None = None) -> None:
+    def validate_nodes(self, nodes_path: Path, source_infores: str | None = None, integrated: bool = False) -> None:
         logging.info(f"Starting to validate {nodes_path}")
 
         self._check_file_suffix(nodes_path)
 
         required_props = [p for p in NodeModel.all_properties().values() if p.required]
         all_props = {p.name for p in NodeModel.all_properties().values()}
+        merged_node_count = 0
 
         for node in stream_nodes_from_jsonl(nodes_path):
 
@@ -183,13 +186,29 @@ class KrakenValidator:
                             subtype=category,
                         )
 
-    def validate_edges(self, edges_path: Path) -> None:
+            if integrated:
+                if len(node[NodeModel.provided_by.name]) > 1:
+                    merged_node_count += 1
+                    # Print out the first few merged nodes
+                    if merged_node_count < 3:
+                        logging.info(f"Merged node example: {node}")
+
+        # Ensure there are some merged nodes if these are integrated kraken files
+        if integrated:
+            if not merged_node_count:
+                message = "No nodes merged from multiple kraken sources detected in integrated files"
+                self._add_error("no_merged_nodes", message)
+            else:
+                logging.info(f"Detected {merged_node_count} nodes merged from multiple kraken sources")
+
+    def validate_edges(self, edges_path: Path, integrated: bool = False) -> None:
         logging.info(f"Starting to validate {edges_path}")
 
         self._check_file_suffix(edges_path)
 
         required_props = [p for p in EdgeModel.all_properties().values() if p.required]
         all_props = {p.name for p in EdgeModel.all_properties().values()}
+        merged_edge_count = True
 
         for edge in stream_edges_from_jsonl(edges_path):
             # Required fields present and non-empty
@@ -266,6 +285,22 @@ class KrakenValidator:
                         edge,
                         subtype=f"{agent_type} (source: {primary_ks})",
                     )
+
+            # Record whether this is a merged edge from multiple aggregators
+            if EdgeModel.aggregator_ks.name in edge:
+                if len(edge[EdgeModel.aggregator_ks.name]) > 1:
+                    merged_edge_count += 1
+                    # Print out the first few merged edges
+                    if merged_edge_count < 3:
+                        logging.info(f"Merged edge example: {edge}")
+
+        # Ensure there are some merged edges if these are integrated kraken files
+        if integrated:
+            if not merged_edge_count:
+                message = "No edges merged from multiple aggregators detected in integrated files"
+                self._add_error("no_merged_edges", message)
+            else:
+                logging.info(f"Detected {merged_edge_count} edges merged from multiple aggregators")
 
         logging.info(f"Edge validation complete for {edges_path}")
 
