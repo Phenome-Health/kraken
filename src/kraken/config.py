@@ -36,6 +36,7 @@ class OptionsConfig(BaseModel):
     exclude_sources: str | list[str] | None = None
     metagraph_creation: bool = False
     validate_output: bool = True
+    validation_only: bool = False
 
 
 class TestExportConfig(BaseModel):

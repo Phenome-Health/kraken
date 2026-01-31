@@ -95,24 +95,25 @@ class KrakenBuildOrchestrator:
         # Instantiate our harmonizer
         harmonizer = self.HARMONIZERS[source_name](self.biolink_client)
 
-        # Unzip input files as needed
-        unzip_files(self.config.all_source_input_paths_resolved[source_name])
+        if not self.config.options.validation_only:
+            # Unzip input files as needed
+            unzip_files(self.config.all_source_input_paths_resolved[source_name])
 
-        harmonizer.harmonize(
-            nodes_output=nodes_output,
-            edges_output=edges_output,
-            input_file=source_config.input_file_resolved,
-            nodes_input=source_config.nodes_input_resolved,
-            edges_input=source_config.edges_input_resolved,
-        )
+            harmonizer.harmonize(
+                nodes_output=nodes_output,
+                edges_output=edges_output,
+                input_file=source_config.input_file_resolved,
+                nodes_input=source_config.nodes_input_resolved,
+                edges_input=source_config.edges_input_resolved,
+            )
 
-        if self.config.options.validate_output:
+            if self.config.zip_inputs_after:
+                zip_files(self.config.all_source_input_paths_resolved[source_name])
+
+        if self.config.options.validate_output or self.config.options.validation_only:
             self.validator.validate(nodes_output, edges_output, harmonizer.source_infores)
 
-        if self.config.zip_inputs_after:
-            zip_files(self.config.all_source_input_paths_resolved[source_name])
-
-        if self.config.create_metagraphs:
+        if self.config.create_metagraphs and not self.config.options.validation_only:
             generate_metagraph_for_source(
                 nodes_path=nodes_output,
                 edges_path=edges_output,
@@ -123,23 +124,27 @@ class KrakenBuildOrchestrator:
     def _integrate_sources(self):
         """Integrate sources into unified KG with entity resolution"""
         logging.info("-------------------------- INTEGRATING SOURCES -----------------------------------------------")
-        integrate_sources(self.config)
 
-        if self.config.options.validate_output:
+        if not self.config.options.validation_only:
+            integrate_sources(self.config)
+
+        if self.config.options.validate_output or self.config.options.validation_only:
             self.validator.validate(self.config.integrated_nodes_path, self.config.integrated_edges_path)
 
-        tarball_component_paths = [self.config.integrated_nodes_path, self.config.integrated_edges_path]
+        if not self.config.options.validation_only:
 
-        if self.config.create_metagraphs:
-            metagraph_path = generate_metagraph_for_source(
-                nodes_path=self.config.integrated_nodes_path,
-                edges_path=self.config.integrated_edges_path,
-                output_dir=self.config.metagraph_dir,
-                graph_name="kraken",
-            )
-            tarball_component_paths.append(metagraph_path)
+            tarball_component_paths = [self.config.integrated_nodes_path, self.config.integrated_edges_path]
 
-        form_tarball(tarball_component_paths, self.config.integrated_dir)
+            if self.config.create_metagraphs:
+                metagraph_path = generate_metagraph_for_source(
+                    nodes_path=self.config.integrated_nodes_path,
+                    edges_path=self.config.integrated_edges_path,
+                    output_dir=self.config.metagraph_dir,
+                    graph_name="kraken",
+                )
+                tarball_component_paths.append(metagraph_path)
+
+            form_tarball(tarball_component_paths, self.config.integrated_dir)
 
     def _post_process(self):
         """Run all post-processing steps on the unified KG"""
