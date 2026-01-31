@@ -42,7 +42,7 @@ packages = ["src/kraken"]
 package = true
 
 [tool.uv.sources]
-biomapper2 = { git = "https://github.com/arpanauts/biomapper2.git", rev = "c839abd" }
+biomapper2 = { git = "https://github.com/Phenome-Health/biomapper2.git", rev = "99d823d" }
 
 [tool.black]
 line-length = 120

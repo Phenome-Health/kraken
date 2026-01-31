@@ -7,7 +7,7 @@ from typing import Any
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import NodeModel
-from kraken.utils.constants import ROOT_CATEGORY, ROOT_PREDICATE, UMLS_MTH_INFORES
+from kraken.utils.constants import ROOT_CATEGORY, ROOT_PREDICATE, UMLS_MTH_INFORES, MANUAL_AGENT, KNOWLEDGE_ASSERTION
 from kraken.utils.kg_io import save_to_jsonl
 
 
@@ -85,8 +85,8 @@ class UMLSHarmonizer(BaseHarmonizer):
             object_id=umls_part_curie,
             predicate=ROOT_PREDICATE,
             primary_ks=self.source_infores,
-            knowledge_level="knowledge_assertion",
-            agent_type="manual_agent",
+            knowledge_level=KNOWLEDGE_ASSERTION,
+            agent_type=MANUAL_AGENT,
         )
 
         return new_nodes, edge

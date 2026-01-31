@@ -26,6 +26,8 @@ LIPIDMAPS_ID: str = "lipidmaps"
 KNOWN_INVALID = "KNOWN_INVALID"
 
 NOT_PROVIDED = "not_provided"
+MANUAL_AGENT = "manual_agent"
+KNOWLEDGE_ASSERTION = "knowledge_assertion"
 
 NONE_STRINGS = {"none", "null", "-", "na", "n/a"}
 

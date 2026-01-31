@@ -33,7 +33,6 @@ class LipidMapsHarmonizer(BaseHarmonizer):
 
     def __init__(self, biolink_client: BiolinkClient):
         super().__init__(biolink_client)
-        self.normalizer = Normalizer(biolink_version=biolink_client.version)
 
     def harmonize(
         self,

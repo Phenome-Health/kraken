@@ -1,5 +1,7 @@
 import logging
+import os
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +42,10 @@ from kraken.utils.kg_io import (
     stream_nodes_from_jsonl,
     stream_nodes_from_tsv,
     fix_repeated_prefix,
+    split_curie,
 )
+
+from biomapper2.core.normalizer import Normalizer
 
 
 class BaseHarmonizer(ABC):
@@ -104,6 +109,11 @@ class BaseHarmonizer(ABC):
 
     def __init__(self, biolink_client: BiolinkClient):
         self.biolink = biolink_client
+        # Set up biomapper2's normalizer, so we can normalize curies as needed
+        self.normalizer = Normalizer(biolink_version=self.biolink.version)
+        self.unrecognized_vocabs = set()
+        self.prefixes_with_invalid_ids = defaultdict(int)
+        self.invalid_curies = set()
 
         self.core_node_props = {
             self.id_prop,
@@ -163,6 +173,7 @@ class BaseHarmonizer(ABC):
         logging.info(f"Harmonizing {self.source_name}: {nodes_input}, {edges_input} -> {nodes_output}, {edges_output}")
         node_count = self._harmonize_nodes(nodes_input, nodes_output)
         edge_count = self._harmonize_edges(edges_input, edges_output)
+
         logging.info(f"{self.source_name} harmonization complete: {node_count} nodes, {edge_count} edges")
 
     def _harmonize_nodes(self, input_path: Path, output_path: Path) -> int:
@@ -173,6 +184,22 @@ class BaseHarmonizer(ABC):
                 writer.write(harmonized)
                 count += 1
         logging.info("Finished harmonizing nodes")
+
+        if self.invalid_curies:
+            logging.warning(
+                f"A total of {len(self.invalid_curies)} nodes had IDs that are not curies (left them as they are). "
+                f"First 50 are: {list(self.invalid_curies)[:10]}"
+            )
+        if self.unrecognized_vocabs:
+            logging.warning(
+                f"biomapper2 failed to recognize {len(self.unrecognized_vocabs)} vocabs: {self.unrecognized_vocabs}"
+            )
+        if self.prefixes_with_invalid_ids:
+            logging.warning(
+                f"some IDs failed validation in biomapper2 (left them as they are) - counts by prefix are: "
+                f"{dict(sorted(self.prefixes_with_invalid_ids.items(), key=lambda x: x[1], reverse=True))}"
+            )
+
         return count
 
     def _harmonize_edges(self, input_path: Path, output_path: Path) -> int:
@@ -308,9 +335,12 @@ class BaseHarmonizer(ABC):
                 f"Node is missing required field(s): curie={curie}, "
                 f"categories={categories}, provided_by={provided_by}"
             )
+        if attributes is None:
+            attributes = {}
 
         # Assemble the node, with properties in a specific order (for convenient review)
-        node = {NODE_ID: curie}
+        curie_normalized = self.normalize_curie(curie)
+        node = {NODE_ID: curie_normalized}
         if name:
             node[NODE_NAME] = clean_text(name)
             # Make sure node's name is in our synonyms list
@@ -343,21 +373,14 @@ class BaseHarmonizer(ABC):
 
         node[NODE_PROVIDED_BY] = to_list(provided_by)  # Convert to list so these will merge
 
-        # Clean up equivalent IDs (remove INCHI, uppercase UNIIs - Molepro has some lowercase)
+        # Clean up equivalent IDs (normalize and remove INCHI IDs - big and not very helpful)
         cleaned_equiv_ids = set()
-        for equiv_id in set(to_list(equivalent_ids) + [curie]):
-            equiv_id_upper = equiv_id.upper()
-            if not equiv_id_upper.startswith("INCHI:"):
-                if equiv_id_upper.startswith("UNII:"):
-                    equiv_id = equiv_id_upper
-                cleaned_equiv_ids.add(equiv_id)
-        if not cleaned_equiv_ids:
-            raise ValueError("Nodes must have an ID other than a raw 'INCHI' - could be an INCHIKEY, or other")
-        node[NODE_EQUIVALENT_IDS] = list(cleaned_equiv_ids)
-
-        # Make sure we don't have an INCHI as the overall ID
-        if node[NODE_ID].startswith("INCHI:"):
-            node[NODE_ID] = node[NODE_EQUIVALENT_IDS][0]
+        for equiv_id in to_list(equivalent_ids):
+            if not equiv_id.startswith("INCHI:"):
+                normalized_equiv_id = self.normalize_curie(equiv_id)
+                cleaned_equiv_ids.add(normalized_equiv_id)
+        equivalent_ids_final = list(cleaned_equiv_ids | {curie_normalized})
+        node[NODE_EQUIVALENT_IDS] = equivalent_ids_final
 
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
@@ -386,13 +409,19 @@ class BaseHarmonizer(ABC):
         attributes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         assert subject_id and object_id and predicate and primary_ks and knowledge_level and agent_type
+        if attributes is None:
+            attributes = {}
 
         # Clean predicate and override as applicable
         predicate_cleaned = fix_repeated_prefix(predicate)
         predicate = self.predicate_overrides.get(predicate_cleaned, predicate_cleaned)
 
         # Assemble the edge, with properties in a specific order (for convenient review)
-        edge = {EDGE_SUBJECT: subject_id, EDGE_OBJECT: object_id, EDGE_PREDICATE: predicate}
+        edge = {
+            EDGE_SUBJECT: self.normalize_curie(subject_id),
+            EDGE_OBJECT: self.normalize_curie(object_id),
+            EDGE_PREDICATE: predicate,
+        }
 
         if qualifiers:
             edge[EDGE_QUALIFIERS] = qualifiers
@@ -440,3 +469,27 @@ class BaseHarmonizer(ABC):
             edge[EDGE_ATTRIBUTES] = {self.source_infores: attributes}
 
         return edge
+
+    def normalize_curie(self, curie: str) -> str:
+        try:
+            prefix, local_id = split_curie(curie)
+        except Exception:
+            self.invalid_curies.add(curie)
+            return curie
+
+        # Molepro and probably others sometimes mistakenly use KEGG prefix
+        #   instead of kEGG.COMPOUND... let biomapper figure it out
+        if prefix.lower() == "kegg":
+            prefix = ("kegg", "kegg.compound", "kegg.target")
+
+        normalized_curie_dict, invalid_id_dict, unrecognized_vocabs = self.normalizer.get_curies(
+            local_ids_dict={prefix: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+        )
+        # Record curies it failed on
+        self.unrecognized_vocabs |= unrecognized_vocabs
+        if invalid_id_dict:
+            for prefix, invalid_ids in invalid_id_dict.items():
+                self.prefixes_with_invalid_ids[prefix] += len(invalid_ids)
+
+        # If it failed to normalize the curie, just return the original curie, unedited
+        return list(normalized_curie_dict.keys())[0] if normalized_curie_dict else curie

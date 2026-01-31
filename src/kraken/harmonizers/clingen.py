@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import NodeModel
-from kraken.utils.constants import CLINGEN_INFORES
+from kraken.utils.constants import CLINGEN_INFORES, MANUAL_AGENT, KNOWLEDGE_ASSERTION
 from kraken.utils.general import create_edge_key
 from kraken.utils.kg_io import save_to_jsonl
 
@@ -34,7 +34,6 @@ class ClinGenHarmonizer(BaseHarmonizer):
 
     def __init__(self, biolink_client: BiolinkClient):
         super().__init__(biolink_client)
-        self.normalizer = Normalizer(biolink_version=biolink_client.version)
 
     def harmonize(
         self,
@@ -268,8 +267,8 @@ class ClinGenHarmonizer(BaseHarmonizer):
             object_id=disease_id,
             predicate="biolink:contributes_to",
             primary_ks=self.source_infores,
-            knowledge_level="knowledge_assertion",
-            agent_type="manual_agent",
+            knowledge_level=KNOWLEDGE_ASSERTION,
+            agent_type=MANUAL_AGENT,
             qualifiers={"context_qualifier": context_type.lower()},
             attributes=attributes,
         )

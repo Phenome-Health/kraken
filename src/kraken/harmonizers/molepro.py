@@ -1,5 +1,5 @@
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import MOLEPRO_INFORES, NOT_PROVIDED
+from kraken.utils.constants import MOLEPRO_INFORES, NOT_PROVIDED, MANUAL_AGENT
 
 
 class MoleProHarmonizer(BaseHarmonizer):
@@ -25,8 +25,25 @@ class MoleProHarmonizer(BaseHarmonizer):
 
     # Edge property config
     ignore_edge_props = {"attributes", "aggregator_knowledge_source"}
-    predicate_overrides = {"biolink:is_active_metabolite_of": "biolink:is_metabolite_of"}
-    agent_type_overrides = {"experimental_agent": {"infores:chembl": "manual_agent", "infores:bindingdb": NOT_PROVIDED}}
+    predicate_overrides = {
+        "biolink:is_active_metabolite_of": "biolink:is_metabolite_of",
+        "biolink:has_active_metabolite": "biolink:has_metabolite",
+        # No good biolink predicate for chemical variants/salt forms, etc...
+        "biolink:has_variant": "biolink:related_to_at_concept_level",
+        "biolink:is_variant_of": "biolink:related_to_at_concept_level",
+    }
+    agent_type_overrides = {
+        "experimental_agent": {
+            "infores:chembl": MANUAL_AGENT,
+            "infores:bindingdb": NOT_PROVIDED,
+            "infores:ki-database": NOT_PROVIDED,
+            "infores:kinomescan": NOT_PROVIDED,
+            "infores:pubchem": NOT_PROVIDED,
+            "infores:community-sar": NOT_PROVIDED,
+            "infores:drug-design": NOT_PROVIDED,
+        },
+        "manual_validation_of_experimental_agent": {"infores:chembl": MANUAL_AGENT},
+    }
 
     # Note: Some of MolePro's names have pipes, but aren't meant to be delimited; TODO: check with them
     exclude_from_list_parsing = {"name"}

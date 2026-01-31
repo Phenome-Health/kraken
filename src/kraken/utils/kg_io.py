@@ -63,6 +63,13 @@ def fix_repeated_prefix(type_curie: str) -> str:
         return f"{parts[0]}:{parts[-1]}"
 
 
+def split_curie(curie: str) -> tuple[str, str]:
+    curie_parts = [part for part in curie.split(":") if part]
+    if len(curie_parts) != 2:
+        raise ValueError(f"Invalid curie encountered: {curie}")
+    return curie_parts[0], curie_parts[1]
+
+
 def _strip_key_prefixes(d: dict[str, Any]) -> dict[str, Any]:
     """Strip common prefixes like 'biolink:' from dict keys"""
     return {k.removeprefix("biolink:"): v for k, v in d.items()}

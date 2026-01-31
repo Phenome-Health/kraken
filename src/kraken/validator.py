@@ -23,15 +23,18 @@ class ValidationError:
 class ValidationSummary:
     """Collects and summarizes validation errors."""
 
-    errors_by_type: dict[str, list[ValidationError]] = field(default_factory=lambda: defaultdict(list))
+    errors_by_subtype: dict[str, dict[str | None, list[ValidationError]]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(list))
+    )
     max_examples_per_type: int = 3
+    max_examples_per_subtype: int = 1
 
-    def add_error(self, error_type: str, message: str, item: dict | None = None):
-        self.errors_by_type[error_type].append(ValidationError(message, item))
+    def add_error(self, error_type: str, message: str, item: dict | None = None, subtype: str | None = None):
+        self.errors_by_subtype[error_type][subtype].append(ValidationError(message, item))
 
     @property
     def total_errors(self) -> int:
-        return sum(len(errors) for errors in self.errors_by_type.values())
+        return sum(len(errors) for subtypes in self.errors_by_subtype.values() for errors in subtypes.values())
 
     @property
     def has_errors(self) -> bool:
@@ -42,17 +45,33 @@ class ValidationSummary:
             return "No validation errors found."
 
         lines = [
-            f"Validation failed with {self.total_errors} total error(s) across {len(self.errors_by_type)} type(s):\n"
+            f"Validation failed with {self.total_errors} total error(s) across {len(self.errors_by_subtype)} type(s):\n"
         ]
 
-        for error_type, errors in sorted(self.errors_by_type.items()):
-            lines.append(f"  [{error_type}] - {len(errors)} occurrence(s)")
-            for error in errors[: self.max_examples_per_type]:
-                lines.append(f"    • {error.message}")
-                if error.item:
-                    lines.append(f"      Item: {error.item}")
-            if len(errors) > self.max_examples_per_type:
-                lines.append(f"    ... and {len(errors) - self.max_examples_per_type} more")
+        for error_type, subtypes in sorted(self.errors_by_subtype.items()):
+            type_total = sum(len(errors) for errors in subtypes.values())
+            lines.append(f"[{error_type}] - {type_total} occurrence(s)")
+
+            # Check if we have real subtypes (not just None)
+            has_subtypes = any(subtype is not None for subtype in subtypes.keys())
+
+            if has_subtypes:
+                for subtype, subtype_errors in sorted(
+                    ((k, v) for k, v in subtypes.items() if k is not None), key=lambda x: -len(x[1])
+                ):
+                    lines.append(f"\n    • {subtype}: {len(subtype_errors)}")
+                    for error in subtype_errors[: self.max_examples_per_subtype]:
+                        if error.item:
+                            lines.append(f"      Example: {error.item}")
+            else:
+                # No subtypes, show examples directly
+                all_errors = subtypes[None]
+                for error in all_errors[: self.max_examples_per_type]:
+                    lines.append(f"    • {error.message}")
+                    if error.item:
+                        lines.append(f"      Item: {error.item}")
+                if len(all_errors) > self.max_examples_per_type:
+                    lines.append(f"    ... and {len(all_errors) - self.max_examples_per_type} more")
 
         return "\n".join(lines)
 
@@ -124,6 +143,7 @@ class KrakenValidator:
                         "unexpected_property",
                         f"Unexpected property 'node.{prop_name}' not defined in NodeModel",
                         node,
+                        subtype=prop_name,
                     )
 
             # ID must appear in equivalent_ids
@@ -152,6 +172,7 @@ class KrakenValidator:
                             "invalid_category_format",
                             f"Category '{category}' is not in proper biolink:PascalCase format",
                             node,
+                            subtype=category,
                         )
                     elif not (category in self.biolink.categories or self.biolink.toolkit.is_mixin(category)):
                         # NOTE: biolink has bug where some category mixins are not descendants of NamedThing
@@ -159,6 +180,7 @@ class KrakenValidator:
                             "invalid_category",
                             f"Category '{category}' does not exist in Biolink",
                             node,
+                            subtype=category,
                         )
 
     def validate_edges(self, edges_path: Path) -> None:
@@ -197,6 +219,7 @@ class KrakenValidator:
                         "unexpected_property",
                         f"Unexpected property 'edge.{prop_name}' not defined in EdgeModel",
                         edge,
+                        subtype=prop_name,
                     )
 
             # Predicate must be valid Biolink predicate
@@ -207,31 +230,41 @@ class KrakenValidator:
                         "invalid_predicate_format",
                         f"Predicate '{predicate}' is not in proper biolink:snake_case format",
                         edge,
+                        subtype=predicate,
                     )
                 elif predicate not in self.biolink.predicates:
-                    self._add_error("invalid_predicate", f"Invalid predicate '{predicate}'", edge)
+                    self._add_error(
+                        "invalid_predicate",
+                        f"Invalid predicate '{predicate}'",
+                        edge,
+                        subtype=predicate,
+                    )
 
             # Knowledge level must be valid per Biolink
             if EdgeModel.knowledge_level.name in edge:
-                if edge[EdgeModel.knowledge_level.name] not in self.biolink.knowledge_levels:
+                knowledge_level = edge[EdgeModel.knowledge_level.name]
+                if knowledge_level not in self.biolink.knowledge_levels:
                     self._add_error(
                         "invalid_knowledge_level",
-                        f"Invalid edge.knowledge_level '{edge[EdgeModel.knowledge_level.name]}'. "
+                        f"Invalid edge.knowledge_level '{knowledge_level}'. "
                         f"Valid options are: {self.biolink.knowledge_levels}",
                         edge,
+                        subtype=knowledge_level,
                     )
 
             # Agent type must be valid per Biolink
             if EdgeModel.agent_type.name in edge:
-                if edge[EdgeModel.agent_type.name] not in self.biolink.agent_types:
+                agent_type = edge[EdgeModel.agent_type.name]
+                if agent_type not in self.biolink.agent_types:
+                    primary_ks = edge.get(EdgeModel.primary_ks.name, "unknown")
                     message = (
-                        f"Invalid edge.agent_type '{edge[EdgeModel.agent_type.name]}'. "
-                        f"Valid options are: {self.biolink.agent_types}"
+                        f"Invalid edge.agent_type '{agent_type}'. " f"Valid options are: {self.biolink.agent_types}"
                     )
                     self._add_error(
                         "invalid_agent_type",
                         message,
                         edge,
+                        subtype=f"{agent_type} (source: {primary_ks})",
                     )
 
         logging.info(f"Edge validation complete for {edges_path}")
@@ -240,8 +273,8 @@ class KrakenValidator:
         if path.suffix != ".jsonl":
             self._add_error("invalid_file_suffix", f"File must have .jsonl suffix: {path}")
 
-    def _add_error(self, error_type: str, message: str, item: dict | None = None):
-        self.summary.add_error(error_type, message, item)
+    def _add_error(self, error_type: str, message: str, item: dict | None = None, subtype: str | None = None):
+        self.summary.add_error(error_type, message, item, subtype)
 
     @staticmethod
     def is_valid_category_format(category: str) -> bool:
