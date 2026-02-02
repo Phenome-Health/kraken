@@ -236,7 +236,7 @@ class KrakenValidator:
 
         required_props = [p for p in EdgeModel.all_properties().values() if p.required]
         all_props = {p.name for p in EdgeModel.all_properties().values()}
-        merged_edge_count = True
+        merged_edge_count = 0
 
         for edge in stream_edges_from_jsonl(edges_path):
             # Required fields present and non-empty
