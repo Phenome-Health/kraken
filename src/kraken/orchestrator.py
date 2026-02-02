@@ -151,7 +151,11 @@ class KrakenBuildOrchestrator:
                 )
                 tarball_component_paths.append(metagraph_path)
 
-            form_tarball(tarball_component_paths, self.config.integrated_dir)
+            form_tarball(
+                tarball_component_paths,
+                self.config.integrated_dir,
+                tarball_name=f"kraken_{self.config.kraken_version}.tar.gz",
+            )
 
     def _post_process(self):
         """Run all post-processing steps on the unified KG"""
@@ -170,7 +174,7 @@ class KrakenBuildOrchestrator:
                     output_dir=output_dir,
                     num_edges=test_export_config.num_edges,
                 )
-                tarball_component_paths = [test_nodes_path, test_edges_path]
+                test_tarball_component_paths = [test_nodes_path, test_edges_path]
 
                 if self.config.create_metagraphs:
                     metagraph_path = generate_metagraph_for_source(
@@ -179,9 +183,13 @@ class KrakenBuildOrchestrator:
                         output_dir=self.config.metagraph_dir,
                         graph_name="kraken_test",
                     )
-                    tarball_component_paths.append(metagraph_path)
+                    test_tarball_component_paths.append(metagraph_path)
 
-                form_tarball(tarball_component_paths, self.config.integrated_dir)
+                form_tarball(
+                    test_tarball_component_paths,
+                    self.config.integrated_dir,
+                    tarball_name=f"kraken_{self.config.kraken_version}_test.tar.gz",
+                )
 
             # Note: Any future post-processing steps could go here..
 
