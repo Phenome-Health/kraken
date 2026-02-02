@@ -22,6 +22,7 @@ from kraken.harmonizers.spoke import SpokeHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
 from kraken.integrate import integrate_sources
 from kraken.metagraph import generate_metagraph_for_source
+from kraken.post_processing.shuffle_graph import shuffle_graph
 from kraken.post_processing.test_file_generator import create_test_kg_files
 from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.kg_io import form_tarball, unzip_files, zip_files
@@ -166,12 +167,11 @@ class KrakenBuildOrchestrator:
             if self.config.post_processing.test_export:
                 logging.info("Generating test files for this kraken build..")
                 test_export_config = self.config.post_processing.test_export
-                output_dir = self.config.base_path_resolved / test_export_config.output_directory
 
                 test_nodes_path, test_edges_path = create_test_kg_files(
                     nodes_path=self.config.integrated_nodes_path,
                     edges_path=self.config.integrated_edges_path,
-                    output_dir=output_dir,
+                    output_dir=self.config.test_export_dir,
                     num_edges=test_export_config.num_edges,
                 )
                 test_tarball_component_paths = [test_nodes_path, test_edges_path]
@@ -191,6 +191,12 @@ class KrakenBuildOrchestrator:
                     tarball_name=f"kraken_{self.config.kraken_version}_test.tar.gz",
                 )
 
-            # Note: Any future post-processing steps could go here..
+            if self.config.post_processing.shuffled_export:
+                logging.info("Generating shuffled version of kraken..")
+                shuffle_graph(
+                    nodes_path=self.config.integrated_nodes_path,
+                    edges_path=self.config.integrated_edges_path,
+                    output_dir=self.config.shuffled_export_dir,
+                )
 
-        logging.info("Post-processing complete")
+        logging.info("Post-processing complete!")

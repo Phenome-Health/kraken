@@ -44,8 +44,13 @@ class TestExportConfig(BaseModel):
     num_edges: int
 
 
+class ShuffledExportConfig(BaseModel):
+    output_directory: str
+
+
 class PostProcessingConfig(BaseModel):
     test_export: TestExportConfig | None = None
+    shuffled_export: ShuffledExportConfig | None = None
 
 
 class SourceConfig(BaseModel):
@@ -133,6 +138,14 @@ class KrakenConfig(BaseModel):
     @property
     def integrated_dir(self) -> Path:
         return self.base_path_resolved / self.integration.output_directory
+
+    @property
+    def test_export_dir(self) -> Path:
+        return self.base_path_resolved / self.post_processing.test_export.output_directory
+
+    @property
+    def shuffled_export_dir(self) -> Path:
+        return self.base_path_resolved / self.post_processing.shuffled_export.output_directory
 
     @property
     def integrated_debug_dir(self) -> Path:
