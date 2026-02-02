@@ -164,25 +164,27 @@ class KrakenValidator:
                     )
 
             # Equivalent ID set must be disjoint from other nodes' equivalent ID sets
-            equiv_ids = set(node.get(NodeModel.equivalent_ids.name))
-            if equiv_ids:
-                overlapping_ids = equiv_ids.intersection(self.all_equiv_ids)
-                if overlapping_ids:
-                    # Try to grab the prefixes of the IDs that are overlapping
-                    prefixes = set()
-                    for overlapper in overlapping_ids:
-                        try:
-                            prefix = split_curie(overlapper)[0]
-                            prefixes.add(prefix)
-                        except Exception:
-                            pass
-                    self._add_error(
-                        "overlapping_equiv_ids",
-                        f"Node's equivalent ID set overlaps with other node(s). Overlapping IDs are: {overlapping_ids}",
-                        node,
-                        subtype=f"{sorted(prefixes)}",
-                    )
-                self.all_equiv_ids |= equiv_ids
+            # TODO: Temporarily only runs this check for kg2/kraken - (need way to handle overlaps in sources)
+            if source_infores == "infores:rtx-kg2" or integrated:
+                equiv_ids = set(node.get(NodeModel.equivalent_ids.name))
+                if equiv_ids:
+                    overlapping_ids = equiv_ids.intersection(self.all_equiv_ids)
+                    if overlapping_ids:
+                        # Try to grab the prefixes of the IDs that are overlapping
+                        prefixes = set()
+                        for overlapper in overlapping_ids:
+                            try:
+                                prefix = split_curie(overlapper)[0]
+                                prefixes.add(prefix)
+                            except Exception:
+                                pass
+                        self._add_error(
+                            "overlapping_equiv_ids",
+                            f"Node's equivalent ID set overlaps with other node(s). Overlapping IDs are: {overlapping_ids}",
+                            node,
+                            subtype=f"{sorted(prefixes)}",
+                        )
+                    self.all_equiv_ids |= equiv_ids
 
             # Source provenance check (if source_infores provided)
             if source_infores and NodeModel.provided_by.name in node:
