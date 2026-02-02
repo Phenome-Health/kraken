@@ -120,7 +120,7 @@ class SpokeIDNormalizer:
                 return KNOWN_INVALID, ""
             else:
                 # Actually construct the curie
-                curie_dict, _ = self.normalizer.get_curies({prefix_entry: local_id}, stop_on_invalid_id=False)
+                curie_dict, _, _ = self.normalizer.get_curies({prefix_entry: local_id}, stop_on_invalid_id=False)
                 if curie_dict:
                     curie, iri = next(iter(curie_dict.items()))  # There can only be one entry in here
                     return curie, iri
