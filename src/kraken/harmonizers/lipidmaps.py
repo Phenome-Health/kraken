@@ -69,12 +69,12 @@ class LipidMapsHarmonizer(BaseHarmonizer):
         properties = molecule.GetPropsAsDict()
 
         # Transform the 'canonical' ID into standard curie form
-        lm_curie_dict, _ = self.normalizer.get_curies({"LM_ID": properties["LM_ID"]}, stop_on_invalid_id=True)
+        lm_curie_dict, _, _ = self.normalizer.get_curies({"LM_ID": properties["LM_ID"]}, stop_on_invalid_id=True)
         lm_curie, lm_iri = next(iter(lm_curie_dict.items()))
 
         # Grab all xrefs and transform into standardized curies
         equivalent_ids = {lm_curie}
-        equiv_curies_dict, _ = self.normalizer.get_curies(
+        equiv_curies_dict, _, _ = self.normalizer.get_curies(
             {prop: properties[prop] for prop in self.equiv_id_props if properties.get(prop)}, stop_on_invalid_id=False
         )
         if equiv_curies_dict:

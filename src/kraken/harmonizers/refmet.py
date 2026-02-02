@@ -51,12 +51,12 @@ class RefMetHarmonizer(BaseHarmonizer):
     def _harmonize_row(self, row: dict[str, Any]) -> dict[str, Any] | None:
         # Transform the 'canonical' ID into standard curie form
         # Note: original has ' refmet_id' with leading space
-        rm_curie_dict, _ = self.normalizer.get_curies({"refmet": row[" refmet_id"]}, stop_on_invalid_id=True)
+        rm_curie_dict, _, _ = self.normalizer.get_curies({"refmet": row[" refmet_id"]}, stop_on_invalid_id=True)
         rm_curie, rm_iri = next(iter(rm_curie_dict.items()))
 
         # Grab all xrefs and transform into standardized curies
         equivalent_ids = {rm_curie}
-        equiv_curies_dict, _ = self.normalizer.get_curies(
+        equiv_curies_dict, _, _ = self.normalizer.get_curies(
             {prop: row[prop] for prop in self.equiv_id_props if row.get(prop)}, stop_on_invalid_id=False
         )
         if equiv_curies_dict:

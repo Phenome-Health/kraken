@@ -162,7 +162,7 @@ class ClinGenHarmonizer(BaseHarmonizer):
             sys.exit(1)
 
         # Normalize disease identifiers to standard curies
-        disease_curies_dict, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True)
+        disease_curies_dict, _, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True)
 
         if disease_curies_dict:
             disease_curie = list(sorted(disease_curies_dict.keys(), reverse=True))[
@@ -193,7 +193,7 @@ class ClinGenHarmonizer(BaseHarmonizer):
         id_dict = {"omim": gene_omim}
 
         # Normalize to standard gene identifiers (HGNC, NCBIGene, etc.)
-        gene_curies_dict, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True)
+        gene_curies_dict, _, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True)
 
         if gene_curies_dict:
             gene_curie = list(gene_curies_dict.keys())[0]
