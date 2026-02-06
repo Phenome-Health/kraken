@@ -15,3 +15,4 @@ class RobokopHarmonizer(BaseHarmonizer):
 
     # Edge property config
     publications_info_prop = "sentences"
+    primary_ks_exclusions = {"infores:ubergraph"}  # HUGE, 60m edges, with a lot of transitive closures
