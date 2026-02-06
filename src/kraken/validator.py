@@ -180,7 +180,8 @@ class KrakenValidator:
                                 pass
                         self._add_error(
                             "overlapping_equiv_ids",
-                            f"Node's equivalent ID set overlaps with other node(s). Overlapping IDs are: {overlapping_ids}",
+                            f"Node's equivalent ID set overlaps with other node(s). "
+                            f"Overlapping IDs are: {overlapping_ids}",
                             node,
                             subtype=f"{sorted(prefixes)}",
                         )
