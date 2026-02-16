@@ -67,6 +67,19 @@ def shuffle_edges(edges_path: Path, perm_map: dict[str, str]) -> Path:
     return output_path
 
 
+def shuffle_graph(nodes_path: Path, edges_path: Path, seed: int = 42):
+    start = time.time()
+    logging.info(f"Shuffling graph with seed={seed}")
+
+    rng = random.Random(seed)
+    perm_map = create_permutation_map(nodes_path, rng)
+    output_path = shuffle_edges(edges_path, perm_map)
+
+    elapsed = time.time() - start
+    logging.info(f"Done! Wrote shuffled edges to {output_path}")
+    logging.info(f"Total time: {elapsed:.1f}s ({elapsed / 60:.1f} min)")
+
+
 def main():
     setup_logging()
 
@@ -76,16 +89,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     args = parser.parse_args()
 
-    start = time.time()
-    logging.info(f"Shuffling KRAKEN with seed={args.seed}")
-
-    rng = random.Random(args.seed)
-    perm_map = create_permutation_map(args.nodes, rng)
-    output_path = shuffle_edges(args.edges, perm_map)
-
-    elapsed = time.time() - start
-    logging.info(f"Done! Wrote shuffled edges to {output_path}")
-    logging.info(f"Total time: {elapsed:.1f}s ({elapsed / 60:.1f} min)")
+    shuffle_graph(args.nodes, args.edges, args.seed)
 
 
 if __name__ == "__main__":
