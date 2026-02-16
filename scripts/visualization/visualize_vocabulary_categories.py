@@ -15,6 +15,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 
+from kraken.utils.constants import PROJECT_ROOT
+from kraken.utils.kg_io import stream_nodes_from_jsonl
+
 
 def extract_vocabulary_from_curie(curie: str) -> str:
     """Extract vocabulary prefix from CURIE (e.g., 'CHEBI:12345' -> 'CHEBI')"""
@@ -36,27 +39,15 @@ def count_nodes_by_vocab_category(nodes_file: Path) -> pd.DataFrame:
     vocab_category_counts = defaultdict(Counter)
 
     print(f"Processing {nodes_file}...")
-    with open(nodes_file) as f:
-        for i, line in enumerate(f):
-            if i % 100000 == 0:
-                print(f"  Processed {i:,} nodes...")
+    for node in stream_nodes_from_jsonl(nodes_file):
+        id_prefixes = {extract_vocabulary_from_curie(curie) for curie in node["equivalent_ids"]}
+        categories = node["categories"]
 
-            try:
-                node = json.loads(line.strip())
-                id_prefixes = node.get("id_prefixes", [])
-                categories = node.get("entity_types", [])  # Use entity_types for ArangoDB export
-
-                # Count each category for each vocabulary prefix
-                for prefix in id_prefixes:
-                    for category in categories:
-                        clean_cat = clean_category(category)
-                        vocab_category_counts[prefix][clean_cat] += 1
-
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"Error processing line {i}: {e}")
-                continue
-
-    print(f"  Processed {i+1:,} total nodes")
+        # Count each category for each vocabulary prefix
+        for prefix in id_prefixes:
+            for category in categories:
+                clean_cat = clean_category(category)
+                vocab_category_counts[prefix][clean_cat] += 1
 
     # Convert to DataFrame
     data = []
@@ -549,13 +540,13 @@ def main():
 
     # Set up command line arguments
     parser = argparse.ArgumentParser(description="Visualize vocabulary-category distributions from KRAKEN data")
+    parser.add_argument("--nodes", type=Path, required=True, help="Path to nodes JSONL file")
     parser.add_argument("--reprocess", action="store_true", help="Reprocess KRAKEN data even if CSV exists")
     parser.add_argument("--viz-only", action="store_true", help="Only generate visualizations from existing CSV data")
     args = parser.parse_args()
 
     # File paths
-    nodes_file = Path("artifacts/export/arango/kraken_1.0.0_nodes_arango.jsonl")
-    output_dir = Path("scripts")
+    output_dir = PROJECT_ROOT / "scripts" / "visualization"
     csv_file = output_dir / "vocabulary_category_counts.csv"
 
     # Check if we need to process data
@@ -568,12 +559,12 @@ def main():
             return
     else:
         # Process KRAKEN data
-        if not nodes_file.exists():
-            print(f"Error: {nodes_file} not found!")
+        if not args.nodes.exists():
+            print(f"Error: {args.nodes} not found!")
             return
 
         print("Processing KRAKEN data...")
-        df = count_nodes_by_vocab_category(nodes_file)
+        df = count_nodes_by_vocab_category(args.nodes)
 
         if df.empty:
             print("No data found!")
