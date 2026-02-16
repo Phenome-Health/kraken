@@ -1,19 +1,20 @@
-kraken_version: 2.0.0
+kraken_version: 2.0.1
 biolink_version: 4.2.5
 log_level: INFO
 steps:
-  harmonize: True
-  integrate: False
-  postprocess: False
+  harmonize: False
+  integrate: True
+  postprocess: True
 options:
   metagraph_creation: True
   validate_output: True
-  include_sources: ["kg2"]
-  exclude_sources: []
+  validation_only: False
+  include_sources: []
+  exclude_sources: ["clingen", "molepro", "spoke"]
 
 # Base directory path to use for all input/output files (should be absolute path)
-# Leave empty to use kraken project root as base path
-base_path: null  # could be something like: "/Volumes/MyExternalDrive/kraken-data"
+# Set to null to use kraken project root as base path
+base_path: "/Volumes/AmySSD/kraken-data"
 
 harmonization:
   output_directory: "artifacts/harmonized/"
@@ -48,7 +49,7 @@ sources:
   molepro:
     nodes_input: "input_data/molepro/jan2026/nodes.tsv"
     edges_input: "input_data/molepro/jan2026/edges.tsv"
-    can_merge_existing_nodes: True
+    can_merge_existing_nodes: False
 
   microbiome-kg:
     nodes_input: "input_data/microbiome-kg/Microbiome_KG_nodes_v2.1.0.tsv"
