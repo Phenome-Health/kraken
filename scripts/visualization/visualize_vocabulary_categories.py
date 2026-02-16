@@ -4,7 +4,6 @@ Analyze node categories by vocabulary in the KRAKEN knowledge graph.
 Creates multiple visualizations: heatmap, bubble grid, and network graph.
 """
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 

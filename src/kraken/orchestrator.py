@@ -132,7 +132,7 @@ class KrakenBuildOrchestrator:
             logging.warning("Skipping integration step because you selected validation_only=True in build config")
 
         if not self.config.options.validation_only:
-            integrate_sources(self.config)
+            integrate_sources(self.config, self.biolink_client)
 
         if self.config.options.validate_output or self.config.options.validation_only:
             self.validator.validate(
@@ -149,6 +149,7 @@ class KrakenBuildOrchestrator:
                     edges_path=self.config.integrated_edges_path,
                     output_dir=self.config.metagraph_dir,
                     graph_name="kraken",
+                    graph_version=self.config.kraken_version,
                 )
                 tarball_component_paths.append(metagraph_path)
 
