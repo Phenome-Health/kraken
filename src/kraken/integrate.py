@@ -11,6 +11,7 @@ from typing import Any
 
 import jsonlines
 
+from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
 from kraken.schema import EdgeModel
 from kraken.utils.constants import (
@@ -25,7 +26,6 @@ from kraken.utils.constants import (
     NODE_ID,
     NODE_SYNONYMS,
     NOT_PROVIDED,
-    ROOT_CATEGORY,
 )
 from kraken.utils.general import create_edge_key, to_list
 from kraken.utils.kg_io import (
@@ -37,7 +37,7 @@ from kraken.utils.kg_io import (
 )
 
 
-def integrate_sources(config: KrakenConfig):
+def integrate_sources(config: KrakenConfig, biolink: BiolinkClient):
     """Merge harmonized sources using streaming approach"""
     config.integrated_dir.mkdir(parents=True, exist_ok=True)
     config.integrated_debug_dir.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,7 @@ def integrate_sources(config: KrakenConfig):
     assert equivalency_index
 
     # Phase 2: Integrate all nodes, merging as we go
-    integrate_nodes(equivalency_index, config)
+    integrate_nodes(equivalency_index, config, biolink)
 
     # Phase 3: Process all edges with node ID resolution (merge edges with the same key)
     integrate_edges(equivalency_index, config)
@@ -60,10 +60,7 @@ def integrate_sources(config: KrakenConfig):
     logging.info(f"Integration complete! Unified KG saved to {config.integrated_dir}")
 
 
-def integrate_nodes(
-    equivalency_index: dict[str, str],
-    config: KrakenConfig,
-):
+def integrate_nodes(equivalency_index: dict[str, str], config: KrakenConfig, biolink: BiolinkClient):
     # Load the primary source as our starting point
     primary_source = config.integration.primary_source
     logging.info(f"Loading {primary_source} nodes as starting point")
@@ -122,7 +119,9 @@ def integrate_nodes(
                     # We have a one-to-one match; merge this node with its canonical node
                     canonical_id = canonical_ids_list[0]
                     existing_canonical_node = current_canonical_nodes[canonical_id]
-                    _ = merge_two_nodes(node, existing_canonical_node, equivalency_index, current_canonical_nodes)
+                    _ = merge_two_nodes(
+                        node, existing_canonical_node, equivalency_index, current_canonical_nodes, biolink
+                    )
                 else:
                     # one-to-many match; merge all canonical nodes for this new node into majority canonical node
                     canonical_id_counts = Counter(canonical_ids_list)
@@ -143,12 +142,16 @@ def integrate_nodes(
 
                     # Merge the new node with the majority canonical node
                     merged_node = merge_two_nodes(
-                        node, most_common_canonical_node, equivalency_index, current_canonical_nodes
+                        node, most_common_canonical_node, equivalency_index, current_canonical_nodes, biolink
                     )
                     # Then iteratively merge the other canonical nodes into our merged node
                     for other_existing_canonical_node in other_canonical_nodes:
                         merged_node = merge_two_nodes(
-                            other_existing_canonical_node, merged_node, equivalency_index, current_canonical_nodes
+                            other_existing_canonical_node,
+                            merged_node,
+                            equivalency_index,
+                            current_canonical_nodes,
+                            biolink,
                         )
             else:
                 # Find the 'majority' canonical ID for this node (not allowed to merge pre-existing canonical nodes)
@@ -163,7 +166,8 @@ def integrate_nodes(
                         existing_canonical_node,
                         equivalency_index,
                         current_canonical_nodes,
-                        new_equiv_ids,
+                        biolink,
+                        new_equiv_ids=new_equiv_ids,
                         new_can_dominate=False,
                     )
                 else:
@@ -288,6 +292,7 @@ def merge_two_nodes(
     existing_node: dict,
     equivalency_index: dict[str, str],
     current_canonical_nodes: dict[str, dict],
+    biolink: BiolinkClient,
     new_equiv_ids: set[str] | None = None,
     new_can_dominate: bool = True,
 ) -> dict[str, Any]:
@@ -311,9 +316,8 @@ def merge_two_nodes(
         if property_name not in {NODE_EQUIVALENT_IDS, NODE_SYNONYMS}:  # These are handled specially, above
             merge_property_into_existing(new_node, merged_node, property_name, new_dominates)
 
-    # Remove NamedThing as a category if a more specific category is provided
-    if len(merged_node[NODE_CATEGORIES]) > 1 and ROOT_CATEGORY in merged_node[NODE_CATEGORIES]:
-        merged_node[NODE_CATEGORIES].remove(ROOT_CATEGORY)
+    # Filter out any non-leaf categories from the merged node
+    merged_node[NODE_CATEGORIES] = biolink.filter_to_leaf_categories(merged_node[NODE_CATEGORIES])
 
     # Make sure our equivalency index is up to date with any new canonical mappings
     updated_canonical_id = merged_node[NODE_ID]
