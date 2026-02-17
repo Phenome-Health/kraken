@@ -48,9 +48,11 @@ def create_permutation_map(nodes_path: Path, rng: random.Random) -> dict[str, st
     return perm_map
 
 
-def shuffle_edges(edges_path: Path, perm_map: dict[str, str]) -> Path:
+def shuffle_edges(edges_path: Path, perm_map: dict[str, str], output_dir: Path) -> Path:
     """Write shuffled edges to a new file, replacing subject/object via the permutation map."""
-    output_path = edges_path.with_name(edges_path.stem + "_shuffled" + edges_path.suffix)
+    # TODO: make work with passing in outpudir from orchestrator?
+    output_file_name = edges_path.stem + "_shuffled" + edges_path.suffix
+    output_path = output_dir / output_file_name
     logging.info(f"Writing shuffled edges to {output_path}...")
 
     edge_count = 0
@@ -67,13 +69,13 @@ def shuffle_edges(edges_path: Path, perm_map: dict[str, str]) -> Path:
     return output_path
 
 
-def shuffle_graph(nodes_path: Path, edges_path: Path, seed: int = 42):
+def shuffle_graph(nodes_path: Path, edges_path: Path, output_dir: Path, seed: int = 42):
     start = time.time()
     logging.info(f"Shuffling graph with seed={seed}")
 
     rng = random.Random(seed)
     perm_map = create_permutation_map(nodes_path, rng)
-    output_path = shuffle_edges(edges_path, perm_map)
+    output_path = shuffle_edges(edges_path, perm_map, output_dir)
 
     elapsed = time.time() - start
     logging.info(f"Done! Wrote shuffled edges to {output_path}")
@@ -86,10 +88,11 @@ def main():
     parser = argparse.ArgumentParser(description="Create a shuffled version of KRAKEN")
     parser.add_argument("--nodes", type=Path, required=True, help="Path to nodes JSONL file")
     parser.add_argument("--edges", type=Path, required=True, help="Path to edges JSONL file")
+    parser.add_argument("--output", type=Path, required=True, help="Path to output directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     args = parser.parse_args()
 
-    shuffle_graph(args.nodes, args.edges, args.seed)
+    shuffle_graph(args.nodes, args.edges, args.output, args.seed)
 
 
 if __name__ == "__main__":
