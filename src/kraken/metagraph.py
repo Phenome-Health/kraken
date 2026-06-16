@@ -158,7 +158,7 @@ def generate_metagraph_for_source(
     stats = generate_metagraph_streaming(nodes_path, edges_path, graph_name, graph_version)
 
     # Save main JSON statistics
-    file_name = f"{graph_name}_{graph_version}_metagraph.json" if graph_version else f"{graph_name}_metagraph.json"
+    file_name = f"{graph_name}_metagraph_{graph_version}.json" if graph_version else f"{graph_name}_metagraph.json"
     json_file_path = output_dir / file_name
     save_metagraph(stats, json_file_path)
 

@@ -32,8 +32,6 @@ post_processing:
   test_export:
     output_directory: "artifacts/integrated/"
     num_edges: 10000
-  shuffled_export:
-    output_directory: "artifacts/shuffled/"
 
 sources:
   kg2:

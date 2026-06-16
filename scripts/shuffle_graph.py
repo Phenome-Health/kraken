@@ -50,7 +50,7 @@ def create_permutation_map(nodes_path: Path, rng: random.Random) -> dict[str, st
 
 def shuffle_edges(edges_path: Path, perm_map: dict[str, str], output_dir: Path) -> Path:
     """Write shuffled edges to a new file, replacing subject/object via the permutation map."""
-    # TODO: make work with passing in outpudir from orchestrator?
+    # TODO: make work with passing in output dir from orchestrator?
     output_file_name = edges_path.stem + "_shuffled" + edges_path.suffix
     output_path = output_dir / output_file_name
     logging.info(f"Writing shuffled edges to {output_path}...")

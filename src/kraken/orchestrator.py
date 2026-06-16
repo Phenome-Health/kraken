@@ -22,7 +22,6 @@ from kraken.harmonizers.spoke import SpokeHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
 from kraken.integrate import integrate_sources
 from kraken.metagraph import generate_metagraph_for_source
-from kraken.post_processing.shuffle_graph import shuffle_graph
 from kraken.post_processing.test_file_generator import create_test_kg_files
 from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.kg_io import form_tarball, unzip_files, zip_files
@@ -190,14 +189,6 @@ class KrakenBuildOrchestrator:
                     test_tarball_component_paths,
                     self.config.integrated_dir,
                     tarball_name=f"kraken_{self.config.kraken_version}_test.tar.gz",
-                )
-
-            if self.config.post_processing.shuffled_export:
-                logging.info("Generating shuffled version of kraken..")
-                shuffle_graph(
-                    nodes_path=self.config.integrated_nodes_path,
-                    edges_path=self.config.integrated_edges_path,
-                    output_dir=self.config.shuffled_export_dir,
                 )
 
         logging.info("Post-processing complete!")
