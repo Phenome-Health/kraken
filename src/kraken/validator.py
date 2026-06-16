@@ -96,8 +96,10 @@ class KrakenValidator:
         """
         logging.info(f"Validating {nodes_path} and {edges_path}...")
 
-        # Reset summary for fresh validation run
+        # Reset state for fresh validation run
         self.summary = ValidationSummary()
+        self.node_ids = set()
+        self.all_equiv_ids = set()
 
         self.validate_nodes(nodes_path, source_infores, integrated)
         self.validate_edges(edges_path, integrated)
