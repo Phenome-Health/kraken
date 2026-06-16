@@ -72,6 +72,7 @@ class SourceConfig(BaseModel):
 class KrakenConfig(BaseModel):
     biolink_version: str
     kraken_version: str
+    kg_label: str | None = None  # human-readable build name, e.g. "kraken-no-spoke"
     log_level: str = "INFO"
     base_path: str | None = None
     harmonization: HarmonizationConfig

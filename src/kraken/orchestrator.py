@@ -2,8 +2,11 @@
 Main orchestration functions for KRAKEN build
 """
 
+import importlib.metadata
 import logging
+import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -71,9 +74,51 @@ class KrakenBuildOrchestrator:
         if self.config.steps.postprocess:
             self._post_process()
 
-        logging.info(f"Build complete! Took {round((time.time() - start) / 60)} minutes.")
+        elapsed = time.time() - start
+        logging.info(f"Build complete! Took {round(elapsed / 60)} minutes.")
+
+        self._write_build_info(elapsed)
 
         return self.config.integrated_nodes_path, self.config.integrated_edges_path
+
+    def _write_build_info(self, elapsed_seconds: float) -> None:
+        """Write build_info.json to integrated_dir for downstream consumers (e.g. Kestrel /health)."""
+        from kraken.build_info import BuildInfo, StepsRun
+
+        try:
+            git_commit = (
+                subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, cwd=PROJECT_ROOT)
+                .decode()
+                .strip()
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            git_commit = "unknown"
+
+        try:
+            kraken_package_version = importlib.metadata.version("kraken")
+        except importlib.metadata.PackageNotFoundError:
+            kraken_package_version = "unknown"
+
+        build_info = BuildInfo(
+            kg_version=self.config.kraken_version,
+            kraken_package_version=kraken_package_version,
+            biolink_version=self.config.biolink_version,
+            build_timestamp=datetime.now(timezone.utc).isoformat(),
+            git_commit=git_commit,
+            sources=sorted(self.config.sources_to_use),  # set -> sorted list (JSON-safe, deterministic)
+            steps_run=StepsRun(
+                harmonize=self.config.steps.harmonize,
+                integrate=self.config.steps.integrate,
+                postprocess=self.config.steps.postprocess,
+            ),
+            build_duration_minutes=round(elapsed_seconds / 60, 1),
+            kg_label=getattr(self.config, "kg_label", None),
+        )
+
+        self.config.integrated_dir.mkdir(parents=True, exist_ok=True)
+        output_path = self.config.integrated_dir / "build_info.json"
+        output_path.write_text(build_info.model_dump_json(indent=2))
+        logging.info(f"Build info written to {output_path}")
 
     def _harmonize_sources(self):
         """Harmonize all sources to KRAKEN's Biolink-style semantic layer/schema"""

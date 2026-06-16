@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "StepsRun": {
+      "properties": {
+        "harmonize": {
+          "title": "Harmonize",
+          "type": "boolean"
+        },
+        "integrate": {
+          "title": "Integrate",
+          "type": "boolean"
+        },
+        "postprocess": {
+          "title": "Postprocess",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "harmonize",
+        "integrate",
+        "postprocess"
+      ],
+      "title": "StepsRun",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "kg_version": {
+      "title": "Kg Version",
+      "type": "string"
+    },
+    "kraken_package_version": {
+      "title": "Kraken Package Version",
+      "type": "string"
+    },
+    "biolink_version": {
+      "title": "Biolink Version",
+      "type": "string"
+    },
+    "build_timestamp": {
+      "title": "Build Timestamp",
+      "type": "string"
+    },
+    "git_commit": {
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "steps_run": {
+      "$ref": "#/$defs/StepsRun"
+    },
+    "build_duration_minutes": {
+      "title": "Build Duration Minutes",
+      "type": "number"
+    },
+    "kg_label": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kg Label"
+    },
+    "node_count": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Node Count"
+    },
+    "edge_count": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Edge Count"
+    }
+  },
+  "required": [
+    "kg_version",
+    "kraken_package_version",
+    "biolink_version",
+    "build_timestamp",
+    "git_commit",
+    "sources",
+    "steps_run",
+    "build_duration_minutes"
+  ],
+  "title": "BuildInfo",
+  "type": "object"
+}
