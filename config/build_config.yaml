@@ -9,7 +9,7 @@ options:
   metagraph_creation: True
   validate_output: True
   validation_only: False
-  include_sources: []
+  include_sources: null
   exclude_sources: ["clingen", "molepro", "spoke"]
 
 # Base directory path to use for all input/output files (should be absolute path)

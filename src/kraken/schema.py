@@ -49,9 +49,9 @@ class EdgeModel:
     supporting_sources = PropertyDef("supporting_data_sources", list, in_key=True, inner_type=str)
     knowledge_level = PropertyDef("knowledge_level", str, required=True)
     agent_type = PropertyDef("agent_type", str, required=True)
-    publications = PropertyDef("publications", list, in_key=True, inner_type=str)
-    publications_info = PropertyDef("publications_info", (dict, str), in_key=True)
-    attributes = PropertyDef("attributes", dict, in_key=True)
+    publications = PropertyDef("publications", list, inner_type=str)
+    publications_info = PropertyDef("publications_info", (dict, str))
+    attributes = PropertyDef("attributes", dict)
 
     @classmethod
     def all_properties(cls) -> dict[str, PropertyDef]:

@@ -9,7 +9,9 @@ from typing import Any
 import requests
 import yaml
 
+from kraken.schema import EdgeModel
 from kraken.utils.constants import (
+    EDGE_AGGREGATOR_KS,
     EDGE_OBJECT,
     EDGE_PREDICATE,
     EDGE_PRIMARY_KS,
@@ -18,6 +20,30 @@ from kraken.utils.constants import (
     EDGE_SUPPORTING_SOURCES,
     NONE_STRINGS,
 )
+
+# Edge properties that make up the edge key. This list also encodes the ORDER and (in create_edge_key) the
+# special per-field formatting used to build the key string, which is why it can't simply be derived from the
+# schema. The check below guarantees it stays in sync with the schema's source of truth (EdgeModel.key_properties):
+# add/remove an `in_key` flag there without updating create_edge_key (or vice versa) and this module won't import.
+_EDGE_KEY_PROPS = [
+    EDGE_SUBJECT,
+    EDGE_PREDICATE,
+    EDGE_OBJECT,
+    EDGE_QUALIFIERS,
+    EDGE_PRIMARY_KS,
+    EDGE_AGGREGATOR_KS,
+    EDGE_SUPPORTING_SOURCES,
+]
+
+_missing_from_key_fn = EdgeModel.key_properties() - set(_EDGE_KEY_PROPS)
+_unexpected_in_key_fn = set(_EDGE_KEY_PROPS) - EdgeModel.key_properties()
+if _missing_from_key_fn or _unexpected_in_key_fn:
+    raise ValueError(
+        "create_edge_key is out of sync with EdgeModel.key_properties(). "
+        f"Schema key props missing from create_edge_key: {_missing_from_key_fn or '{}'}; "
+        f"fields in create_edge_key not flagged in_key in schema: {_unexpected_in_key_fn or '{}'}. "
+        "Update _EDGE_KEY_PROPS / create_edge_key and the EdgeModel `in_key` flags so they match."
+    )
 
 
 def create_edge_key(edge: dict) -> str:
@@ -32,9 +58,15 @@ def create_edge_key(edge: dict) -> str:
     assert sep not in subject_id and sep not in object_id
     predicate = edge[EDGE_PREDICATE]
     primary_ks = edge[EDGE_PRIMARY_KS]
+    # Keep edges from different aggregator knowledge sources (e.g. kg2 vs robokop) separate, even if otherwise
+    # identical. TODO: remove from key once merging across aggregators is properly implemented.
+    aggregator_ks = edge.get(EDGE_AGGREGATOR_KS)
+    aggregator_ks_str = "__".join(sorted(aggregator_ks)) if aggregator_ks else placeholder
     supporting_sources = edge.get(EDGE_SUPPORTING_SOURCES)
     supporting_ks_str = "__".join(sorted(supporting_sources)) if supporting_sources else placeholder
-    key_raw = sep.join([subject_id, predicate, object_id, qualifiers_str, primary_ks, supporting_ks_str])
+    key_raw = sep.join(
+        [subject_id, predicate, object_id, qualifiers_str, primary_ks, aggregator_ks_str, supporting_ks_str]
+    )
     return key_raw
 
 
