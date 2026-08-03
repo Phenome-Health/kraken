@@ -1,6 +1,7 @@
 import html
 import json
 import logging
+import re
 import unicodedata
 from numbers import Number
 from pathlib import Path
@@ -70,12 +71,17 @@ def create_edge_key(edge: dict) -> str:
     return key_raw
 
 
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
 def clean_text(text: any) -> str:
     if not isinstance(text, str):
         # Handle weird case where some KG2 nodes have a name of True (a bool), or a description that's an int
         text = str(text)
     unescaped_text = html.unescape(text)
-    cleaned_text = unicodedata.normalize("NFC", unescaped_text)
+    normalized_text = unicodedata.normalize("NFC", unescaped_text)
+    # Collapse runs of whitespace (incl. embedded newlines/tabs) to single spaces and strip
+    cleaned_text = _WHITESPACE_RE.sub(" ", normalized_text).strip()
     return cleaned_text
 
 

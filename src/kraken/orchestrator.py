@@ -13,6 +13,7 @@ import yaml
 
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
+from kraken.harmonizers.cdes import CDEHarmonizer
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
@@ -46,6 +47,7 @@ class KrakenBuildOrchestrator:
         "lipidmaps": LipidMapsHarmonizer,
         "refmet": RefMetHarmonizer,
         "clingen": ClinGenHarmonizer,
+        "cdes": CDEHarmonizer,
     }
 
     def __init__(self):
