@@ -115,6 +115,7 @@ class KrakenBuildOrchestrator:
             ),
             build_duration_minutes=round(elapsed_seconds / 60, 1),
             kg_label=getattr(self.config, "kg_label", None),
+            source_versions=getattr(self.config, "source_versions", None),
         )
 
         self.config.integrated_dir.mkdir(parents=True, exist_ok=True)
@@ -169,6 +170,8 @@ class KrakenBuildOrchestrator:
                 edges_path=edges_output,
                 output_dir=self.config.metagraph_dir / source_name,
                 graph_name=source_name,
+                source_versions={source_name: self.config.sources[source_name].version},
+                biolink_version=self.config.biolink_version,
             )
 
     def _integrate_sources(self):
@@ -196,6 +199,8 @@ class KrakenBuildOrchestrator:
                     output_dir=self.config.metagraph_dir,
                     graph_name="kraken",
                     graph_version=self.config.kraken_version,
+                    source_versions=self.config.source_versions,
+                    biolink_version=self.config.biolink_version,
                 )
                 tarball_component_paths.append(metagraph_path)
 
@@ -229,6 +234,8 @@ class KrakenBuildOrchestrator:
                         edges_path=test_edges_path,
                         output_dir=self.config.metagraph_dir,
                         graph_name="kraken_test",
+                        source_versions=self.config.source_versions,
+                        biolink_version=self.config.biolink_version,
                     )
                     test_tarball_component_paths.append(metagraph_path)
 

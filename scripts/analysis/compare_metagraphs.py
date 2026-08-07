@@ -35,7 +35,9 @@ class KGMetaGraph:
             total_edges=summary.get("total_edges", sum(data.get("edge_predicates", {}).values())),
             node_categories=data.get("node_categories", {}),
             edge_predicates=data.get("edge_predicates", {}),
-            knowledge_sources=data.get("knowledge_sources", {}),
+            # metagraphs now split provenance by role; compare on primary sources
+            # (fall back to the legacy combined key for older metagraph files)
+            knowledge_sources=data.get("primary_knowledge_sources", data.get("knowledge_sources", {})),
             meta_doubles=data.get("meta_doubles", {}),
             meta_triples=data.get("meta_triples", {}),
         )

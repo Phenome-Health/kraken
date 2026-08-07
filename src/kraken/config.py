@@ -49,6 +49,7 @@ class PostProcessingConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
+    version: str | None = None  # version/release of the source that was ingested (e.g. "2.10.2", "june2025")
     input_file: str | None = None
     nodes_input: str | None = None
     edges_input: str | None = None
@@ -150,6 +151,15 @@ class KrakenConfig(BaseModel):
     @property
     def integrated_edges_path(self) -> Path:
         return self.integrated_dir / f"kraken_edges_{self.kraken_version}.jsonl"
+
+    @property
+    def source_versions(self) -> dict[str, str | None]:
+        """Map each source in use to its configured version (None if unknown/unspecified).
+
+        Recorded in build_info.json so a KG release can be traced back to the exact
+        source versions that went into it.
+        """
+        return {source: self.sources[source].version for source in sorted(self.sources_to_use)}
 
     @property
     def create_metagraphs(self) -> bool:

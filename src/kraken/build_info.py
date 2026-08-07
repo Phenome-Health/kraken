@@ -34,3 +34,5 @@ class BuildInfo(BaseModel):
     kg_label: str | None = None  # e.g. "kraken-with-spoke" / "kraken-no-spoke"
     node_count: int | None = None
     edge_count: int | None = None
+    # Per-source version/release ingested for this build; value is None when unknown.
+    source_versions: dict[str, str | None] | None = None
