@@ -26,6 +26,32 @@ from kraken.utils.constants import (
 from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
+def _branch_total(node: Any) -> int:
+    """Total of all leaf counts under a nested node (or the count itself if a leaf)."""
+    return sum(_branch_total(child) for child in node.values()) if isinstance(node, dict) else node
+
+
+def _sort_branch(node: dict) -> dict:
+    """Recursively order each level of a nested dict by descending subtree total,
+    so the heaviest branches (and, at the leaves, the most common counts) come first."""
+    return {
+        key: (_sort_branch(child) if isinstance(child, dict) else child)
+        for key, child in sorted(node.items(), key=lambda item: _branch_total(item[1]), reverse=True)
+    }
+
+
+def _nest_and_sort_counts(counter: Counter) -> dict:
+    """Nest a tuple-keyed Counter (e.g. (subject, predicate, object) -> count) into nested
+    dicts keyed by each tuple element, ordered by descending count at every level."""
+    nested: dict = {}
+    for key_tuple, count in counter.items():
+        level = nested
+        for part in key_tuple[:-1]:
+            level = level.setdefault(part, {})
+        level[key_tuple[-1]] = count
+    return _sort_branch(nested)
+
+
 class MetagraphStats:
     """Container for metagraph statistics"""
 
@@ -84,8 +110,8 @@ class MetagraphStats:
             "supporting_data_sources": dict(self.supporting_data_sources.most_common()),
             "knowledge_levels": dict(self.knowledge_levels.most_common()),
             "agent_types": dict(self.agent_types.most_common()),
-            "meta_doubles": {"__".join(double): count for double, count in self.meta_doubles.most_common()},
-            "meta_triples": {"__".join(triple): count for triple, count in self.meta_triples.most_common()},
+            "meta_doubles": _nest_and_sort_counts(self.meta_doubles),
+            "meta_triples": _nest_and_sort_counts(self.meta_triples),
         }
 
 
