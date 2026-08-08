@@ -33,6 +33,7 @@ from kraken.utils.constants import (
     NODE_PROVIDED_BY,
     NODE_PUBLICATIONS,
     NODE_SYNONYMS,
+    NODE_TAXA,
     NODE_URLS,
     NOT_PROVIDED,
 )
@@ -74,6 +75,7 @@ class BaseHarmonizer(ABC):
     category_prop: str = "category"
     equivalent_ids_prop: str = "xref"
     synonyms_props: set[str] = {"synonym"}
+    taxon_props: set[str] = set()  # source field(s) to pull taxon CURIE(s) from (unioned), e.g. {"taxon", "in_taxon"}
     url_prop: str = "iri"
     name_prop: str = NODE_NAME
     description_prop: str = NODE_DESCRIPTION
@@ -111,6 +113,11 @@ class BaseHarmonizer(ABC):
     # Primary knowledge sources to skip (these edges will NOT be included)
     primary_ks_exclusions: set = set()
 
+    # Drop edges asserting a negation (negated=true). KRAKEN has no way to represent negation, so ingesting
+    # such an edge would wrongly read as a positive assertion. Applies to all sources; set False to keep them.
+    drop_negated_edges: bool = True
+    negated_prop: str = "negated"
+
     # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
     exclude_from_list_parsing: set[str] = set()
 
@@ -134,7 +141,7 @@ class BaseHarmonizer(ABC):
             self.chemical_formula_prop,
             self.exact_mass_prop,
             self.publications_prop,
-        }.union(self.synonyms_props)
+        }.union(self.synonyms_props).union(self.taxon_props)
 
         self.core_edge_props = {
             self.subject_prop,
@@ -216,8 +223,13 @@ class BaseHarmonizer(ABC):
     def _harmonize_edges(self, input_path: Path, output_path: Path) -> int:
         count = 0
         excluded_count = 0
+        negated_count = 0
         with jsonlines.open(output_path, "w") as writer:
             for edge in self._stream_edges(input_path):
+                # Skip negated edges (KRAKEN can't represent negation, so they'd read as positive assertions)
+                if self.drop_negated_edges and edge.get(self.negated_prop):
+                    negated_count += 1
+                    continue
                 # Skip edges from primary knowledge sources marked for exclusion
                 primary_kses = set(to_list(edge.get(self.primary_ks_prop)))
                 if self.primary_ks_exclusions and primary_kses.issubset(self.primary_ks_exclusions):
@@ -228,6 +240,8 @@ class BaseHarmonizer(ABC):
                     writer.write(harmonized)
                     count += 1
         logging.info("Finished harmonizing edges.")
+        if negated_count:
+            logging.info(f"Dropped {negated_count} negated edges (negated=true).")
         if excluded_count:
             logging.info(
                 f"Excluded {excluded_count} edges that came from these primary "
@@ -265,6 +279,11 @@ class BaseHarmonizer(ABC):
             if new_synonyms:
                 synonyms |= set(new_synonyms)
 
+        # Collect taxon CURIE(s) from any configured taxon field(s), unioned
+        taxa = set()
+        for taxon_prop in self.taxon_props:
+            taxa |= set(to_list(node.get(taxon_prop)))
+
         # TODO: is it worth having a distinction between these and create_node/edge functions?
 
         return self.create_node(
@@ -279,6 +298,7 @@ class BaseHarmonizer(ABC):
             chemical_formula=node.get(self.chemical_formula_prop),
             exact_mass=node.get(self.exact_mass_prop),
             publications=node.get(self.publications_prop),
+            taxa=taxa,
             attributes=self._collect_node_attributes(node),
         )
 
@@ -389,6 +409,7 @@ class BaseHarmonizer(ABC):
         chemical_formula: str | list[str] | None = None,
         exact_mass: float | None = None,
         publications: str | list[str] = None,
+        taxa: str | list[str] | set[str] | None = None,
         attributes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not (curie and categories and provided_by):
@@ -442,6 +463,9 @@ class BaseHarmonizer(ABC):
                 cleaned_equiv_ids.add(normalized_equiv_id)
         equivalent_ids_final = list(cleaned_equiv_ids | {curie_normalized})
         node[NODE_EQUIVALENT_IDS] = equivalent_ids_final
+
+        if taxa:
+            node[NODE_TAXA] = list(dict.fromkeys(to_list(taxa)))  # list so taxa union-merge across sources
 
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]

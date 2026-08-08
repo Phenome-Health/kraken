@@ -22,6 +22,11 @@ class NodeModel:
     provided_by = PropertyDef("provided_by", list, required=True, inner_type=str)
     synonyms = PropertyDef("synonyms", list, inner_type=str)
     equivalent_ids = PropertyDef("equivalent_ids", list, inner_type=str)
+    # A list (hence `taxa`) for now, so a merged node retains all taxa -- surfacing bad cross-taxa merges
+    # instead of silently dropping one. Once a taxon merge-guard prevents merging nodes of differing taxa, a
+    # merged node will only ever have one taxon (assuming normalization, at which point this becomes
+    # a single Biolink-compliant CURIE field renamed to `taxon` (str).
+    taxa = PropertyDef("taxa", list, inner_type=str)
     description = PropertyDef("description", str)
     chemical_formula = PropertyDef("chemical_formula", str)
     exact_mass = PropertyDef("exact_mass", float)

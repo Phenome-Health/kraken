@@ -48,6 +48,7 @@ NODE_CATEGORIES = NodeModel.categories.name
 NODE_PROVIDED_BY = NodeModel.provided_by.name
 NODE_SYNONYMS = NodeModel.synonyms.name
 NODE_EQUIVALENT_IDS = NodeModel.equivalent_ids.name
+NODE_TAXA = NodeModel.taxa.name
 NODE_DESCRIPTION = NodeModel.description.name
 NODE_CHEMICAL_FORMULA = NodeModel.chemical_formula.name
 NODE_EXACT_MASS = NodeModel.exact_mass.name
