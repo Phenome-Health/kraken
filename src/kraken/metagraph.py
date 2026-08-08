@@ -79,6 +79,7 @@ class MetagraphStats:
         self.supporting_data_sources = Counter()  # supporting_data_sources -> count
         self.knowledge_levels = Counter()  # knowledge_level -> count
         self.agent_types = Counter()  # agent_type -> count
+        self.klat_joint = Counter()  # (knowledge_level, agent_type) -> count
 
         self.meta_doubles = Counter()  # (subject_category, object_category) -> count
         self.meta_triples = Counter()  # (subject_cat, predicate, object_cat) -> count
@@ -101,6 +102,7 @@ class MetagraphStats:
                 "unique_supporting_data_sources": len(self.supporting_data_sources),
                 "unique_meta_doubles": len(self.meta_doubles),
                 "unique_meta_triples": len(self.meta_triples),
+                "unique_klat_combinations": len(self.klat_joint),
             },
             "node_categories": dict(self.node_categories.most_common()),
             "node_prefixes": dict(self.node_prefixes.most_common()),
@@ -110,6 +112,7 @@ class MetagraphStats:
             "supporting_data_sources": dict(self.supporting_data_sources.most_common()),
             "knowledge_levels": dict(self.knowledge_levels.most_common()),
             "agent_types": dict(self.agent_types.most_common()),
+            "klat_joint": _nest_and_sort_counts(self.klat_joint),
             "meta_doubles": _nest_and_sort_counts(self.meta_doubles),
             "meta_triples": _nest_and_sort_counts(self.meta_triples),
         }
@@ -172,6 +175,11 @@ def generate_metagraph_streaming(
                 stats.knowledge_levels[edge[EDGE_KNOWLEDGE_LEVEL]] += 1
             if EDGE_AGENT_TYPE in edge:
                 stats.agent_types[edge[EDGE_AGENT_TYPE]] += 1
+            # Joint knowledge-level x agent-type distribution (for the KLAT heatmap);
+            # missing roles fall back to "not_provided" so every edge lands in one cell.
+            stats.klat_joint[
+                (edge.get(EDGE_KNOWLEDGE_LEVEL, "not_provided"), edge.get(EDGE_AGENT_TYPE, "not_provided"))
+            ] += 1
 
             # Update meta-triple related statistics
             subject_categories = categories_map[subject_id]
