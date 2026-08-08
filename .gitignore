@@ -8,13 +8,13 @@ artifacts/
 cache/
 
 *.tsv
-scripts/*.json
-scripts/*.jsonl
-scripts/*.png
-scripts/*.html
-scripts/*.csv
-scripts/*.txt
-scripts/*.pdf
+scripts/**/*.json
+scripts/**/*.jsonl
+scripts/**/*.png
+scripts/**/*.html
+scripts/**/*.csv
+scripts/**/*.txt
+scripts/**/*.pdf
 scripts/overlap/
 
 *.log

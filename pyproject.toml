@@ -23,6 +23,7 @@ dev = [
 ]
 viz = [
     "matplotlib>=3.10.6",
+    "mpl-chord-diagram>=0.4.1",
     "networkx>=3.4.2",
     "numpy>=2.2.6",
     "pandas>=2.3.2",
