@@ -22,6 +22,6 @@ class KG2Harmonizer(BaseHarmonizer):
         "qualified_object_direction": OBJ_DIRECTION_QUALIFIER,
         "qualified_object_aspect": OBJ_ASPECT_QUALIFIER,
     }
-    primary_ks_exclusions = {"infores:semmeddb"}
+    primary_ks_exclusions = {"infores:semmeddb"}  # We choose to exclude SemMedDB, a text-mined source
     # KG2 uses an invalid predicate for NCIT 'regimen_has_accepted_use_for_disease' edges - remap those
     predicate_overrides = {"biolink:drug_regulatory_status_world_wide": "biolink:treats_or_applied_or_studied_to_treat"}
