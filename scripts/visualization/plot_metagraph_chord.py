@@ -121,6 +121,51 @@ def short(c: str) -> str:
     return c.replace("biolink:", "")
 
 
+def report_cross_family(meta: dict) -> None:
+    """Print within- vs cross-family edge stats (families per this script's rules).
+
+    Two metrics:
+      * edge instances (from meta_doubles): an ESTIMATE -- because nodes carry
+        multiple Biolink categories, each edge is tallied under every
+        category-pair its endpoints have, so the total exceeds the true edge
+        count and the split is approximate.
+      * distinct meta-edges (subject, predicate, object from meta_triples): an
+        EXACT schema count of relationship-type patterns that bridge families.
+    """
+    doubles = meta.get("meta_doubles", {})
+    cross = within = 0
+    for s, objs in doubles.items():
+        fs = category_family(s)
+        for o, c in objs.items():
+            if fs == category_family(o):
+                within += c
+            else:
+                cross += c
+    tri = meta.get("meta_triples", {})
+    mx = mw = 0
+    for s, preds in tri.items():
+        fs = category_family(s)
+        for objs in preds.values():
+            for o in objs:
+                if fs == category_family(o):
+                    mw += 1
+                else:
+                    mx += 1
+
+    print("\nCross-family edge summary (Biolink families per this script):")
+    tot = cross + within
+    if tot:
+        print(f"  edge instances (meta_doubles; estimate, multi-category overcount): {tot:,} total")
+        print(f"    within-family {within:,} ({100 * within / tot:.1f}%)  |  "
+              f"cross-family {cross:,} ({100 * cross / tot:.1f}%)")
+    mt = mx + mw
+    if mt:
+        print(f"  distinct meta-edges (subject, predicate, object; exact): {mt:,} total")
+        print(f"    within-family {mw:,} ({100 * mw / mt:.1f}%)  |  "
+              f"cross-family {mx:,} ({100 * mx / mt:.1f}%)")
+    print()
+
+
 # width transform per scale. Note: sqrt/log widths are NOT proportional to raw
 # edge counts -- disclose that in the figure caption (kept off-figure by request).
 SCALES = {
@@ -197,6 +242,7 @@ def main():
 
     meta = json.loads(args.metagraph.read_text())
     doubles = meta["meta_doubles"]
+    report_cross_family(meta)
 
     # rank categories by total connectivity, then order by family
     involve = {}
