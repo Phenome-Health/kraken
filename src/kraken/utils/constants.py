@@ -21,9 +21,9 @@ UMLS_MTH_INFORES: str = f"{INFORES_PREFIX}:umls-metathesaurus"
 REFMET_INFORES: str = f"{INFORES_PREFIX}:refmet"
 CLINGEN_INFORES = f"{INFORES_PREFIX}:clingen"
 
-# NIH CDE Repository has no registered infores; use the bare source id (per project decision)
+# Some sources do not (yet) have registered infores curies; use bare source IDs for those
 NIH_CDE_SOURCE_ID: str = "nih-cde"
-
+TRANSLATOR_SOURCE_ID: str = "translator-kg-open"
 LIPIDMAPS_ID: str = "lipidmaps"
 
 KNOWN_INVALID = "KNOWN_INVALID"

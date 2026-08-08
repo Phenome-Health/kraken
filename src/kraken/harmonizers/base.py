@@ -47,6 +47,12 @@ from kraken.utils.kg_io import (
 )
 
 
+# TRAPI-style edge provenance: an edge carrying this field lists its knowledge sources as objects of
+# {resource_id, resource_role}, which we parse instead of the flat primary_ks/supporting_sources props.
+TRAPI_SOURCES_FIELD = "sources"
+TRAPI_SOURCE_ROLES = {"primary_knowledge_source", "aggregator_knowledge_source", "supporting_data_source"}
+
+
 class BaseHarmonizer(ABC):
     """Base class for harmonizing knowledge graph sources into KRAKEN format"""
 
@@ -140,6 +146,8 @@ class BaseHarmonizer(ABC):
             self.publications_prop,
             self.publications_info_prop,
         }
+        # NOTE: the TRAPI `sources` field is deliberately NOT in core_edge_props, so the full raw list is
+        # retained in the edge's attributes (in addition to being flattened into primary/aggregator/supporting).
 
     def harmonize(
         self,
@@ -273,15 +281,59 @@ class BaseHarmonizer(ABC):
             attributes=self._collect_node_attributes(node),
         )
 
+    def _parse_trapi_sources(self, edge: dict[str, Any]) -> tuple[str, list[str], list[str]]:
+        """Extract (primary_ks, aggregator_kses, supporting_sources) from an edge's TRAPI-style `sources`
+        list (each entry a {resource_id, resource_role} object). Raises on anything that isn't valid TRAPI,
+        so malformed provenance halts the build rather than being silently mis-recorded. upstream_resource_ids
+        (the provenance chain) aren't representable in KRAKEN's flat model and are dropped here -- but the full
+        raw `sources` list is retained in the edge's attributes."""
+        sources = edge[TRAPI_SOURCES_FIELD]
+        edge_id = edge.get("id", "?")
+        if not isinstance(sources, list):
+            raise ValueError(f"{self.source_name}: edge {edge_id!r} has a non-list '{TRAPI_SOURCES_FIELD}': {sources!r}")
+        primary_ks, aggregator_kses, supporting_sources = None, [], []
+        for source in sources:
+            if not isinstance(source, dict) or not source.get("resource_id") or not source.get("resource_role"):
+                raise ValueError(
+                    f"{self.source_name}: edge {edge_id!r} has a malformed '{TRAPI_SOURCES_FIELD}' entry "
+                    f"(each needs resource_id + resource_role): {source!r}"
+                )
+            resource_id, role = source["resource_id"], source["resource_role"]
+            if role not in TRAPI_SOURCE_ROLES:
+                raise ValueError(
+                    f"{self.source_name}: edge {edge_id!r} has unknown resource_role {role!r} "
+                    f"(expected one of {sorted(TRAPI_SOURCE_ROLES)})"
+                )
+            if role == "primary_knowledge_source":
+                if primary_ks is not None:
+                    raise ValueError(f"{self.source_name}: edge {edge_id!r} has multiple primary_knowledge_sources")
+                primary_ks = resource_id
+            elif role == "aggregator_knowledge_source":
+                aggregator_kses.append(resource_id)
+            else:  # supporting_data_source
+                supporting_sources.append(resource_id)
+        if primary_ks is None:
+            raise ValueError(
+                f"{self.source_name}: edge {edge_id!r} has no primary_knowledge_source in '{TRAPI_SOURCES_FIELD}'"
+            )
+        return primary_ks, aggregator_kses, supporting_sources
+
     def _harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single edge. Override for source-specific logic."""
-        # Apply default values for sources as applicable
-        primary_ks = edge[self.primary_ks_prop] if edge.get(self.primary_ks_prop) else self.primary_ks_default_value
-        supporting_sources = (
-            edge[self.supporting_sources_prop]
-            if edge.get(self.supporting_sources_prop)
-            else self.supporting_sources_default_value
-        )
+        # Determine knowledge sources from a TRAPI-style `sources` list when the edge has one, else flat props.
+        # (The raw `sources` list is also retained in the edge's attributes -- see _collect_edge_attributes_*.)
+        if edge.get(TRAPI_SOURCES_FIELD):
+            primary_ks, aggregator_ks, supporting_sources = self._parse_trapi_sources(edge)
+            if self.is_aggregator:  # also record this KG itself as an aggregator of the edge
+                aggregator_ks = list(dict.fromkeys(aggregator_ks + [self.source_infores]))
+        else:
+            primary_ks = edge[self.primary_ks_prop] if edge.get(self.primary_ks_prop) else self.primary_ks_default_value
+            supporting_sources = (
+                edge[self.supporting_sources_prop]
+                if edge.get(self.supporting_sources_prop)
+                else self.supporting_sources_default_value
+            )
+            aggregator_ks = self.source_infores if self.is_aggregator else None
         attributes, qualifiers = self._collect_edge_attributes_and_qualifiers(edge)
 
         return self.create_edge(
@@ -291,7 +343,7 @@ class BaseHarmonizer(ABC):
             primary_ks=primary_ks,
             knowledge_level=edge.get(self.knowledge_level_prop, NOT_PROVIDED),
             agent_type=edge.get(self.agent_type_prop, NOT_PROVIDED),
-            aggregator_ks=self.source_infores if self.is_aggregator else None,
+            aggregator_ks=aggregator_ks,
             supporting_sources=to_list(supporting_sources),
             publications=to_list(edge.get(self.publications_prop, [])),
             publications_info=edge.get(self.publications_info_prop),
@@ -403,7 +455,7 @@ class BaseHarmonizer(ABC):
         primary_ks: str | list[str],
         knowledge_level: str,
         agent_type: str | list[str],
-        aggregator_ks: str | None = None,
+        aggregator_ks: str | list[str] | None = None,
         supporting_sources: list[str] | None = None,
         publications: str | list[str] | None = None,
         publications_info: dict[str, Any] | None = None,

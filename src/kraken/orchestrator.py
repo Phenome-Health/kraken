@@ -24,6 +24,7 @@ from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
 from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
 from kraken.harmonizers.spoke import SpokeHarmonizer
+from kraken.harmonizers.translator_kg_open import TranslatorKGOpenHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
 from kraken.integrate import integrate_sources
 from kraken.metagraph import generate_metagraph_for_source
@@ -49,6 +50,7 @@ class KrakenBuildOrchestrator:
         "refmet": RefMetHarmonizer,
         "clingen": ClinGenHarmonizer,
         "cdes": CDEHarmonizer,
+        "translator-kg-open": TranslatorKGOpenHarmonizer,
     }
 
     def __init__(self):
