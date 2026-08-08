@@ -122,6 +122,7 @@ class BaseHarmonizer(ABC):
         self.prefixes_with_invalid_ids = defaultdict(int)
         self.invalid_curies = set()
         self.normalized_id_map = dict()
+        self.unrecognized_source_roles = set()
 
         self.core_node_props = {
             self.id_prop,
@@ -300,10 +301,16 @@ class BaseHarmonizer(ABC):
                 )
             resource_id, role = source["resource_id"], source["resource_role"]
             if role not in TRAPI_SOURCE_ROLES:
-                raise ValueError(
-                    f"{self.source_name}: edge {edge_id!r} has unknown resource_role {role!r} "
-                    f"(expected one of {sorted(TRAPI_SOURCE_ROLES)})"
-                )
+                # Not one of our three captured roles: skip flattening it (the full source entry is still
+                # retained in the edge's attributes). Warn once per unrecognized role to avoid log spam.
+                if role not in self.unrecognized_source_roles:
+                    self.unrecognized_source_roles.add(role)
+                    logging.warning(
+                        f"{self.source_name}: unrecognized resource_role {role!r} in '{TRAPI_SOURCES_FIELD}' "
+                        f"(not one of {sorted(TRAPI_SOURCE_ROLES)}); it won't be flattened into "
+                        f"primary/aggregator/supporting, but the raw source is retained in attributes."
+                    )
+                continue
             if role == "primary_knowledge_source":
                 if primary_ks is not None:
                     raise ValueError(f"{self.source_name}: edge {edge_id!r} has multiple primary_knowledge_sources")
