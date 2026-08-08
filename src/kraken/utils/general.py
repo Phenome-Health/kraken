@@ -12,7 +12,6 @@ import yaml
 
 from kraken.schema import EdgeModel
 from kraken.utils.constants import (
-    EDGE_AGGREGATOR_KS,
     EDGE_OBJECT,
     EDGE_PREDICATE,
     EDGE_PRIMARY_KS,
@@ -32,7 +31,6 @@ _EDGE_KEY_PROPS = [
     EDGE_OBJECT,
     EDGE_QUALIFIERS,
     EDGE_PRIMARY_KS,
-    EDGE_AGGREGATOR_KS,
     EDGE_SUPPORTING_SOURCES,
 ]
 
@@ -59,15 +57,12 @@ def create_edge_key(edge: dict) -> str:
     assert sep not in subject_id and sep not in object_id
     predicate = edge[EDGE_PREDICATE]
     primary_ks = edge[EDGE_PRIMARY_KS]
-    # Keep edges from different aggregator knowledge sources (e.g. kg2 vs robokop) separate, even if otherwise
-    # identical. TODO: remove from key once merging across aggregators is properly implemented.
-    aggregator_ks = edge.get(EDGE_AGGREGATOR_KS)
-    aggregator_ks_str = "__".join(sorted(aggregator_ks)) if aggregator_ks else placeholder
+    # NOTE: aggregator_knowledge_source is intentionally excluded from the key. Identical assertions
+    # aggregated by different sources (e.g. kg2 vs robokop) share a key and merge into a single edge,
+    # with their aggregator_knowledge_source lists union-merged during integration.
     supporting_sources = edge.get(EDGE_SUPPORTING_SOURCES)
     supporting_ks_str = "__".join(sorted(supporting_sources)) if supporting_sources else placeholder
-    key_raw = sep.join(
-        [subject_id, predicate, object_id, qualifiers_str, primary_ks, aggregator_ks_str, supporting_ks_str]
-    )
+    key_raw = sep.join([subject_id, predicate, object_id, qualifiers_str, primary_ks, supporting_ks_str])
     return key_raw
 
 

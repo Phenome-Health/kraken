@@ -3,7 +3,10 @@ Entity resolution and graph integration functions
 """
 
 import copy
+import json
 import logging
+import os
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -197,50 +200,96 @@ def integrate_nodes(equivalency_index: dict[str, str], config: KrakenConfig, bio
     save_to_jsonl(current_canonical_nodes.values(), config.integrated_nodes_path, mode="w")
 
 
+# Field separator for the temporary key-sorted edge file. Safe because json.dumps escapes any tabs or
+# newlines inside string values, so neither byte ever appears within a serialized edge.
+_EDGE_SORT_SEP = "\t"
+
+
 def integrate_edges(equivalency_index: dict[str, str], config: KrakenConfig):
+    """Merge edges across ALL sources using a disk-based external sort.
+
+    Edges sharing an edge key are merged into a single edge. Because aggregator_knowledge_source is not
+    part of the key, the same assertion arriving via different aggregators (e.g. kg2 and robokop) collapses
+    into one edge, with its aggregator_knowledge_source list union-merged.
+
+    Rather than holding every mergeable edge in memory, we stream all edges to a temp file keyed by edge
+    key, sort that file on disk, then merge each run of same-key edges in a single streaming pass. Peak
+    memory is therefore just one group of same-key edges, regardless of graph size.
+    """
     assert equivalency_index
 
-    all_merged_edges = []
-    with jsonlines.open(config.integrated_edges_path, "w") as writer:
+    keyed_edges_path = config.integrated_dir / "edges_keyed.tmp.tsv"
+    sorted_edges_path = config.integrated_dir / "edges_keyed_sorted.tmp.tsv"
+    try:
+        _write_keyed_edges(equivalency_index, config, keyed_edges_path)
+        _sort_file_by_key(keyed_edges_path, sorted_edges_path, temp_dir=config.integrated_dir)
+        total_edges, num_merged = _merge_sorted_edges(sorted_edges_path, config)
+        logging.info(f"Wrote {total_edges} integrated edges ({num_merged} merged from multiple source edges)")
+    finally:
+        remove_file(keyed_edges_path)
+        remove_file(sorted_edges_path)
+
+
+def _write_keyed_edges(equivalency_index: dict[str, str], config: KrakenConfig, keyed_edges_path: Path):
+    """Stream every source's edges to a temp file as '<edge_key>\\t<edge_json>' lines, resolving each
+    edge's subject/object to canonical IDs first so the keys reflect the integrated graph."""
+    with open(keyed_edges_path, "w") as keyed_file:
         for source_name in config.sources_to_use:
-            logging.info(f"Processing edges from {source_name}")
-            nodes_file, edges_file = config.all_harmonized_paths_resolved[source_name]
-            mergers_log = config.integrated_debug_dir / f"{source_name}_edge_mergers.jsonl"
-
-            # First figure out which edges we're going to need to merge (based on keys)
-            edge_key_counts = defaultdict(int)
+            logging.info(f"Writing keyed edges from {source_name}..")
+            _, edges_file = config.all_harmonized_paths_resolved[source_name]
             for edge in stream_edges_from_jsonl(edges_file):
-                # Resolve subject and object to canonical node IDs (needed for accurate keys)
                 resolve_to_canonical(edge, equivalency_index)
-                key = create_edge_key(edge)
-                edge_key_counts[key] += 1
-            merged_edges = {key: dict() for key, value in edge_key_counts.items() if value > 1}
-            logging.info(f"Identified {len(merged_edges)} {source_name} edges that will be mergers")
+                keyed_file.write(f"{create_edge_key(edge)}{_EDGE_SORT_SEP}{json.dumps(edge)}\n")
 
-            # Then go through and create unified edges
-            for edge in stream_edges_from_jsonl(edges_file):
-                # Resolve subject and object to canonical IDs
-                resolve_to_canonical(edge, equivalency_index)
 
-                # Handle edge merging as necessary
-                key = create_edge_key(edge)
-                if key in merged_edges:
-                    if merged_edges[key]:
-                        merge_into_existing_edge(edge, merged_edges[key])  # Add to the merged edge
-                    else:
-                        merged_edges[key] = edge  # Initiate the merged edge
-                else:
-                    writer.write(edge)  # No need to merge this edge with others; write it as is
+def _sort_file_by_key(input_path: Path, output_path: Path, temp_dir: Path):
+    """Externally sort a '<key>\\t<json>' file by its key column, using bounded memory. Byte ordering
+    (LC_ALL=C) keeps it deterministic; -T keeps the sort's spill files on our (large) output volume."""
+    logging.info("Sorting keyed edges on disk (external sort)..")
+    subprocess.run(
+        ["sort", "-t", _EDGE_SORT_SEP, "-k1,1", "-T", str(temp_dir), "-o", str(output_path), str(input_path)],
+        check=True,
+        env={**os.environ, "LC_ALL": "C"},
+    )
 
-            # Dump all the merged edges for this source to a log for easy review
-            logging.info(f"Dumping {len(merged_edges)} merged {source_name} edges to a log..")
-            merged_edges_list = list(merged_edges.values())
-            save_to_jsonl(merged_edges_list, mergers_log, mode="w")
-            all_merged_edges += merged_edges_list
 
-    # Add ALL the edges that had to be merged to our unified edges file (after we closed write mode on the file)
-    logging.info(f"Saving {len(all_merged_edges)} total merged edges..")
-    save_to_jsonl(all_merged_edges, config.integrated_edges_path, mode="a")
+def _merge_sorted_edges(sorted_edges_path: Path, config: KrakenConfig) -> tuple[int, int]:
+    """Stream the key-sorted edges, merging each run of consecutive same-key edges into one. Merged edges
+    are also written to a debug log. Returns (total_edges_written, num_merged_groups). Peak memory is a
+    single same-key group."""
+    total_written = 0
+    num_merged = 0
+    mergers_log = config.integrated_debug_dir / "edge_mergers.jsonl"
+    with open(sorted_edges_path) as sorted_file, jsonlines.open(
+        config.integrated_edges_path, "w"
+    ) as writer, jsonlines.open(mergers_log, "w") as mergers_writer:
+        current_key = None
+        group: list[dict] = []
+        for line in sorted_file:
+            key, _, edge_json = line.rstrip("\n").partition(_EDGE_SORT_SEP)
+            if key != current_key and group:
+                num_merged += _write_merged_group(group, writer, mergers_writer)
+                total_written += 1
+                group = []
+            current_key = key
+            group.append(json.loads(edge_json))
+        if group:  # flush the final group
+            num_merged += _write_merged_group(group, writer, mergers_writer)
+            total_written += 1
+    return total_written, num_merged
+
+
+def _write_merged_group(group: list[dict], writer, mergers_writer) -> int:
+    """Merge a group of same-key edges into a single edge and write it. Returns 1 if the group actually
+    required merging (had more than one edge), else 0."""
+    merged_edge = group[0]
+    for other_edge in group[1:]:
+        merge_into_existing_edge(other_edge, merged_edge)
+    writer.write(merged_edge)
+    if len(group) > 1:
+        mergers_writer.write(merged_edge)
+        return 1
+    return 0
 
 
 def find_majority_canonical_id(
