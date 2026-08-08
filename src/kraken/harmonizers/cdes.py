@@ -75,7 +75,6 @@ class CDEHarmonizer(BaseHarmonizer):
     stubs carry only ``biolink:NamedThing`` and get properly typed when richer sources merge.
     """
 
-    source_name = "cdes"
     # Not a registered infores; used verbatim as the source id per project decision.
     source_infores = NIH_CDE_SOURCE_ID
 

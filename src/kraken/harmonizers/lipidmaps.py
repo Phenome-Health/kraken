@@ -14,7 +14,6 @@ from kraken.utils.kg_io import save_to_jsonl
 class LipidMapsHarmonizer(BaseHarmonizer):
     """Harmonizer for LIPID MAPS SDF files"""
 
-    source_name = "lipidmaps"
     source_infores = LIPIDMAPS_ID
 
     attribute_props = {"CATEGORY", "MAIN_CLASS", "SUB_CLASS", "CLASS_LEVEL4", "INCHI"}

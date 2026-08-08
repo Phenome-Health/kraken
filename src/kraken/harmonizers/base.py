@@ -21,6 +21,7 @@ from kraken.utils.constants import (
     EDGE_QUALIFIERS,
     EDGE_SUBJECT,
     EDGE_SUPPORTING_SOURCES,
+    INFORES_PREFIX,
     NODE_ATTRIBUTES,
     NODE_CATEGORIES,
     NODE_CHEMICAL_FORMULA,
@@ -51,11 +52,13 @@ class BaseHarmonizer(ABC):
 
     @property
     @abstractmethod
-    def source_name(self) -> str: ...
+    def source_infores(self) -> str: ...
 
     @property
-    @abstractmethod
-    def source_infores(self) -> str: ...
+    def source_name(self) -> str:
+        """Human-readable label used in log/error messages, derived from source_infores by stripping any
+        'infores:' prefix (e.g. 'infores:rtx-kg2' -> 'rtx-kg2'; a bare id like 'nih-cde' is used as-is)."""
+        return self.source_infores.removeprefix(f"{INFORES_PREFIX}:")
 
     list_delimiter: str | None = None  # Relevant only for TSVs/CSVs
     is_aggregator: bool = False

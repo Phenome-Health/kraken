@@ -3,7 +3,6 @@ from kraken.utils.constants import KG2_INFORES, OBJ_ASPECT_QUALIFIER, OBJ_DIRECT
 
 
 class KG2Harmonizer(BaseHarmonizer):
-    source_name = "rtx-kg2"
     source_infores = KG2_INFORES
     is_aggregator = True
 

@@ -49,7 +49,6 @@ class SpokeHarmonizer(BaseHarmonizer):
     Harmonizer for SPOKE mixed JSONL files.
     """
 
-    source_name = "spoke"
     source_infores = SPOKE_INFORES
     is_aggregator = True
 

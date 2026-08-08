@@ -3,7 +3,6 @@ from kraken.utils.constants import MULTIOMICS_KG_INFORES
 
 
 class MultiomicsKGHarmonizer(BaseHarmonizer):
-    source_name = "multiomics-kg"
     source_infores = MULTIOMICS_KG_INFORES
 
     # Node property config
