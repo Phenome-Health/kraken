@@ -37,6 +37,9 @@ class OptionsConfig(BaseModel):
     metagraph_creation: bool = False
     validate_output: bool = True
     validation_only: bool = False
+    # Ask for interactive confirmation of the source versions before building. Automatically skipped when
+    # stdin is not a TTY (e.g. cron/CI), so it never blocks non-interactive runs.
+    confirm_source_versions: bool = True
 
 
 class TestExportConfig(BaseModel):
@@ -111,6 +114,17 @@ class KrakenConfig(BaseModel):
 
         source_pool = include_sources if include_sources else all_sources
         self.sources_to_use = source_pool - exclude_sources
+
+        # Every source actually included in the build must declare a version (recorded in build_info.json
+        # and the metagraphs for provenance). Only in-use sources are checked, so an excluded or unused
+        # source with an unknown version never blocks the build.
+        missing_versions = sorted(name for name in self.sources_to_use if not self.sources[name].version)
+        if missing_versions:
+            raise ValueError(
+                f"These sources are included in the build but have no 'version' set under 'sources' in the "
+                f"build config: {missing_versions}. Set a version for each (a release, a download date, or an "
+                f"explicit value like 'unknown'). Only sources actually included in the build are checked."
+            )
 
         # Resolve paths for each source
         for source_name in self.sources_to_use:

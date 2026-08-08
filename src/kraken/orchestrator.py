@@ -5,6 +5,7 @@ Main orchestration functions for KRAKEN build
 import importlib.metadata
 import logging
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,6 +67,8 @@ class KrakenBuildOrchestrator:
         logging.info("Starting KRAKEN build...")
         start = time.time()
         logging.info(f"Will include {len(self.config.sources_to_use)} sources: {self.config.sources_to_use}")
+        self._log_source_versions()
+        self._confirm_source_versions()
 
         if self.config.steps.harmonize:
             self._harmonize_sources()
@@ -82,6 +85,32 @@ class KrakenBuildOrchestrator:
         self._write_build_info(elapsed)
 
         return self.config.integrated_nodes_path, self.config.integrated_edges_path
+
+    def _log_source_versions(self) -> None:
+        """Log each in-use source's declared version next to its resolved input path(s), so any drift
+        between the configured version and the actual input files is easy to eyeball before a build."""
+        logging.info("Source versions for this build (version <- input path):")
+        for source_name in sorted(self.config.sources_to_use):
+            version = self.config.sources[source_name].version
+            paths = ", ".join(str(p) for p in self.config.all_source_input_paths_resolved[source_name])
+            logging.info(f"  {source_name}: {version!r} <- {paths}")
+
+    def _confirm_source_versions(self) -> None:
+        """Ask the user to confirm the listed source versions before the build proceeds. Skipped when
+        disabled (options.confirm_source_versions=False) or when stdin is not interactive (cron/CI), so
+        it never blocks non-interactive runs."""
+        if not self.config.options.confirm_source_versions:
+            return
+        if not sys.stdin.isatty():
+            logging.info("stdin is not interactive; skipping source-version confirmation.")
+            return
+        try:
+            response = input("Proceed with the build using these source versions? [y/N]: ").strip().lower()
+        except EOFError:
+            response = ""
+        if response not in {"y", "yes"}:
+            logging.info("Build aborted: source versions not confirmed.")
+            raise SystemExit(0)
 
     def _write_build_info(self, elapsed_seconds: float) -> None:
         """Write build_info.json to integrated_dir for downstream consumers (e.g. Kestrel /health)."""
