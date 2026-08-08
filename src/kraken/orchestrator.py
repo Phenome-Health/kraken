@@ -234,6 +234,7 @@ class KrakenBuildOrchestrator:
                         edges_path=test_edges_path,
                         output_dir=self.config.metagraph_dir,
                         graph_name="kraken_test",
+                        graph_version=self.config.kraken_version,
                         source_versions=self.config.source_versions,
                         biolink_version=self.config.biolink_version,
                     )
