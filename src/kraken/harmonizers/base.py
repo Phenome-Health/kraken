@@ -36,6 +36,7 @@ from kraken.utils.constants import (
     NODE_TAXA,
     NODE_URLS,
     NOT_PROVIDED,
+    UNRELIABLE_PUBLICATION_PRIMARY_KS,
 )
 from kraken.utils.general import clean_text, is_empty, to_list
 from kraken.utils.kg_io import (
@@ -130,6 +131,7 @@ class BaseHarmonizer(ABC):
         self.invalid_curies = set()
         self.normalized_id_map = dict()
         self.unrecognized_source_roles = set()
+        self.stripped_publications_count = 0
 
         self.core_node_props = {
             self.id_prop,
@@ -224,6 +226,7 @@ class BaseHarmonizer(ABC):
         count = 0
         excluded_count = 0
         negated_count = 0
+        self.stripped_publications_count = 0
         with jsonlines.open(output_path, "w") as writer:
             for edge in self._stream_edges(input_path):
                 # Skip negated edges (KRAKEN can't represent negation, so they'd read as positive assertions)
@@ -242,6 +245,11 @@ class BaseHarmonizer(ABC):
         logging.info("Finished harmonizing edges.")
         if negated_count:
             logging.info(f"Dropped {negated_count} negated edges (negated=true).")
+        if self.stripped_publications_count:
+            logging.info(
+                f"Dropped publications from {self.stripped_publications_count} edges whose primary knowledge "
+                f"source has unreliable publications ({sorted(UNRELIABLE_PUBLICATION_PRIMARY_KS)})."
+            )
         if excluded_count:
             logging.info(
                 f"Excluded {excluded_count} edges that came from these primary "
@@ -363,6 +371,15 @@ class BaseHarmonizer(ABC):
             aggregator_ks = self.source_infores if self.is_aggregator else None
         attributes, qualifiers = self._collect_edge_attributes_and_qualifiers(edge)
 
+        # Drop publications from sources whose publication lists are unreliable (see the constant's docstring)
+        primary_ks_id = primary_ks[0] if isinstance(primary_ks, list) else primary_ks
+        if primary_ks_id in UNRELIABLE_PUBLICATION_PRIMARY_KS:
+            publications, publications_info = [], None
+            self.stripped_publications_count += 1
+        else:
+            publications = to_list(edge.get(self.publications_prop, []))
+            publications_info = edge.get(self.publications_info_prop)
+
         return self.create_edge(
             subject_id=edge[self.subject_prop],
             object_id=edge[self.object_prop],
@@ -372,8 +389,8 @@ class BaseHarmonizer(ABC):
             agent_type=edge.get(self.agent_type_prop, NOT_PROVIDED),
             aggregator_ks=aggregator_ks,
             supporting_sources=to_list(supporting_sources),
-            publications=to_list(edge.get(self.publications_prop, [])),
-            publications_info=edge.get(self.publications_info_prop),
+            publications=publications,
+            publications_info=publications_info,
             qualifiers=qualifiers,
             attributes=attributes,
         )

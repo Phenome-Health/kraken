@@ -20,11 +20,18 @@ MULTIOMICS_KG_INFORES: str = f"{INFORES_PREFIX}:multiomics-multiomics"
 UMLS_MTH_INFORES: str = f"{INFORES_PREFIX}:umls-metathesaurus"
 REFMET_INFORES: str = f"{INFORES_PREFIX}:refmet"
 CLINGEN_INFORES = f"{INFORES_PREFIX}:clingen"
+HMDB_INFORES: str = f"{INFORES_PREFIX}:hmdb"
 
 # Some sources do not (yet) have registered infores curies; use bare source IDs for those
 NIH_CDE_SOURCE_ID: str = "nih-cde"
 TRANSLATOR_SOURCE_ID: str = "translator-kg-open"
 LIPIDMAPS_ID: str = "lipidmaps"
+
+# Primary knowledge sources whose edge publication lists are unreliable, so we drop publications from their
+# edges during harmonization. (HMDB copies a disease's entire reference list onto every metabolite it links to
+# that disease, so the PMIDs on an HMDB metabolite-disease edge describe the disease, not the specific
+# assertion.) This is a temporary data-quality workaround; extend the set as more such sources are found.
+UNRELIABLE_PUBLICATION_PRIMARY_KS: set[str] = {HMDB_INFORES}
 
 KNOWN_INVALID = "KNOWN_INVALID"
 
