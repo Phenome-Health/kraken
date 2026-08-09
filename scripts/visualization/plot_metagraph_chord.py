@@ -99,8 +99,10 @@ def category_family(category: str) -> str:
     ):
         return "mauve"
     # organism taxa AND organismal entities (cell lines, individual organisms,
-    # populations) are merged into one brown family for the figure -- a deliberate
-    # deviation from the UI's getCategoryColorGroup, which keeps them separate.
+    # populations, cohorts, humans) are merged into one brown family for the figure
+    # -- a deliberate deviation from the UI's getCategoryColorGroup, which keeps
+    # them separate. Cohort is a PopulationOfIndividualOrganisms and Human is an
+    # organism/taxon, so both sit naturally with organisms.
     if has(
         "organismtaxon",
         "organismalentity",
@@ -108,6 +110,8 @@ def category_family(category: str) -> str:
         "cellline",
         "individualorganism",
         "populationofindividualorganisms",
+        "cohort",
+        "human",
     ):
         return "brown"
     if has("biologicalentity"):
