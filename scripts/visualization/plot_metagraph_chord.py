@@ -50,7 +50,7 @@ FAMILY_ORDER = ["purple", "blue", "green", "yellow", "pink", "mauve", "brown", "
 FAMILY_LABELS = {
     "purple": "Genes & variants",
     "blue": "Proteins",
-    "green": "Chemicals & drugs",
+    "green": "Chemicals & metabolites",
     "yellow": "Pathways & processes",
     "pink": "Diseases & phenotypes",
     "mauve": "Anatomy & cells",
@@ -160,13 +160,14 @@ def report_cross_family(meta: dict) -> None:
     tot = cross + within
     if tot:
         print(f"  edge instances (meta_doubles; estimate, multi-category overcount): {tot:,} total")
-        print(f"    within-family {within:,} ({100 * within / tot:.1f}%)  |  "
-              f"cross-family {cross:,} ({100 * cross / tot:.1f}%)")
+        print(
+            f"    within-family {within:,} ({100 * within / tot:.1f}%)  |  "
+            f"cross-family {cross:,} ({100 * cross / tot:.1f}%)"
+        )
     mt = mx + mw
     if mt:
         print(f"  distinct meta-edges (subject, predicate, object; exact): {mt:,} total")
-        print(f"    within-family {mw:,} ({100 * mw / mt:.1f}%)  |  "
-              f"cross-family {mx:,} ({100 * mx / mt:.1f}%)")
+        print(f"    within-family {mw:,} ({100 * mw / mt:.1f}%)  |  " f"cross-family {mx:,} ({100 * mx / mt:.1f}%)")
     print()
 
 
