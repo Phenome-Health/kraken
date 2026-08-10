@@ -15,6 +15,7 @@ scripts/**/*.html
 scripts/**/*.csv
 scripts/**/*.txt
 scripts/**/*.pdf
+scripts/**/*.pkl
 scripts/overlap/
 
 *.log

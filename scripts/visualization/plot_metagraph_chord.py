@@ -39,8 +39,8 @@ FAMILY_COLORS = {
     "blue": "#3E7CB1",  # proteins, complexes, biological entity
     "green": "#3E9B78",  # drugs, small molecules, chemicals, food
     "yellow": "#D9A441",  # pathways & processes
-    "pink": "#CD5A7C",  # disease, clinical, phenotype
-    "mauve": "#A9748A",  # anatomy, cellular component
+    "pink": "#D24559",  # disease, clinical, phenotype (shifted redder to clear the mauve)
+    "mauve": "#9E7580",  # anatomy, cellular component (muted mauve-taupe)
     "brown": "#9E6B42",  # organism taxa + organismal entities (cell lines, etc.)
     "slate": "#6E8E88",  # procedure, activity, device
     "gray": "#97A0AD",  # everything else
