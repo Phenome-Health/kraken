@@ -289,6 +289,8 @@ def main():
 
     plt.rcParams["pdf.fonttype"] = 42
     plt.rcParams["ps.fonttype"] = 42
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans"]
     stem, suf = args.output.with_suffix(""), args.output.suffix or ".pdf"
     for scale in SCALES:
         draw(cats, M, colors, families, scale, Path(f"{stem}_{scale}{suf}"), args.dpi)

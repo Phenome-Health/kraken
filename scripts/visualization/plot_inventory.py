@@ -135,6 +135,7 @@ def main():
 
     sns.set_theme(style="whitegrid", context="paper")
     plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans"]
     # embed TrueType (Type 42) rather than Type 3 fonts, which journals reject
     plt.rcParams["pdf.fonttype"] = 42
     plt.rcParams["ps.fonttype"] = 42

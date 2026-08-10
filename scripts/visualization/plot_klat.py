@@ -196,6 +196,7 @@ def main():
     meta = json.loads(args.metagraph.read_text())
     sns.set_theme(style="whitegrid", context="paper")
     plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans"]
     plt.rcParams["pdf.fonttype"] = 42  # embed TrueType, not Type 3 (journals reject Type 3)
     plt.rcParams["ps.fonttype"] = 42
 
