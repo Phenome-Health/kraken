@@ -22,10 +22,12 @@ REFMET_INFORES: str = f"{INFORES_PREFIX}:refmet"
 CLINGEN_INFORES = f"{INFORES_PREFIX}:clingen"
 HMDB_INFORES: str = f"{INFORES_PREFIX}:hmdb"
 
+
 # Some sources do not (yet) have registered infores curies; use bare source IDs for those
 NIH_CDE_SOURCE_ID: str = "nih-cde"
 TRANSLATOR_SOURCE_ID: str = "translator-kg-open"
 LIPIDMAPS_ID: str = "lipidmaps"
+PGS_CATALOG_SOURCE_ID: str = f"pgs-catalog"
 
 # Primary knowledge sources whose edge publication lists are unreliable, so we drop publications from their
 # edges during harmonization. (HMDB copies a disease's entire reference list onto every metabolite it links to
@@ -38,6 +40,9 @@ KNOWN_INVALID = "KNOWN_INVALID"
 NOT_PROVIDED = "not_provided"
 MANUAL_AGENT = "manual_agent"
 KNOWLEDGE_ASSERTION = "knowledge_assertion"
+# Biolink KLAT values for statistically-derived, model-based associations (e.g. polygenic scores)
+STATISTICAL_ASSOCIATION = "statistical_association"
+COMPUTATIONAL_MODEL = "computational_model"
 
 NONE_STRINGS = {"none", "null", "-", "na", "n/a"}
 

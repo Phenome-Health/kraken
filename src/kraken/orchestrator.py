@@ -21,6 +21,7 @@ from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
 from kraken.harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
 from kraken.harmonizers.molepro import MoleProHarmonizer
 from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
+from kraken.harmonizers.pgs_catalog import PGSCatalogHarmonizer
 from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
 from kraken.harmonizers.spoke import SpokeHarmonizer
@@ -51,6 +52,7 @@ class KrakenBuildOrchestrator:
         "clingen": ClinGenHarmonizer,
         "cdes": CDEHarmonizer,
         "translator-kg-open": TranslatorKGOpenHarmonizer,
+        "pgs-catalog": PGSCatalogHarmonizer,
     }
 
     def __init__(self):
