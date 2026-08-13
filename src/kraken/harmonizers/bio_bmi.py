@@ -30,19 +30,22 @@ UMBRELLA_ID = f"{BIO_BMI_PREFIX}:BiologicalBMI"
 # model id -> (display name, description, TSV filename)
 MODELS = {
     f"{BIO_BMI_PREFIX}:MetBMI": (
-        "Metabolomic BMI (MetBMI)",
-        "Metabolomics-based model estimating biological BMI (Watanabe et al., Nat Med 2023).",
+        "Metabolomic BMI",
+        f"Metabolomics-based model estimating biological BMI (Watanabe et al., Nat Med 2023).",
+        ["MetBMI"],
         "metbmi_entity_node_map_SHARED.tsv",
     ),
     f"{BIO_BMI_PREFIX}:ProtBMI": (
-        "Proteomic BMI (ProtBMI)",
-        "Proteomics-based model estimating biological BMI (Watanabe et al., Nat Med 2023).",
+        "Proteomic BMI",
+        f"Proteomics-based model estimating biological BMI (Watanabe et al., Nat Med 2023).",
+        ["ProtBMI"],
         "protbmi_entity_node_map_SHARED.tsv",
     ),
     f"{BIO_BMI_PREFIX}:CombiBMI": (
-        "Combined multiomic BMI (CombiBMI)",
-        "Combined multiomic (metabolomics, proteomics, clinical labs) model estimating biological BMI "
-        "(Watanabe et al., Nat Med 2023).",
+        "Combined multiomic BMI",
+        f"Combined multiomic (metabolomics, proteomics, clinical labs) model estimating biological "
+        f"BMI (Watanabe et al., Nat Med 2023).",
+        ["CombiBMI"],
         "combi_entity_node_map_SHARED.tsv",
     ),
 }
@@ -91,12 +94,13 @@ class BioBMIHarmonizer(BaseHarmonizer):
             self._make_attr_node(
                 UMBRELLA_ID,
                 "Biological BMI",
-                "Multiomic estimate of body mass index reflecting metabolic health (Watanabe et al., Nat Med 2023).",
+                f"Multiomic estimate of body mass index reflecting metabolic health.",
+                ["BioBMI", "bBMI"],
             )
         ]
         top_edges = []
-        for model_curie, (name, description, _file) in MODELS.items():
-            top_nodes.append(self._make_attr_node(model_curie, name, description))
+        for model_curie, (name, description, synonyms, _file) in MODELS.items():
+            top_nodes.append(self._make_attr_node(model_curie, name, description, synonyms))
             top_edges.append(self._make_model_of_edge(model_curie))
         save_to_jsonl(top_nodes, nodes_output, mode="a")
         save_to_jsonl(top_edges, edges_output, mode="a")
@@ -104,7 +108,7 @@ class BioBMIHarmonizer(BaseHarmonizer):
         # 2. Per-model component nodes + contributes_to edges (streamed; components deduped across models)
         written_components: set[str] = set()
         total_edges = total_unmapped = 0
-        for model_curie, (name, _desc, filename) in MODELS.items():
+        for model_curie, (name, _desc, _syn, filename) in MODELS.items():
             node_batch, edge_batch = [], []
             for row in self._read_tsv(input_dir / filename):
                 comp_curie = self._normalize_component(row.get("kraken_id"))
@@ -135,13 +139,14 @@ class BioBMIHarmonizer(BaseHarmonizer):
 
     # ------------------------------------------------------------------ node/edge builders
 
-    def _make_attr_node(self, curie: str, name: str, description: str) -> dict:
+    def _make_attr_node(self, curie: str, name: str, description: str, synonyms: list[str]) -> dict:
         return self.create_node(
             curie=curie,
             categories=[NODE_CATEGORY],
             provided_by=self.source_infores,
             equivalent_ids=[curie],
             name=name,
+            synonyms=[name] + synonyms,
             description=description,
             publications=[PAPER],
         )
