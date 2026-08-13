@@ -27,6 +27,7 @@ HMDB_INFORES: str = f"{INFORES_PREFIX}:hmdb"
 NIH_CDE_SOURCE_ID: str = "nih-cde"
 TRANSLATOR_SOURCE_ID: str = "translator-kg-open"
 LIPIDMAPS_ID: str = "lipidmaps"
+BIOLOGICAL_BMI_SOURCE_ID: str = "biological-bmi"  # multiomic BMI models, Watanabe et al. Nat Med 2023 (a paper, not a DB)
 PGS_CATALOG_SOURCE_ID: str = f"pgs-catalog"
 
 # Primary knowledge sources whose edge publication lists are unreliable, so we drop publications from their
@@ -40,8 +41,11 @@ KNOWN_INVALID = "KNOWN_INVALID"
 NOT_PROVIDED = "not_provided"
 MANUAL_AGENT = "manual_agent"
 KNOWLEDGE_ASSERTION = "knowledge_assertion"
-# Biolink KLAT values for statistically-derived, model-based associations (e.g. polygenic scores)
+# Biolink KLAT values. For edges that report direct, dataset-specific statistical results (e.g. a feature's
+# association with an outcome in a model's cohort), statistical_association pairs with data_analysis_pipeline.
+# computational_model is for agents that generate broader conclusions/predictions (kept for such future edges).
 STATISTICAL_ASSOCIATION = "statistical_association"
+DATA_ANALYSIS_PIPELINE = "data_analysis_pipeline"
 COMPUTATIONAL_MODEL = "computational_model"
 
 NONE_STRINGS = {"none", "null", "-", "na", "n/a"}

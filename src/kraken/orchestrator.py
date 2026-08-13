@@ -14,6 +14,7 @@ import yaml
 
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
+from kraken.harmonizers.bio_bmi import BioBMIHarmonizer
 from kraken.harmonizers.cdes import CDEHarmonizer
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
@@ -53,6 +54,7 @@ class KrakenBuildOrchestrator:
         "cdes": CDEHarmonizer,
         "translator-kg-open": TranslatorKGOpenHarmonizer,
         "pgs-catalog": PGSCatalogHarmonizer,
+        "bio-bmi": BioBMIHarmonizer,
     }
 
     def __init__(self):

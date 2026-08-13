@@ -13,7 +13,7 @@ import requests
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.harmonizers.pgs_gene_annotator import ENSEMBL_GTF_URL, GeneAnnotator
-from kraken.utils.constants import COMPUTATIONAL_MODEL, PGS_CATALOG_SOURCE_ID, STATISTICAL_ASSOCIATION
+from kraken.utils.constants import DATA_ANALYSIS_PIPELINE, PGS_CATALOG_SOURCE_ID, STATISTICAL_ASSOCIATION
 from kraken.utils.kg_io import save_to_jsonl
 
 # --- v1 selection knobs ---
@@ -37,7 +37,7 @@ TOP_N_GENES_PER_PGS = 500
 
 # --- PLACEHOLDER Biolink types (pending a types review; each is a single swappable constant) ---
 # There is no clean Biolink class for a polygenic score; InformationContentEntity is a stand-in.
-PGS_NODE_CATEGORY = "biolink:InformationContentEntity"  # TODO(types): revisit (ClinicalFinding? a custom PGS class?)
+PGS_NODE_CATEGORY = "biolink:Attribute"  # a PGS is a measurable characteristic of a person (TODO(types): revisit)
 TRAIT_STUB_CATEGORY = "biolink:NamedThing"  # minimal stub; real category arrives when ontology sources merge in
 GENE_CATEGORY = "biolink:Gene"  # gene endpoints; emitted as ENSEMBL:<ENSG>, merge into graph gene nodes via ER
 VARIANT_CATEGORY = "biolink:SequenceVariant"  # variant endpoints (rsID-bearing variants only)
@@ -244,7 +244,7 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
             predicate=PGS_TRAIT_PREDICATE,
             primary_ks=self.source_infores,
             knowledge_level=STATISTICAL_ASSOCIATION,
-            agent_type=COMPUTATIONAL_MODEL,
+            agent_type=DATA_ANALYSIS_PIPELINE,
             attributes={"num_evaluation_sample_sets": num_sample_sets} if num_sample_sets else None,
         )
 
@@ -396,7 +396,7 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
             predicate=PGS_GENE_PREDICATE,
             primary_ks=self.source_infores,
             knowledge_level=STATISTICAL_ASSOCIATION,
-            agent_type=COMPUTATIONAL_MODEL,
+            agent_type=DATA_ANALYSIS_PIPELINE,
             attributes={"num_scoring_variants_in_gene": num_variants},
         )
 
@@ -419,7 +419,7 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
             predicate=PGS_VARIANT_PREDICATE,
             primary_ks=self.source_infores,
             knowledge_level=STATISTICAL_ASSOCIATION,
-            agent_type=COMPUTATIONAL_MODEL,
+            agent_type=DATA_ANALYSIS_PIPELINE,
         )
 
     @staticmethod
