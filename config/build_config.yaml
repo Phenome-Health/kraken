@@ -2,15 +2,15 @@ kraken_version: 2.1.0
 biolink_version: 4.2.5
 log_level: INFO
 steps:
-  harmonize: False
+  harmonize: True
   integrate: True
-  postprocess: False
+  postprocess: True
 options:
   metagraph_creation: True
   validate_output: False
   validation_only: False
-  include_sources: null
-  exclude_sources: ["clingen", "molepro", "pgs-catalog"]
+  include_sources: []
+  exclude_sources: ["clingen", "molepro"]
 
 # Base directory path to use for all input/output files (should be absolute path)
 # Set to null to use kraken project root as base path
@@ -86,7 +86,12 @@ sources:
 
   pgs-catalog:
     version: "2026-07-29"
-    input_file: "input_data/pgs/pgs_all_metadata.xlsx"
+    input_file: "input_data/pgs-catalog/pgs_all_metadata.xlsx"
+    can_merge_existing_nodes: True
+
+  bio-bmi:
+    version: "2023"  # Watanabe et al. Nat Med 2023 (doi:10.1038/s41591-023-02248-0)
+    input_file: "input_data/bio-bmi"
     can_merge_existing_nodes: True
 
 
