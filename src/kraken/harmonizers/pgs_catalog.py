@@ -43,7 +43,7 @@ GENE_CATEGORY = "biolink:Gene"  # gene endpoints; emitted as ENSEMBL:<ENSG>, mer
 VARIANT_CATEGORY = "biolink:SequenceVariant"  # variant endpoints (rsID-bearing variants only)
 PGS_TRAIT_PREDICATE = "biolink:positively_correlated_with"  # a PGS statistically correlates with its trait
 PGS_GENE_PREDICATE = "biolink:related_to"  # TODO(types): revisit -- semantics are "involves a variant located in"
-PGS_VARIANT_PREDICATE = "biolink:related_to"  # TODO(types): revisit -- semantics are "has scoring component variant"
+PGS_VARIANT_PREDICATE = "biolink:contributes_to"  # NOTE: directed variant -> PGS (a variant contributes to the score)
 
 PGS_CURIE_PREFIX = "PGS"  # PGS Catalog accession is e.g. "PGS000013"; emitted as "PGS:000013" (an id we mint)
 # Gene/variant endpoint ids come from external sources (Ensembl GTF, scoring-file rsIDs), so we normalize them
@@ -199,6 +199,10 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
     def _make_pgs_node(self, pgs_id: str, meta: dict) -> dict:
         curie = self._pgs_curie(pgs_id)
         publications = [f"PMID:{meta['pmid']}"] if meta.get("pmid") else None
+        # Human-readable name from the trait (e.g. "Breast cancer PGS"); the author's internal label (often a
+        # cryptic pipeline id like "PRS313_BC") is kept as a synonym for search. Accession lives in attributes.
+        trait = meta.get("reported_trait") or meta.get("mapped_trait_label")
+        name = f"{trait} PGS" if trait else meta.get("name")
         attributes = {
             "pgs_catalog_id": pgs_id,  # native accession, e.g. "PGS000013"
             "reported_trait": meta["reported_trait"],
@@ -217,7 +221,8 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
             categories=[PGS_NODE_CATEGORY],
             provided_by=self.source_infores,
             equivalent_ids=[curie],
-            name=meta["name"],
+            name=name,
+            synonyms=[meta["name"]] if meta.get("name") else None,
             description=f"Polygenic score for {meta['reported_trait']}" if meta.get("reported_trait") else None,
             publications=publications,
             attributes={k: v for k, v in attributes.items() if v not in (None, "")},
@@ -277,14 +282,15 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
         )  # ensembl_gene_id -> [num_variants_in_gene, summed_variance_contribution, symbol]
         variant_edges: list[dict] = []
         for rank, (chrom, pos, rsid, variance_contribution) in enumerate(top_variants):
-            # PGS -> gene: overlap with a gene body only (high confidence)
-            for ensg, symbol in annotator.genes_at(chrom, pos):
-                hit = gene_hits.get(ensg)
-                if hit:
-                    hit[0] += 1
-                    hit[1] += variance_contribution
-                else:
-                    gene_hits[ensg] = [1, variance_contribution, symbol]
+            # PGS -> gene: overlap with a gene body only (high confidence), and only when we have a GRCh38 position
+            if chrom and pos is not None:
+                for ensg, symbol in annotator.genes_at(chrom, pos):
+                    hit = gene_hits.get(ensg)
+                    if hit:
+                        hit[0] += 1
+                        hit[1] += variance_contribution
+                    else:
+                        gene_hits[ensg] = [1, variance_contribution, symbol]
             # PGS -> variant: only among the top TOP_N_VARIANTS_FOR_EDGES, and only when an rsID is available.
             # Normalize the rsID to a biolink-compliant CURIE (don't assume the prefix); skip if it won't resolve.
             if rank < TOP_N_VARIANTS_FOR_EDGES and rsid and rsid.startswith("rs"):
@@ -326,20 +332,22 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
                     if header is None:
                         header = {c: i for i, c in enumerate(cols)}
                         continue
-                    chrom = self._col(cols, header, "hm_chr") or self._col(cols, header, "chr_name")
-                    pos = self._col(cols, header, "hm_pos") or self._col(cols, header, "chr_position")
                     weight = self._to_float(self._col(cols, header, "effect_weight"))
-                    if not chrom or not pos or weight is None:
+                    if weight is None:
                         continue
-                    try:
-                        position = int(pos)
-                    except ValueError:
-                        continue
+                    # Only trust the harmonized GRCh38 coordinate (hm_chr/hm_pos) for gene annotation -- NOT the raw
+                    # chr_position, which is in the score's original build (often GRCh37) and would land in the wrong
+                    # gene against our GRCh38 gene model. A variant with no GRCh38 position simply isn't gene-annotated.
+                    chrom = self._col(cols, header, "hm_chr")
+                    pos = self._col(cols, header, "hm_pos")
+                    position = int(pos) if pos and pos.isdigit() else None
+                    rsid = self._col(cols, header, "hm_rsID") or self._col(cols, header, "rsID")
+                    if position is None and not rsid:
+                        continue  # unusable for either a gene or a variant edge
                     af = self._to_float(self._col(cols, header, "allelefrequency_effect"))
                     if af is None or not (0 < af < 1):
                         af = 0.5  # assume a common variant when the effect-allele frequency is unavailable
                     variance_contribution = weight * weight * 2 * af * (1 - af)
-                    rsid = self._col(cols, header, "hm_rsID") or self._col(cols, header, "rsID")
                     yield (variance_contribution, chrom, position, rsid, weight)
 
         top = heapq.nlargest(limit, scored_rows(), key=lambda row: row[0])
@@ -401,12 +409,13 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
         )
 
     def _make_pgs_variant_edge(self, pgs_id: str, variant_curie: str) -> dict:
-        # NOTE: the variant's effect weight is intentionally NOT published -- it is a verbatim scoring-file value
-        # and some PGS licenses restrict redistributing those. The edge asserts membership only; the scoring-file
-        # link on the PGS node is the (license-respecting) path to the weights.
+        # Directed variant -> PGS: the variant contributes to the score. NOTE: the variant's effect weight is
+        # intentionally NOT published -- it is a verbatim scoring-file value and some PGS licenses restrict
+        # redistributing those. The edge asserts the contribution only; the scoring-file link on the PGS node is
+        # the (license-respecting) path to the weights.
         return self.create_edge(
-            subject_id=self._pgs_curie(pgs_id),
-            object_id=variant_curie,
+            subject_id=variant_curie,
+            object_id=self._pgs_curie(pgs_id),
             predicate=PGS_VARIANT_PREDICATE,
             primary_ks=self.source_infores,
             knowledge_level=STATISTICAL_ASSOCIATION,
