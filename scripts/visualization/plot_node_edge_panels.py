@@ -49,13 +49,18 @@ def main():
     ap.add_argument("--labels", default="A,B", help="Comma-separated panel labels (default 'A,B'; pass '' for none)")
     ap.add_argument("--label-size", type=float, default=6.0, help="Panel-label font size (default 15)")
     ap.add_argument("--dpi", type=int, default=2000)
-    ap.add_argument("--background", default="#FAFAFA",
-                    help="Canvas color behind/around the panels (default #FAFAFA; makes white "
-                         "screenshots pop). Pass 'white' for none.")
-    ap.add_argument("--border", default="#E6E6E6",
-                    help="Thin border color around each panel (default #E6E6E6; 'none' to omit)")
-    ap.add_argument("--pad", type=float, default=0.15,
-                    help="Background margin around the whole figure, in inches (default 0.15)")
+    ap.add_argument(
+        "--background",
+        default="white",
+        help="Canvas color behind/around the panels (default #FAFAFA; makes white "
+        "screenshots pop). Pass 'white' for none.",
+    )
+    ap.add_argument(
+        "--border", default="#E6E6E6", help="Thin border color around each panel (default #E6E6E6; 'none' to omit)"
+    )
+    ap.add_argument(
+        "--pad", type=float, default=0.15, help="Background margin around the whole figure, in inches (default 0.15)"
+    )
     args = ap.parse_args()
     if not args.output.is_absolute():
         args.output = SCRIPT_DIR / args.output
@@ -92,7 +97,7 @@ def main():
                 spine.set_visible(False)
             else:
                 spine.set_edgecolor(args.border)
-                spine.set_linewidth(0.8)
+                spine.set_linewidth(0.2)
 
     if labels:
         y = frac_h + (1.0 - frac_h) * 0.18  # just above the panels
@@ -108,12 +113,10 @@ def main():
                 fontweight="bold",
             )
 
-    fig.savefig(args.output, dpi=args.dpi, bbox_inches="tight",
-                facecolor=args.background, pad_inches=args.pad)
+    fig.savefig(args.output, dpi=args.dpi, bbox_inches="tight", facecolor=args.background, pad_inches=args.pad)
     png = args.output.with_suffix(".png")
     if png != args.output:
-        fig.savefig(png, dpi=args.dpi, bbox_inches="tight",
-                    facecolor=args.background, pad_inches=args.pad)
+        fig.savefig(png, dpi=args.dpi, bbox_inches="tight", facecolor=args.background, pad_inches=args.pad)
     plt.close(fig)
     print(f"Wrote {args.output}" + (f" and {png}" if png != args.output else ""))
 
