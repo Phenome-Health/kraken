@@ -227,8 +227,6 @@ class KrakenBuildOrchestrator:
 
         if not self.config.options.validation_only:
 
-            tarball_component_paths = [self.config.integrated_nodes_path, self.config.integrated_edges_path]
-
             if self.config.create_metagraphs:
                 metagraph_path = generate_metagraph_for_source(
                     nodes_path=self.config.integrated_nodes_path,
@@ -239,13 +237,6 @@ class KrakenBuildOrchestrator:
                     source_versions=self.config.source_versions,
                     biolink_version=self.config.biolink_version,
                 )
-                tarball_component_paths.append(metagraph_path)
-
-            form_tarball(
-                tarball_component_paths,
-                self.config.integrated_dir,
-                tarball_name=f"kraken_{self.config.kraken_version}.tar.gz",
-            )
 
     def _post_process(self):
         """Run all post-processing steps on the unified KG"""
@@ -263,7 +254,6 @@ class KrakenBuildOrchestrator:
                     output_dir=self.config.test_export_dir,
                     num_edges=test_export_config.num_edges,
                 )
-                test_tarball_component_paths = [test_nodes_path, test_edges_path]
 
                 if self.config.create_metagraphs:
                     metagraph_path = generate_metagraph_for_source(
@@ -275,12 +265,5 @@ class KrakenBuildOrchestrator:
                         source_versions=self.config.source_versions,
                         biolink_version=self.config.biolink_version,
                     )
-                    test_tarball_component_paths.append(metagraph_path)
-
-                form_tarball(
-                    test_tarball_component_paths,
-                    self.config.integrated_dir,
-                    tarball_name=f"kraken_{self.config.kraken_version}_test.tar.gz",
-                )
 
         logging.info("Post-processing complete!")
