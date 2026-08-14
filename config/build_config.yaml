@@ -50,7 +50,7 @@ sources:
     version: "2026_07_19"
     nodes_input: "input_data/translator-kg-open/2026_07_19/nodes.jsonl"
     edges_input: "input_data/translator-kg-open/2026_07_19/edges.jsonl"
-    can_merge_existing_nodes: True
+    can_merge_existing_nodes: False  # Contains class (glycolipid) conflations with members (sphingomyelin)
 
   microbiome-kg:
     version: "2.1.0"

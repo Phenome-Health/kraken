@@ -14,3 +14,6 @@ class TranslatorKGOpenHarmonizer(BaseHarmonizer):
     # `equivalent_identifiers` its only content appears to be SMILES, case-variant InChIKeys (duplicates of
     # ones already present), and CHEMBL.TARGET curies (not 1:1 with genes?).
     # So `xref` is retained in attributes only. Revisit down the line.
+
+    # involved_in doesn't exist in biolink v4.2.5 (or the more recent v4.4.4)
+    predicate_overrides = {"biolink:involved_in": "biolink:actively_involved_in"}

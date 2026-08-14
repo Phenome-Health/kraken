@@ -12,6 +12,7 @@ class KG2Harmonizer(BaseHarmonizer):
     synonyms_props = {"all_names"}
     url_prop = "iri"
     rename_node_attrs = {"category": "canonical_category"}
+    ignore_node_props = {"publications"}  # A lot are not very relevant, exclude
 
     # Edge property config
     ignore_edge_props = {"domain_range_exclusion"}
