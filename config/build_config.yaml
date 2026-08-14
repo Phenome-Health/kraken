@@ -65,7 +65,7 @@ sources:
     can_merge_existing_nodes: True
 
   umls:
-    version: "accessed_2025-08"
+    version: "2025AA"
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
     can_merge_existing_nodes: True
 
