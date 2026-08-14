@@ -51,7 +51,7 @@ class EdgeModel:
     qualifiers = PropertyDef("qualifiers", dict, in_key=True)
     primary_ks = PropertyDef("primary_knowledge_source", str, required=True, in_key=True)
     aggregator_ks = PropertyDef("aggregator_knowledge_source", list, inner_type=str)
-    supporting_sources = PropertyDef("supporting_data_sources", list, in_key=True, inner_type=str)
+    supporting_sources = PropertyDef("supporting_data_sources", list, inner_type=str)
     knowledge_level = PropertyDef("knowledge_level", str, required=True)
     agent_type = PropertyDef("agent_type", str, required=True)
     publications = PropertyDef("publications", list, inner_type=str)
