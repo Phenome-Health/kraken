@@ -3,13 +3,13 @@ biolink_version: 4.2.5
 log_level: INFO
 steps:
   harmonize: True
-  integrate: False
-  postprocess: False
+  integrate: True
+  postprocess: True
 options:
   metagraph_creation: True
   validate_output: True
   validation_only: False
-  include_sources: ["bio-age"]
+  include_sources: []
   exclude_sources: ["clingen", "molepro"]
 
 # Base directory path to use for all input/output files (should be absolute path)
