@@ -79,6 +79,11 @@ sources:
     input_file: "input_data/refmet/refmet.csv"
     can_merge_existing_nodes: True
 
+  loinc:
+    version: "2.82"
+    input_file: "input_data/loinc/Loinc_2.82"
+    can_merge_existing_nodes: True
+
   cdes:
     version: "accessed_2026-07-29"
     input_file: "input_data/cdes/SearchExport.json"

@@ -20,6 +20,7 @@ from kraken.harmonizers.cdes import CDEHarmonizer
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
+from kraken.harmonizers.loinc import LoincHarmonizer
 from kraken.harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
 from kraken.harmonizers.molepro import MoleProHarmonizer
 from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
@@ -50,6 +51,7 @@ class KrakenBuildOrchestrator:
         "spoke": SpokeHarmonizer,
         "umls": UMLSHarmonizer,
         "lipidmaps": LipidMapsHarmonizer,
+        "loinc": LoincHarmonizer,
         "refmet": RefMetHarmonizer,
         "clingen": ClinGenHarmonizer,
         "cdes": CDEHarmonizer,
