@@ -95,6 +95,9 @@ class BaseHarmonizer(ABC):
     publications_info_prop: str = EDGE_PUBLICATIONS_INFO
 
     # Properties to ignore (won't be stored in attributes)
+    # Source field names to drop entirely from harmonized output -- neither mapped to a top-level property nor
+    # retained in attributes (applied before any prop mapping). Don't list required fields (id/category for nodes;
+    # subject/object/predicate/primary_ks for edges) -- harmonization errors out if a required field is dropped.
     ignore_node_props: set[str] = set()
     ignore_edge_props: set[str] = set()
 
@@ -280,6 +283,9 @@ class BaseHarmonizer(ABC):
 
     def _harmonize_node(self, node: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single node. Override for source-specific logic."""
+        # Drop ignored source fields up front so they reach neither a top-level property nor attributes
+        node = {k: v for k, v in node.items() if k not in self.ignore_node_props}
+
         # Grab all synonyms as applicable
         synonyms = set()
         for synonym_prop in self.synonyms_props:
@@ -355,6 +361,9 @@ class BaseHarmonizer(ABC):
 
     def _harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single edge. Override for source-specific logic."""
+        # Drop ignored source fields up front so they reach neither a top-level property nor attributes
+        edge = {k: v for k, v in edge.items() if k not in self.ignore_edge_props}
+
         # Determine knowledge sources from a TRAPI-style `sources` list when the edge has one, else flat props.
         # (The raw `sources` list is also retained in the edge's attributes -- see _collect_edge_attributes_*.)
         if edge.get(TRAPI_SOURCES_FIELD):
