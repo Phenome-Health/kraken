@@ -3,13 +3,13 @@ biolink_version: 4.2.5
 log_level: INFO
 steps:
   harmonize: True
-  integrate: True
-  postprocess: True
+  integrate: False
+  postprocess: False
 options:
   metagraph_creation: True
-  validate_output: False
+  validate_output: True
   validation_only: False
-  include_sources: []
+  include_sources: ["bio-age"]
   exclude_sources: ["clingen", "molepro"]
 
 # Base directory path to use for all input/output files (should be absolute path)
@@ -92,6 +92,11 @@ sources:
   bio-bmi:
     version: "2023"  # Watanabe et al. Nat Med 2023 (doi:10.1038/s41591-023-02248-0)
     input_file: "input_data/bio-bmi"
+    can_merge_existing_nodes: True
+
+  bio-age:
+    version: "2019"  # Earls et al. J Gerontol A 2019 (doi:10.1093/gerona/glz220)
+    input_file: "input_data/bio-age"
     can_merge_existing_nodes: True
 
 
