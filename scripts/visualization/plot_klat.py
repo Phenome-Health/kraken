@@ -34,15 +34,23 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 # KLAT confidence weights (mirror the values KESTREL uses for ranking); higher
 # = more trustworthy provenance. Unlisted values fall back to 0.5.
 KL_WEIGHTS = {
-    "knowledge_assertion": 1.0, "logical_entailment": 0.9,
-    "statistical_association": 0.7, "observation": 0.65,
-    "prediction": 0.55, "not_provided": 0.5, "text_co_occurrence": 0.4,
+    "knowledge_assertion": 1.0,
+    "logical_entailment": 0.9,
+    "statistical_association": 0.7,
+    "observation": 0.65,
+    "prediction": 0.55,
+    "not_provided": 0.5,
+    "text_co_occurrence": 0.4,
 }
 AT_WEIGHTS = {
-    "manual_agent": 1.0, "manual_validation_of_automated_agent": 0.95,
-    "computational_model": 0.65, "data_analysis_pipeline": 0.6,
-    "automated_agent": 0.55, "not_provided": 0.5,
-    "text_mining_agent": 0.4, "image_processing": 0.4,
+    "manual_agent": 1.0,
+    "manual_validation_of_automated_agent": 0.95,
+    "computational_model": 0.65,
+    "data_analysis_pipeline": 0.6,
+    "automated_agent": 0.55,
+    "not_provided": 0.5,
+    "text_mining_agent": 0.4,
+    "image_processing": 0.4,
 }
 
 # single-hue confidence colormap (light -> dark = low -> high KLAT weight); used
@@ -70,8 +78,15 @@ def _draw_bar_panel(ax, data: dict, weights: dict, title: str, total: int, xmax:
     ax.set_yticklabels([k.replace("_", " ") for k, _ in segs], fontsize=8)
     ax.invert_yaxis()
     for yi, c in zip(y, counts):
-        ax.text(c + xmax * 0.01, yi, f"{human(c)} ({100 * c / total:.1f}%)",
-                va="center", ha="left", fontsize=7.5, color="#333333")
+        ax.text(
+            c + xmax * 0.01,
+            yi,
+            f"{human(c)} ({100 * c / total:.1f}%)",
+            va="center",
+            ha="left",
+            fontsize=7.5,
+            color="#333333",
+        )
     ax.set_title(title, loc="left", fontsize=10, fontweight="bold")
     ax.set_xlim(0, xmax)
     ax.grid(axis="y", visible=False)
@@ -86,8 +101,8 @@ def make_bars(meta: dict, out: Path, dpi: int):
     xmax = max(list(kl.values()) + list(at.values())) * 1.18
 
     fig, (ax_a, ax_b) = plt.subplots(
-        2, 1, figsize=(10, 4.6), sharex=True,
-        gridspec_kw={"height_ratios": [len(kl), len(at)]})
+        2, 1, figsize=(10, 4.6), sharex=True, gridspec_kw={"height_ratios": [len(kl), len(at)]}
+    )
     _draw_bar_panel(ax_a, kl, KL_WEIGHTS, "(A) Knowledge level", total, xmax)
     _draw_bar_panel(ax_b, at, AT_WEIGHTS, "(B) Agent type", total, xmax)
     ax_b.xaxis.set_major_formatter(lambda v, _: f"{v / 1e6:.0f}M" if v > 0 else "0")
@@ -103,8 +118,10 @@ def make_bars(meta: dict, out: Path, dpi: int):
 def make_heatmap(meta: dict, out: Path, dpi: int, scale: str):
     joint = meta.get("klat_joint")
     if not joint:
-        raise SystemExit("This metagraph has no 'klat_joint'; regenerate it with the "
-                         "updated metagraph build to use --mode heatmap.")
+        raise SystemExit(
+            "This metagraph has no 'klat_joint'; regenerate it with the "
+            "updated metagraph build to use --mode heatmap."
+        )
     # rows = knowledge levels, cols = agent types, both ordered by confidence
     # weight (descending) so the high-confidence corner is top-left.
     kls = sorted(joint, key=lambda k: -KL_WEIGHTS.get(k, 0.5))
@@ -139,13 +156,13 @@ def make_heatmap(meta: dict, out: Path, dpi: int, scale: str):
 
     fig, ax = plt.subplots(figsize=(0.6 * ncols + 3.0, 0.6 * nrows + 2.2))
     ax.scatter(xe, ye, s=16, c="#e4e4e4", edgecolors="none", zorder=1)  # empty cells
-    sc = ax.scatter(xf, yf, s=sf, c=cf, cmap=CONF_CMAP, norm=cnorm,
-                    edgecolors="white", linewidths=0.6, zorder=2)
+    sc = ax.scatter(xf, yf, s=sf, c=cf, cmap=CONF_CMAP, norm=cnorm, edgecolors="white", linewidths=0.6, zorder=2)
     for x, y, c, conf in zip(xf, yf, cnt, cf):
         col = CONF_CMAP(cnorm(conf))
         lum = 0.299 * col[0] + 0.587 * col[1] + 0.114 * col[2]  # readable text on the disc
-        ax.text(x, y, human(c), ha="center", va="center", fontsize=7.5,
-                color="white" if lum < 0.55 else "#222222", zorder=3)
+        ax.text(
+            x, y, human(c), ha="center", va="center", fontsize=7.5, color="white" if lum < 0.55 else "#222222", zorder=3
+        )
 
     ax.set_xlim(-0.6, ncols - 0.4)
     ax.set_ylim(-0.6, nrows - 0.4)
@@ -180,13 +197,18 @@ def _save(fig, out: Path, dpi: int):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("metagraph", type=Path, help="Path to metagraph JSON")
-    ap.add_argument("-o", "--output", type=Path, default=Path("klat.pdf"),
-                    help="Output base path; _bars/_heatmap suffixes are added")
-    ap.add_argument("--mode", choices=["bars", "heatmap", "both"], default="both",
-                    help="Which view(s) to render (default: both)")
+    ap.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("klat.pdf"),
+        help="Output base path; _bars/_heatmap suffixes are added",
+    )
+    ap.add_argument(
+        "--mode", choices=["bars", "heatmap", "both"], default="both", help="Which view(s) to render (default: both)"
+    )
     ap.add_argument("--dpi", type=int, default=300)
     args = ap.parse_args()
     # write outputs next to this script (not the cwd) unless an absolute path is given

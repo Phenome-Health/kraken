@@ -48,13 +48,54 @@ NAME_TAG_PRIORITY = [
 # the highest-priority designation is exactly one of these, we fall back to the next, more specific
 # designation -- e.g. untagged "Etiology" -> "Etiology liver abnormality unknown indicate code".
 # Deliberately excludes substantive standalone concepts (Age, Race, Sex, disease/drug/lab names).
-GENERIC_NAMES: frozenset[str] = frozenset({
-    "etiology", "diagnosis", "type", "status", "code", "score", "result", "indicator", "category",
-    "criterion", "value", "level", "grade", "stage", "class", "group", "method", "measure",
-    "outcome", "reason", "response", "rating", "unit", "amount", "count", "number", "frequency",
-    "duration", "date", "time", "name", "description", "comment", "comments", "other", "specify",
-    "describe", "present", "protocol", "center", "site", "source", "location", "organism",
-})
+GENERIC_NAMES: frozenset[str] = frozenset(
+    {
+        "etiology",
+        "diagnosis",
+        "type",
+        "status",
+        "code",
+        "score",
+        "result",
+        "indicator",
+        "category",
+        "criterion",
+        "value",
+        "level",
+        "grade",
+        "stage",
+        "class",
+        "group",
+        "method",
+        "measure",
+        "outcome",
+        "reason",
+        "response",
+        "rating",
+        "unit",
+        "amount",
+        "count",
+        "number",
+        "frequency",
+        "duration",
+        "date",
+        "time",
+        "name",
+        "description",
+        "comment",
+        "comments",
+        "other",
+        "specify",
+        "describe",
+        "present",
+        "protocol",
+        "center",
+        "site",
+        "source",
+        "location",
+        "organism",
+    }
+)
 
 CDE_PREFIX = "CDE"
 CDE_CATEGORY = "biolink:CommonDataElement"

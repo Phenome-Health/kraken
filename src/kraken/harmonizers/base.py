@@ -48,7 +48,6 @@ from kraken.utils.kg_io import (
     stream_nodes_from_tsv,
 )
 
-
 # TRAPI-style edge provenance: an edge carrying this field lists its knowledge sources as objects of
 # {resource_id, resource_role}, which we parse instead of the flat primary_ks/supporting_sources props.
 TRAPI_SOURCES_FIELD = "sources"
@@ -136,17 +135,21 @@ class BaseHarmonizer(ABC):
         self.unrecognized_source_roles = set()
         self.stripped_publications_count = 0
 
-        self.core_node_props = {
-            self.id_prop,
-            self.category_prop,
-            self.equivalent_ids_prop,
-            self.name_prop,
-            self.description_prop,
-            self.url_prop,
-            self.chemical_formula_prop,
-            self.exact_mass_prop,
-            self.publications_prop,
-        }.union(self.synonyms_props).union(self.taxon_props)
+        self.core_node_props = (
+            {
+                self.id_prop,
+                self.category_prop,
+                self.equivalent_ids_prop,
+                self.name_prop,
+                self.description_prop,
+                self.url_prop,
+                self.chemical_formula_prop,
+                self.exact_mass_prop,
+                self.publications_prop,
+            }
+            .union(self.synonyms_props)
+            .union(self.taxon_props)
+        )
 
         self.core_edge_props = {
             self.subject_prop,
@@ -325,7 +328,9 @@ class BaseHarmonizer(ABC):
         sources = edge[TRAPI_SOURCES_FIELD]
         edge_id = edge.get("id", "?")
         if not isinstance(sources, list):
-            raise ValueError(f"{self.source_name}: edge {edge_id!r} has a non-list '{TRAPI_SOURCES_FIELD}': {sources!r}")
+            raise ValueError(
+                f"{self.source_name}: edge {edge_id!r} has a non-list '{TRAPI_SOURCES_FIELD}': {sources!r}"
+            )
         primary_ks, aggregator_kses, supporting_sources = None, [], []
         for source in sources:
             if not isinstance(source, dict) or not source.get("resource_id") or not source.get("resource_role"):

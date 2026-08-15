@@ -34,7 +34,7 @@ from kraken.integrate import integrate_sources
 from kraken.metagraph import generate_metagraph_for_source
 from kraken.post_processing.test_file_generator import create_test_kg_files
 from kraken.utils.constants import PROJECT_ROOT
-from kraken.utils.kg_io import form_tarball, unzip_files, zip_files
+from kraken.utils.kg_io import unzip_files, zip_files
 from kraken.utils.logging_config import setup_logging
 from kraken.validator import KrakenValidator
 
@@ -230,7 +230,7 @@ class KrakenBuildOrchestrator:
         if not self.config.options.validation_only:
 
             if self.config.create_metagraphs:
-                metagraph_path = generate_metagraph_for_source(
+                generate_metagraph_for_source(
                     nodes_path=self.config.integrated_nodes_path,
                     edges_path=self.config.integrated_edges_path,
                     output_dir=self.config.metagraph_dir,
@@ -258,7 +258,7 @@ class KrakenBuildOrchestrator:
                 )
 
                 if self.config.create_metagraphs:
-                    metagraph_path = generate_metagraph_for_source(
+                    generate_metagraph_for_source(
                         nodes_path=test_nodes_path,
                         edges_path=test_edges_path,
                         output_dir=self.config.metagraph_dir,

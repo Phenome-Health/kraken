@@ -182,7 +182,9 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
     # ------------------------------------------------------------------ selection
 
     def _select_top_per_trait(self, scores: dict, evaluations: dict[str, set]) -> set[str]:
-        eval_count = lambda pgs_id: len(evaluations.get(pgs_id, ()))
+        def eval_count(pgs_id):
+            return len(evaluations.get(pgs_id, ()))
+
         # Group eligible scores by each mapped trait, then keep the top-N most-evaluated per trait.
         by_trait: dict[str, list[str]] = defaultdict(list)
         for pgs_id, meta in scores.items():
@@ -444,7 +446,7 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
         if not efo:
             return []
         raw_ids = [e.strip() for e in re.split(r"[|,]", str(efo)) if e.strip()]
-        labels = [l.strip() for l in re.split(r"[|,]", str(label))] if label else []
+        labels = [s.strip() for s in re.split(r"[|,]", str(label))] if label else []
         pairs = []
         for i, raw in enumerate(raw_ids):
             label_i = labels[i] if i < len(labels) else (label or None)

@@ -32,22 +32,53 @@ NCIT_UMLS = {"nci thesaurus": "NCIT", "ncit": "NCIT", "nci": "NCIT", "umls": "UM
 
 # Concept-field rescues (by id): substantive concepts under-typed as NamedThing in a SPOKE-less build.
 RESCUE_IDS = {
-    "NCIT:C25729", "NCIT:C71739", "NCIT:C189175", "NCIT:C25172", "NCIT:C17357", "NCIT:C179559",
-    "NCIT:C164027", "NCIT:C164634", "NCIT:C21055", "NCIT:C16735", "NCIT:C38276", "NCIT:C38114",
-    "NCIT:C28421", "NCIT:C124436", "NCIT:C83044", "NCIT:C83431", "NCIT:C178503", "NCIT:C178504",
-    "NCIT:C124444", "NCIT:C25208",
+    "NCIT:C25729",
+    "NCIT:C71739",
+    "NCIT:C189175",
+    "NCIT:C25172",
+    "NCIT:C17357",
+    "NCIT:C179559",
+    "NCIT:C164027",
+    "NCIT:C164634",
+    "NCIT:C21055",
+    "NCIT:C16735",
+    "NCIT:C38276",
+    "NCIT:C38114",
+    "NCIT:C28421",
+    "NCIT:C124436",
+    "NCIT:C83044",
+    "NCIT:C83431",
+    "NCIT:C178503",
+    "NCIT:C178504",
+    "NCIT:C124444",
+    "NCIT:C25208",
 }
 # Answer-constituent rescues (by kraken node name, case-insensitive): meaningful response concepts.
 RESCUE_ANSWER_NAMES = {
     s.lower()
     for s in {
-        "Body Temperature", "Symptomatic", "Presymptomatic", "Transportation", "public transportation",
-        "Sick Leave", "Paid Hours", "Unpaid Hours", "Hourly Employment", "Leave from Employment",
-        "residence", "Home", "health status", "informed consent",
-        "General Equivalency Diploma Completion", "Assent",
+        "Body Temperature",
+        "Symptomatic",
+        "Presymptomatic",
+        "Transportation",
+        "public transportation",
+        "Sick Leave",
+        "Paid Hours",
+        "Unpaid Hours",
+        "Hourly Employment",
+        "Leave from Employment",
+        "residence",
+        "Home",
+        "health status",
+        "informed consent",
+        "General Equivalency Diploma Completion",
+        "Assent",
         # Answer values that also appear as compound fragments -- keep them so their standalone-answer
         # edges aren't dropped (frequency/severity/rating scales), consistent with un-blocked siblings.
-        "monthly", "mild", "Moderate", "good",
+        "monthly",
+        "mild",
+        "Moderate",
+        "good",
     }
 }
 

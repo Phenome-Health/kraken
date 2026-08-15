@@ -260,9 +260,11 @@ def _merge_sorted_edges(sorted_edges_path: Path, config: KrakenConfig) -> tuple[
     total_written = 0
     num_merged = 0
     mergers_log = config.integrated_debug_dir / "edge_mergers.jsonl"
-    with open(sorted_edges_path) as sorted_file, jsonlines.open(
-        config.integrated_edges_path, "w"
-    ) as writer, jsonlines.open(mergers_log, "w") as mergers_writer:
+    with (
+        open(sorted_edges_path) as sorted_file,
+        jsonlines.open(config.integrated_edges_path, "w") as writer,
+        jsonlines.open(mergers_log, "w") as mergers_writer,
+    ):
         current_key = None
         group: list[dict] = []
         for line in sorted_file:

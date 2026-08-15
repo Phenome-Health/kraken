@@ -28,7 +28,7 @@ import numpy as np
 import seaborn as sns
 
 # --- single bar color (colorblind-safe, prints well) ----------------------
-BAR_COLOR = "#3E7CB1"   # calm steel blue
+BAR_COLOR = "#3E7CB1"  # calm steel blue
 
 # above this many bars, per-bar value labels become illegible at print scale,
 # so they are auto-suppressed (the axis still conveys magnitude)
@@ -67,11 +67,12 @@ def apply_xscale(ax, scale: str, vmax: float):
 
 def clean_label(key: str) -> str:
     """Strip the 'infores:' scheme for readability; leave prefixes as-is."""
-    return key[len("infores:"):] if key.startswith("infores:") else key
+    return key[len("infores:") :] if key.startswith("infores:") else key
 
 
-def draw_panel(ax, data: dict, name: str, base_xlabel: str,
-               top: int | None, value_labels: bool, panel_label: str, scale: str):
+def draw_panel(
+    ax, data: dict, name: str, base_xlabel: str, top: int | None, value_labels: bool, panel_label: str, scale: str
+):
     total = len(data)
     items = sorted(data.items(), key=lambda kv: kv[1], reverse=True)
     if top and top > 0:
@@ -85,8 +86,7 @@ def draw_panel(ax, data: dict, name: str, base_xlabel: str,
     values = [v for _, v in items]
 
     y = range(len(items))
-    bars = ax.barh(list(y), values, color=BAR_COLOR, height=0.78,
-                   edgecolor="white", linewidth=0.3)
+    bars = ax.barh(list(y), values, color=BAR_COLOR, height=0.78, edgecolor="white", linewidth=0.3)
     ax.set_yticks(list(y))
     ax.set_yticklabels(labels, fontsize=7)
     ax.invert_yaxis()  # largest at top; each panel fills its own height
@@ -94,35 +94,45 @@ def draw_panel(ax, data: dict, name: str, base_xlabel: str,
     apply_xscale(ax, scale, max(values) if values else 1)
     ax.set_xlabel(base_xlabel + SCALE_SUFFIX[scale], fontsize=9)
     ax.set_title(title, fontsize=10, loc="left", pad=6)
-    ax.xaxis.set_major_formatter(mticker.FuncFormatter(
-        lambda v, _: "0" if v == 0 else (f"{int(v):,}" if v >= 1 else "")))
+    ax.xaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda v, _: "0" if v == 0 else (f"{int(v):,}" if v >= 1 else ""))
+    )
     ax.tick_params(axis="x", labelsize=7.5)
     ax.grid(axis="x", which="major", linewidth=0.5, alpha=0.5)
     ax.grid(axis="x", which="minor", linewidth=0.3, alpha=0.25)
     ax.set_axisbelow(True)
 
     # bold panel label (A/B) in the top-left margin, for caption cross-reference
-    ax.annotate(panel_label, xy=(0, 1), xycoords="axes fraction",
-                xytext=(-38, 16), textcoords="offset points",
-                fontsize=14, fontweight="bold", ha="left", va="bottom")
+    ax.annotate(
+        panel_label,
+        xy=(0, 1),
+        xycoords="axes fraction",
+        xytext=(-38, 16),
+        textcoords="offset points",
+        fontsize=14,
+        fontweight="bold",
+        ha="left",
+        va="bottom",
+    )
 
     # value labels auto-suppress when too dense to stay legible at print scale.
     # bar_label pads in points, so it sits just past the bar end on any scale.
     if value_labels and shown <= VALUE_LABEL_MAX:
-        ax.bar_label(bars, labels=[f"{v:,}" for v in values], padding=3,
-                     fontsize=6, color="#334155")
+        ax.bar_label(bars, labels=[f"{v:,}" for v in values], padding=3, fontsize=6, color="#334155")
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("metagraph", type=Path, help="Path to metagraph JSON")
-    ap.add_argument("-o", "--output", type=Path, default=Path("sources.pdf"),
-                    help="Output base path; _linear/_sqrt/_log suffixes are added")
-    ap.add_argument("--top", type=int, default=100,
-                    help="Show only the top N per panel (default: 100; use 0 for all)")
-    ap.add_argument("--no-value-labels", action="store_true",
-                    help="Hide the numeric labels at bar ends")
+    ap.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("sources.pdf"),
+        help="Output base path; _linear/_sqrt/_log suffixes are added",
+    )
+    ap.add_argument("--top", type=int, default=100, help="Show only the top N per panel (default: 100; use 0 for all)")
+    ap.add_argument("--no-value-labels", action="store_true", help="Hide the numeric labels at bar ends")
     ap.add_argument("--dpi", type=int, default=300)
     args = ap.parse_args()
     # write outputs next to this script (not the cwd) unless an absolute path is given
@@ -148,10 +158,8 @@ def main():
     stem, suf = args.output.with_suffix(""), args.output.suffix or ".pdf"
     for scale in ("linear", "sqrt", "log"):
         fig, (axL, axR) = plt.subplots(1, 2, figsize=(11, height))
-        draw_panel(axL, pks, "Primary knowledge sources", "Edges",
-                   args.top, not args.no_value_labels, "A", scale)
-        draw_panel(axR, prefixes, "Node identifier prefixes", "Nodes",
-                   args.top, not args.no_value_labels, "B", scale)
+        draw_panel(axL, pks, "Primary knowledge sources", "Edges", args.top, not args.no_value_labels, "A", scale)
+        draw_panel(axR, prefixes, "Node identifier prefixes", "Nodes", args.top, not args.no_value_labels, "B", scale)
         fig.tight_layout()
         out = Path(f"{stem}_{scale}{suf}")
         fig.savefig(out, dpi=args.dpi, bbox_inches="tight")

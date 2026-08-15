@@ -46,7 +46,13 @@ def numeric_category(row: dict) -> str:
 # "Simple" files: one identifier per row. (relative path, id col, name col, [synonym cols], category).
 # `category` is a fixed string, or a callable(row) -> category for per-row typing (numeric codes).
 SIMPLE_FILES = [
-    ("LoincTable/Loinc.csv", "LOINC_NUM", "LONG_COMMON_NAME", ["SHORTNAME", "DisplayName", "CONSUMER_NAME"], numeric_category),
+    (
+        "LoincTable/Loinc.csv",
+        "LOINC_NUM",
+        "LONG_COMMON_NAME",
+        ["SHORTNAME", "DisplayName", "CONSUMER_NAME"],
+        numeric_category,
+    ),
     ("AccessoryFiles/PartFile/Part.csv", "PartNumber", "PartName", ["PartDisplayName"], NAMED_THING),
     ("AccessoryFiles/GroupFile/Group.csv", "GroupId", "Group", [], INFO_CATEGORY),
     ("AccessoryFiles/GroupFile/ParentGroup.csv", "ParentGroupId", "ParentGroup", [], INFO_CATEGORY),
@@ -54,7 +60,10 @@ SIMPLE_FILES = [
 
 # Answer file: each row carries two identifiers -- an answer (LA...) and its answer list (LL...). (id, name, category)
 ANSWER_FILE = "AccessoryFiles/PanelsAndForms/AnswerList.csv"
-ANSWER_ID_NAME_COLS = [("AnswerStringId", "DisplayText", INFO_CATEGORY), ("AnswerListId", "AnswerListName", INFO_CATEGORY)]
+ANSWER_ID_NAME_COLS = [
+    ("AnswerStringId", "DisplayText", INFO_CATEGORY),
+    ("AnswerListId", "AnswerListName", INFO_CATEGORY),
+]
 
 BATCH_SIZE = 50_000
 
@@ -94,7 +103,9 @@ class LoincHarmonizer(BaseHarmonizer):
         seen: set[str] = set()
         counts: dict[str, int] = {}
         for rel_path, id_col, name_col, syn_cols, category in SIMPLE_FILES:
-            counts[rel_path] = self._ingest(base / rel_path, [(id_col, name_col, category)], syn_cols, nodes_output, seen)
+            counts[rel_path] = self._ingest(
+                base / rel_path, [(id_col, name_col, category)], syn_cols, nodes_output, seen
+            )
         counts[ANSWER_FILE] = self._ingest(base / ANSWER_FILE, ANSWER_ID_NAME_COLS, [], nodes_output, seen)
 
         summary = ", ".join(f"{Path(p).name}={n}" for p, n in counts.items())
@@ -144,13 +155,13 @@ class LoincHarmonizer(BaseHarmonizer):
         stays correct if it ever changes. Returns None (and counts it) if biomapper2 can't validate the id."""
         if local in self._curie_cache:
             return self._curie_cache[local]
-        resolved, _, _ = self.normalizer.get_curies(
-            {LOINC_PREFIX: local}, stop_on_invalid_id=False, log_warnings=False
-        )
+        resolved, _, _ = self.normalizer.get_curies({LOINC_PREFIX: local}, stop_on_invalid_id=False, log_warnings=False)
         curie = next(iter(resolved), None)
         if not curie:
             self._n_unmapped += 1
-            logging.warning(f"{self.source_name}: biomapper2 could not form a CURIE for {LOINC_PREFIX}:{local}; dropping it.")
+            logging.warning(
+                f"{self.source_name}: biomapper2 could not form a CURIE for {LOINC_PREFIX}:{local}; dropping it."
+            )
         self._curie_cache[local] = curie
         return curie
 

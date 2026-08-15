@@ -28,9 +28,9 @@ LOINC_INFORES: str = f"{INFORES_PREFIX}:loinc"
 NIH_CDE_SOURCE_ID: str = "nih-cde"
 TRANSLATOR_SOURCE_ID: str = "translator-kg-open"
 LIPIDMAPS_ID: str = "lipidmaps"
-BIOLOGICAL_BMI_SOURCE_ID: str = "biological-bmi"  # multiomic BMI models, Watanabe et al. Nat Med 2023 (a paper, not a DB)
-BIO_AGE_SOURCE_ID: str = "biological-age"  # multiomic biological-age models, Earls et al. J Gerontol A 2019 (a paper, not a DB)
-PGS_CATALOG_SOURCE_ID: str = f"pgs-catalog"
+BIOLOGICAL_BMI_SOURCE_ID: str = "biological-bmi"  # multiomic BMI models (Watanabe et al. 2023; a paper, not a DB)
+BIO_AGE_SOURCE_ID: str = "biological-age"  # multiomic biological-age models (Earls et al. 2019; a paper, not a DB)
+PGS_CATALOG_SOURCE_ID: str = "pgs-catalog"
 
 # Primary knowledge sources whose edge publication lists are unreliable, so we drop publications from their
 # edges during harmonization. (HMDB copies a disease's entire reference list onto every metabolite it links to

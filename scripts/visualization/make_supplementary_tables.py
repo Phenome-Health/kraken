@@ -22,26 +22,44 @@ from openpyxl.styles import Alignment, Font
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
-MULTI_NOTE = ("Note: these counts sum to MORE than the total number of KRAKEN nodes, because a "
-              "single node can carry multiple {}. See the README sheet.")
+MULTI_NOTE = (
+    "Note: these counts sum to MORE than the total number of KRAKEN nodes, because a "
+    "single node can carry multiple {}. See the README sheet."
+)
 
 TABLES = [
-    dict(title="S1. Primary knowledge sources", key="primary_knowledge_sources",
-         kh="Primary knowledge source (infores CURIE)", vh="Edge count",
-         desc="Every primary knowledge source and the number of edges attributed to it.",
-         note=None),
-    dict(title="S2. Vocabulary prefixes", key="node_prefixes",
-         kh="Vocabulary prefix", vh="Node count",
-         desc="Every identifier prefix and the number of node identifiers that use it.",
-         note=MULTI_NOTE.format("equivalent identifiers (and thus multiple prefixes)")),
-    dict(title="S3. Node types", key="node_categories",
-         kh="Node type (Biolink category)", vh="Node count",
-         desc="Every node type and the number of nodes assigned to it.",
-         note=MULTI_NOTE.format("Biolink categories")),
-    dict(title="S4. Edge types", key="edge_predicates",
-         kh="Edge type (Biolink predicate)", vh="Edge count",
-         desc="Every edge type and the number of edges of that type.",
-         note=None),
+    dict(
+        title="S1. Primary knowledge sources",
+        key="primary_knowledge_sources",
+        kh="Primary knowledge source (infores CURIE)",
+        vh="Edge count",
+        desc="Every primary knowledge source and the number of edges attributed to it.",
+        note=None,
+    ),
+    dict(
+        title="S2. Vocabulary prefixes",
+        key="node_prefixes",
+        kh="Vocabulary prefix",
+        vh="Node count",
+        desc="Every identifier prefix and the number of node identifiers that use it.",
+        note=MULTI_NOTE.format("equivalent identifiers (and thus multiple prefixes)"),
+    ),
+    dict(
+        title="S3. Node types",
+        key="node_categories",
+        kh="Node type (Biolink category)",
+        vh="Node count",
+        desc="Every node type and the number of nodes assigned to it.",
+        note=MULTI_NOTE.format("Biolink categories"),
+    ),
+    dict(
+        title="S4. Edge types",
+        key="edge_predicates",
+        kh="Edge type (Biolink predicate)",
+        vh="Edge count",
+        desc="Every edge type and the number of edges of that type.",
+        note=None,
+    ),
 ]
 
 README_NOTES = [
@@ -211,7 +229,7 @@ def make_pdf(pdf_path, meta, source_name):
         # --- one (paginated) section per table ---
         for t in TABLES:
             items = sorted(meta[t["key"]].items(), key=lambda kv: -kv[1])
-            chunks = [items[i:i + ROWS_PER_PAGE] for i in range(0, len(items), ROWS_PER_PAGE)] or [[]]
+            chunks = [items[i : i + ROWS_PER_PAGE] for i in range(0, len(items), ROWS_PER_PAGE)] or [[]]
             for pi, chunk in enumerate(chunks):
                 fig = plt.figure(figsize=PAGE)
                 title = t["title"] + ("  (continued)" if pi else "")
@@ -219,15 +237,24 @@ def make_pdf(pdf_path, meta, source_name):
                 yh = 0.915
                 fig.text(0.08, yh, t["kh"], fontsize=8.5, fontweight="bold")
                 fig.text(0.93, yh, t["vh"], fontsize=8.5, fontweight="bold", ha="right")
-                fig.add_artist(plt.Line2D([0.08, 0.93], [yh - 0.008, yh - 0.008],
-                                          color="#999999", lw=0.6, transform=fig.transFigure))
+                fig.add_artist(
+                    plt.Line2D(
+                        [0.08, 0.93], [yh - 0.008, yh - 0.008], color="#999999", lw=0.6, transform=fig.transFigure
+                    )
+                )
                 dy = 0.855 / ROWS_PER_PAGE
                 for ri, (name, count) in enumerate(chunk):
                     yy = yh - 0.022 - ri * dy
                     fig.text(0.08, yy, str(name), fontsize=7.5)
                     fig.text(0.93, yy, f"{count:,}", fontsize=7.5, ha="right")
-                fig.text(0.5, 0.03, f"{t['title']} · page {pi + 1} of {len(chunks)}",
-                         ha="center", fontsize=7, color="#888888")
+                fig.text(
+                    0.5,
+                    0.03,
+                    f"{t['title']} · page {pi + 1} of {len(chunks)}",
+                    ha="center",
+                    fontsize=7,
+                    color="#888888",
+                )
                 pdf.savefig(fig)
                 plt.close(fig)
 
@@ -237,10 +264,19 @@ def make_pdf(pdf_path, meta, source_name):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("metagraph", type=Path, help="Path to metagraph JSON")
-    ap.add_argument("-o", "--output", type=Path, default=Path("supplementary_tables.xlsx"),
-                    help="Output .xlsx path (default beside this script)")
-    ap.add_argument("--pdf", action=argparse.BooleanOptionalAction, default=True,
-                    help="Also write a paginated PDF alongside the .xlsx (default: yes; --no-pdf to skip)")
+    ap.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("supplementary_tables.xlsx"),
+        help="Output .xlsx path (default beside this script)",
+    )
+    ap.add_argument(
+        "--pdf",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Also write a paginated PDF alongside the .xlsx (default: yes; --no-pdf to skip)",
+    )
     args = ap.parse_args()
     if not args.output.is_absolute():
         args.output = SCRIPT_DIR / args.output

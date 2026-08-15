@@ -36,19 +36,32 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image_a", type=Path, help="Panel A image (top if vertical, left if horizontal)")
     ap.add_argument("image_b", type=Path, help="Panel B image (bottom if vertical, right if horizontal)")
-    ap.add_argument("-o", "--output", type=Path, default=Path("two_panels.pdf"),
-                    help="Output path; a matching .png is also written (default beside this script)")
-    ap.add_argument("--orientation", choices=["vertical", "horizontal"], default="vertical",
-                    help="Stack panels vertically (A over B, default) or horizontally (A | B)")
-    ap.add_argument("--size", type=float, default=6.5,
-                    help="Shared dimension in inches: panel width if vertical, height if horizontal")
+    ap.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("two_panels.pdf"),
+        help="Output path; a matching .png is also written (default beside this script)",
+    )
+    ap.add_argument(
+        "--orientation",
+        choices=["vertical", "horizontal"],
+        default="vertical",
+        help="Stack panels vertically (A over B, default) or horizontally (A | B)",
+    )
+    ap.add_argument(
+        "--size",
+        type=float,
+        default=6.5,
+        help="Shared dimension in inches: panel width if vertical, height if horizontal",
+    )
     ap.add_argument("--gap", type=float, default=0.2, help="Gap between panels in inches (default 0.2)")
-    ap.add_argument("--labels", default="A,B",
-                    help="Comma-separated panel labels (default 'A,B'; pass '' for none)")
+    ap.add_argument("--labels", default="A,B", help="Comma-separated panel labels (default 'A,B'; pass '' for none)")
     ap.add_argument("--label-size", type=float, default=14.0, help="Panel-label font size (default 14)")
     ap.add_argument("--background", default="white", help="Figure/panel background color (default white)")
-    ap.add_argument("--border", default="none",
-                    help="Thin border color around each panel ('none' to omit; default none)")
+    ap.add_argument(
+        "--border", default="none", help="Thin border color around each panel ('none' to omit; default none)"
+    )
     ap.add_argument("--pad", type=float, default=0.1, help="Margin around the figure, inches (default 0.1)")
     ap.add_argument("--dpi", type=int, default=300)
     args = ap.parse_args()
@@ -85,8 +98,15 @@ def main():
             ax = fig.add_axes([0.0, 1 - (panel_top + h) / total_h, w / total_w, h / total_h])
             _draw(ax, img, args)
             if labels:
-                fig.text(0.004, 1 - panel_top / total_h + 0.006, labels[i],
-                         ha="left", va="bottom", fontsize=args.label_size, fontweight="bold")
+                fig.text(
+                    0.004,
+                    1 - panel_top / total_h + 0.006,
+                    labels[i],
+                    ha="left",
+                    va="bottom",
+                    fontsize=args.label_size,
+                    fontweight="bold",
+                )
             y = panel_top + h + args.gap
     else:  # horizontal
         x = 0.0  # inches from the left
@@ -96,16 +116,21 @@ def main():
             ax = fig.add_axes([left, 0.0, w / total_w, frac_h])
             _draw(ax, img, args)
             if labels:
-                fig.text(left + 0.002, frac_h + (1 - frac_h) * 0.18, labels[i],
-                         ha="left", va="bottom", fontsize=args.label_size, fontweight="bold")
+                fig.text(
+                    left + 0.002,
+                    frac_h + (1 - frac_h) * 0.18,
+                    labels[i],
+                    ha="left",
+                    va="bottom",
+                    fontsize=args.label_size,
+                    fontweight="bold",
+                )
             x += w + args.gap
 
-    fig.savefig(args.output, dpi=args.dpi, bbox_inches="tight",
-                facecolor=args.background, pad_inches=args.pad)
+    fig.savefig(args.output, dpi=args.dpi, bbox_inches="tight", facecolor=args.background, pad_inches=args.pad)
     png = args.output.with_suffix(".png")
     if png != args.output:
-        fig.savefig(png, dpi=args.dpi, bbox_inches="tight",
-                    facecolor=args.background, pad_inches=args.pad)
+        fig.savefig(png, dpi=args.dpi, bbox_inches="tight", facecolor=args.background, pad_inches=args.pad)
     plt.close(fig)
     print(f"Wrote {args.output}" + (f" and {png}" if png != args.output else ""))
 
