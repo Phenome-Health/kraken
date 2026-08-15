@@ -4,39 +4,51 @@ Build system for Phenome Health's unified general-purpose knowledge graph, **KRA
 
 ## Overview
 
-KRAKEN combines knowledge from RTX-KG2, SPOKE, UMLS, LIPID MAPS, and RefMet into a unified biomedical knowledge graph. The system harmonizes data formats, resolves entities across sources, and exports to multiple flat-file formats (ready for import into downstream tools).
+KRAKEN integrates biomedical knowledge from many sources into a single [Biolink Model](https://biolink.github.io/biolink-model/)-compliant knowledge graph, tailored for multiomic and wellness research. Release 2.1.0 spans roughly **15.3M nodes** and **112.7M edges** drawn from **114 primary knowledge sources**. The build system harmonizes each source to a common schema, resolves entities across sources using provided equivalency mappings, and exports flat files ready for downstream tools.
 
-## Knowledge Sources
+## Knowledge sources
 
-- **KG2**: RTX-KG2 biomedical knowledge graph
-- **SPOKE**: Scalable Precision medicine Open Knowledge Engine
-- **UMLS**: Unified Medical Language System
-- **LIPID MAPS**: Lipid structure database
-- **RefMet**: Reference list of metabolite names
+KRAKEN integrates:
 
+- **Aggregator knowledge graphs** — RTX-KG2, ROBOKOP, and Translator KG Open
+- **Ontologies & vocabularies** — UMLS, LOINC, LIPID MAPS, RefMet
+- **Specialized resources** — the NIH CDE Repository, PGS Catalog, and published biological-age and biological-BMI datasets
+
+Each aggregator contributes many upstream primary knowledge sources; see `artifacts/metagraphs/` for the full per-source breakdown.
 
 ## Usage
-First configure sources and build steps in `config/build_config.yaml` as desired. Then run:
+
+Configure sources and build steps in `config/build_config.yaml`, then run:
 
 ```bash
 uv run python build.py
 ```
 
-## Build Process
+## Build process
 
-The build process has three main phases:
+1. **Harmonize** — convert each source to a common Biolink format/schema
+2. **Integrate** — merge sources, performing entity resolution using each source's equivalency mappings
+3. **Post-process** — generate a coherent, small test version of the graph
 
-1. **Harmonize**: Convert each source to common Biolink format/schema
-2. **Integrate**: Merge sources using entity resolution, leveraging equivalency mappings provided by each source
-3. **Post-process**: Export flat files for ArangoDB and Biomapper
+Validation and metagraph creation are done both on each harmonized artifact and on the final integrated graph.
 
 ## Output
 
 - **Unified KG**: `artifacts/integrated/kraken_*.jsonl`
-- **ArangoDB**: `artifacts/export/arango/`
-- **BiomapperKG**: `artifacts/export/biomapper/`
 - **Metagraphs**: `artifacts/metagraphs/`
 
 ## Requirements
 
-Python 3.10+ with dependencies managed by `uv`.
+Python 3.10+ with dependencies managed by [`uv`](https://docs.astral.sh/uv/):
+
+```bash
+uv sync
+```
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+## Acknowledgments
+
+Development of this codebase was assisted by [Claude Code](https://claude.com/claude-code) (Anthropic).

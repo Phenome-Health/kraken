@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: >-
+  KRAKEN is described in an accompanying manuscript (in review); please cite that
+  publication. This repository is archived on Zenodo only to provide a persistent,
+  citable snapshot of the code for availability and reproducibility.
+title: "KRAKEN: Knowledge Research & Analysis Kit for Evidence Networks"
+abstract: >-
+  Build system for KRAKEN, a unified, Biolink Model-compliant biomedical
+  knowledge graph integrating many aggregator knowledge graphs, ontologies,
+  vocabularies, and specialized resources.
+type: software
+authors:
+  - given-names: Amy
+    family-names: Glen
+    email: amy.glen@phenomehealth.org
+  - given-names: Drew
+    family-names: Witherington
+  - given-names: Trent
+    family-names: Leslie
+  - given-names: Andrew
+    family-names: Baumgartner
+  - given-names: Ashen
+    family-names: Fernando
+  - given-names: Bhargav
+    family-names: Vemuri
+  - given-names: Ornit
+    family-names: Nahman
+  - given-names: Gwênlyn
+    family-names: Glusman
+  - given-names: Leroy
+    family-names: Hood
+  - given-names: Lance
+    family-names: Pflieger
+  - given-names: Noa
+    family-names: Rappaport
+version: 2.1.0
+date-released: "2026-08-14"
+license: MIT
+repository-code: "https://github.com/Phenome-Health/kraken"
+url: "https://github.com/Phenome-Health/kraken"
+keywords:
+  - knowledge graph
+  - biomedical
+  - Biolink Model
+  - data integration
+  - multiomic
