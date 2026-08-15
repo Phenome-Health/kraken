@@ -1,5 +1,7 @@
 # kraken-build
 
+[![DOI](https://zenodo.org/badge/1093677239.svg)](https://doi.org/10.5281/zenodo.21940866)
+
 Build system for Phenome Health's unified general-purpose knowledge graph, **KRAKEN** _(Knowledge Research & Analysis Kit for Evidence Networks)_.
 
 ## Overview
@@ -44,6 +46,10 @@ Python 3.10+ with dependencies managed by [`uv`](https://docs.astral.sh/uv/):
 ```bash
 uv sync
 ```
+
+## Citation
+
+KRAKEN is described in a forthcoming manuscript; please cite that publication. Each release is also archived on Zenodo — concept DOI [10.5281/zenodo.21940866](https://doi.org/10.5281/zenodo.21940866), which always resolves to the latest version.
 
 ## License
 
