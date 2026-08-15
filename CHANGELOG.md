@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/Phenome-Health/kraken/compare/v2.1.0...v2.1.1) (2026-08-15)
+
+
+### Documentation
+
+* add zenodo link ([5a6a6ce](https://github.com/Phenome-Health/kraken/commit/5a6a6ce65d9a523d4005d80c6ca6cf07da1eb49a))
+
 ## [2.1.0](https://github.com/Phenome-Health/kraken/compare/v0.1.0...v2.1.0) (2026-08-15)
 
 
