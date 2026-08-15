@@ -21,6 +21,7 @@ from kraken.utils.constants import (
     EDGE_QUALIFIERS,
     EDGE_SUBJECT,
     EDGE_SUPPORTING_SOURCES,
+    INFORES_PREFIX,
     NODE_ATTRIBUTES,
     NODE_CATEGORIES,
     NODE_CHEMICAL_FORMULA,
@@ -32,8 +33,10 @@ from kraken.utils.constants import (
     NODE_PROVIDED_BY,
     NODE_PUBLICATIONS,
     NODE_SYNONYMS,
+    NODE_TAXA,
     NODE_URLS,
     NOT_PROVIDED,
+    UNRELIABLE_PUBLICATION_PRIMARY_KS,
 )
 from kraken.utils.general import clean_text, is_empty, to_list
 from kraken.utils.kg_io import (
@@ -45,17 +48,24 @@ from kraken.utils.kg_io import (
     stream_nodes_from_tsv,
 )
 
+# TRAPI-style edge provenance: an edge carrying this field lists its knowledge sources as objects of
+# {resource_id, resource_role}, which we parse instead of the flat primary_ks/supporting_sources props.
+TRAPI_SOURCES_FIELD = "sources"
+TRAPI_SOURCE_ROLES = {"primary_knowledge_source", "aggregator_knowledge_source", "supporting_data_source"}
+
 
 class BaseHarmonizer(ABC):
     """Base class for harmonizing knowledge graph sources into KRAKEN format"""
 
     @property
     @abstractmethod
-    def source_name(self) -> str: ...
+    def source_infores(self) -> str: ...
 
     @property
-    @abstractmethod
-    def source_infores(self) -> str: ...
+    def source_name(self) -> str:
+        """Human-readable label used in log/error messages, derived from source_infores by stripping any
+        'infores:' prefix (e.g. 'infores:rtx-kg2' -> 'rtx-kg2'; a bare id like 'nih-cde' is used as-is)."""
+        return self.source_infores.removeprefix(f"{INFORES_PREFIX}:")
 
     list_delimiter: str | None = None  # Relevant only for TSVs/CSVs
     is_aggregator: bool = False
@@ -65,6 +75,7 @@ class BaseHarmonizer(ABC):
     category_prop: str = "category"
     equivalent_ids_prop: str = "xref"
     synonyms_props: set[str] = {"synonym"}
+    taxon_props: set[str] = set()  # source field(s) to pull taxon CURIE(s) from (unioned), e.g. {"taxon", "in_taxon"}
     url_prop: str = "iri"
     name_prop: str = NODE_NAME
     description_prop: str = NODE_DESCRIPTION
@@ -83,6 +94,9 @@ class BaseHarmonizer(ABC):
     publications_info_prop: str = EDGE_PUBLICATIONS_INFO
 
     # Properties to ignore (won't be stored in attributes)
+    # Source field names to drop entirely from harmonized output -- neither mapped to a top-level property nor
+    # retained in attributes (applied before any prop mapping). Don't list required fields (id/category for nodes;
+    # subject/object/predicate/primary_ks for edges) -- harmonization errors out if a required field is dropped.
     ignore_node_props: set[str] = set()
     ignore_edge_props: set[str] = set()
 
@@ -102,6 +116,11 @@ class BaseHarmonizer(ABC):
     # Primary knowledge sources to skip (these edges will NOT be included)
     primary_ks_exclusions: set = set()
 
+    # Drop edges asserting a negation (negated=true). KRAKEN has no way to represent negation, so ingesting
+    # such an edge would wrongly read as a positive assertion. Applies to all sources; set False to keep them.
+    drop_negated_edges: bool = True
+    negated_prop: str = "negated"
+
     # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
     exclude_from_list_parsing: set[str] = set()
 
@@ -113,18 +132,24 @@ class BaseHarmonizer(ABC):
         self.prefixes_with_invalid_ids = defaultdict(int)
         self.invalid_curies = set()
         self.normalized_id_map = dict()
+        self.unrecognized_source_roles = set()
+        self.stripped_publications_count = 0
 
-        self.core_node_props = {
-            self.id_prop,
-            self.category_prop,
-            self.equivalent_ids_prop,
-            self.name_prop,
-            self.description_prop,
-            self.url_prop,
-            self.chemical_formula_prop,
-            self.exact_mass_prop,
-            self.publications_prop,
-        }.union(self.synonyms_props)
+        self.core_node_props = (
+            {
+                self.id_prop,
+                self.category_prop,
+                self.equivalent_ids_prop,
+                self.name_prop,
+                self.description_prop,
+                self.url_prop,
+                self.chemical_formula_prop,
+                self.exact_mass_prop,
+                self.publications_prop,
+            }
+            .union(self.synonyms_props)
+            .union(self.taxon_props)
+        )
 
         self.core_edge_props = {
             self.subject_prop,
@@ -137,6 +162,8 @@ class BaseHarmonizer(ABC):
             self.publications_prop,
             self.publications_info_prop,
         }
+        # NOTE: the TRAPI `sources` field is deliberately NOT in core_edge_props, so the full raw list is
+        # retained in the edge's attributes (in addition to being flattened into primary/aggregator/supporting).
 
     def harmonize(
         self,
@@ -204,8 +231,14 @@ class BaseHarmonizer(ABC):
     def _harmonize_edges(self, input_path: Path, output_path: Path) -> int:
         count = 0
         excluded_count = 0
+        negated_count = 0
+        self.stripped_publications_count = 0
         with jsonlines.open(output_path, "w") as writer:
             for edge in self._stream_edges(input_path):
+                # Skip negated edges (KRAKEN can't represent negation, so they'd read as positive assertions)
+                if self.drop_negated_edges and edge.get(self.negated_prop):
+                    negated_count += 1
+                    continue
                 # Skip edges from primary knowledge sources marked for exclusion
                 primary_kses = set(to_list(edge.get(self.primary_ks_prop)))
                 if self.primary_ks_exclusions and primary_kses.issubset(self.primary_ks_exclusions):
@@ -216,6 +249,13 @@ class BaseHarmonizer(ABC):
                     writer.write(harmonized)
                     count += 1
         logging.info("Finished harmonizing edges.")
+        if negated_count:
+            logging.info(f"Dropped {negated_count} negated edges (negated=true).")
+        if self.stripped_publications_count:
+            logging.info(
+                f"Dropped publications from {self.stripped_publications_count} edges whose primary knowledge "
+                f"source has unreliable publications ({sorted(UNRELIABLE_PUBLICATION_PRIMARY_KS)})."
+            )
         if excluded_count:
             logging.info(
                 f"Excluded {excluded_count} edges that came from these primary "
@@ -246,12 +286,20 @@ class BaseHarmonizer(ABC):
 
     def _harmonize_node(self, node: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single node. Override for source-specific logic."""
+        # Drop ignored source fields up front so they reach neither a top-level property nor attributes
+        node = {k: v for k, v in node.items() if k not in self.ignore_node_props}
+
         # Grab all synonyms as applicable
         synonyms = set()
         for synonym_prop in self.synonyms_props:
             new_synonyms = to_list(node.get(synonym_prop))
             if new_synonyms:
                 synonyms |= set(new_synonyms)
+
+        # Collect taxon CURIE(s) from any configured taxon field(s), unioned
+        taxa = set()
+        for taxon_prop in self.taxon_props:
+            taxa |= set(to_list(node.get(taxon_prop)))
 
         # TODO: is it worth having a distinction between these and create_node/edge functions?
 
@@ -267,19 +315,84 @@ class BaseHarmonizer(ABC):
             chemical_formula=node.get(self.chemical_formula_prop),
             exact_mass=node.get(self.exact_mass_prop),
             publications=node.get(self.publications_prop),
+            taxa=taxa,
             attributes=self._collect_node_attributes(node),
         )
 
+    def _parse_trapi_sources(self, edge: dict[str, Any]) -> tuple[str, list[str], list[str]]:
+        """Extract (primary_ks, aggregator_kses, supporting_sources) from an edge's TRAPI-style `sources`
+        list (each entry a {resource_id, resource_role} object). Raises on anything that isn't valid TRAPI,
+        so malformed provenance halts the build rather than being silently mis-recorded. upstream_resource_ids
+        (the provenance chain) aren't representable in KRAKEN's flat model and are dropped here -- but the full
+        raw `sources` list is retained in the edge's attributes."""
+        sources = edge[TRAPI_SOURCES_FIELD]
+        edge_id = edge.get("id", "?")
+        if not isinstance(sources, list):
+            raise ValueError(
+                f"{self.source_name}: edge {edge_id!r} has a non-list '{TRAPI_SOURCES_FIELD}': {sources!r}"
+            )
+        primary_ks, aggregator_kses, supporting_sources = None, [], []
+        for source in sources:
+            if not isinstance(source, dict) or not source.get("resource_id") or not source.get("resource_role"):
+                raise ValueError(
+                    f"{self.source_name}: edge {edge_id!r} has a malformed '{TRAPI_SOURCES_FIELD}' entry "
+                    f"(each needs resource_id + resource_role): {source!r}"
+                )
+            resource_id, role = source["resource_id"], source["resource_role"]
+            if role not in TRAPI_SOURCE_ROLES:
+                # Not one of our three captured roles: skip flattening it (the full source entry is still
+                # retained in the edge's attributes). Warn once per unrecognized role to avoid log spam.
+                if role not in self.unrecognized_source_roles:
+                    self.unrecognized_source_roles.add(role)
+                    logging.warning(
+                        f"{self.source_name}: unrecognized resource_role {role!r} in '{TRAPI_SOURCES_FIELD}' "
+                        f"(not one of {sorted(TRAPI_SOURCE_ROLES)}); it won't be flattened into "
+                        f"primary/aggregator/supporting, but the raw source is retained in attributes."
+                    )
+                continue
+            if role == "primary_knowledge_source":
+                if primary_ks is not None:
+                    raise ValueError(f"{self.source_name}: edge {edge_id!r} has multiple primary_knowledge_sources")
+                primary_ks = resource_id
+            elif role == "aggregator_knowledge_source":
+                aggregator_kses.append(resource_id)
+            else:  # supporting_data_source
+                supporting_sources.append(resource_id)
+        if primary_ks is None:
+            raise ValueError(
+                f"{self.source_name}: edge {edge_id!r} has no primary_knowledge_source in '{TRAPI_SOURCES_FIELD}'"
+            )
+        return primary_ks, aggregator_kses, supporting_sources
+
     def _harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
         """Harmonize a single edge. Override for source-specific logic."""
-        # Apply default values for sources as applicable
-        primary_ks = edge[self.primary_ks_prop] if edge.get(self.primary_ks_prop) else self.primary_ks_default_value
-        supporting_sources = (
-            edge[self.supporting_sources_prop]
-            if edge.get(self.supporting_sources_prop)
-            else self.supporting_sources_default_value
-        )
+        # Drop ignored source fields up front so they reach neither a top-level property nor attributes
+        edge = {k: v for k, v in edge.items() if k not in self.ignore_edge_props}
+
+        # Determine knowledge sources from a TRAPI-style `sources` list when the edge has one, else flat props.
+        # (The raw `sources` list is also retained in the edge's attributes -- see _collect_edge_attributes_*.)
+        if edge.get(TRAPI_SOURCES_FIELD):
+            primary_ks, aggregator_ks, supporting_sources = self._parse_trapi_sources(edge)
+            if self.is_aggregator:  # also record this KG itself as an aggregator of the edge
+                aggregator_ks = list(dict.fromkeys(aggregator_ks + [self.source_infores]))
+        else:
+            primary_ks = edge[self.primary_ks_prop] if edge.get(self.primary_ks_prop) else self.primary_ks_default_value
+            supporting_sources = (
+                edge[self.supporting_sources_prop]
+                if edge.get(self.supporting_sources_prop)
+                else self.supporting_sources_default_value
+            )
+            aggregator_ks = self.source_infores if self.is_aggregator else None
         attributes, qualifiers = self._collect_edge_attributes_and_qualifiers(edge)
+
+        # Drop publications from sources whose publication lists are unreliable (see the constant's docstring)
+        primary_ks_id = primary_ks[0] if isinstance(primary_ks, list) else primary_ks
+        if primary_ks_id in UNRELIABLE_PUBLICATION_PRIMARY_KS:
+            publications, publications_info = [], None
+            self.stripped_publications_count += 1
+        else:
+            publications = to_list(edge.get(self.publications_prop, []))
+            publications_info = edge.get(self.publications_info_prop)
 
         return self.create_edge(
             subject_id=edge[self.subject_prop],
@@ -288,10 +401,10 @@ class BaseHarmonizer(ABC):
             primary_ks=primary_ks,
             knowledge_level=edge.get(self.knowledge_level_prop, NOT_PROVIDED),
             agent_type=edge.get(self.agent_type_prop, NOT_PROVIDED),
-            aggregator_ks=self.source_infores if self.is_aggregator else None,
+            aggregator_ks=aggregator_ks,
             supporting_sources=to_list(supporting_sources),
-            publications=to_list(edge.get(self.publications_prop, [])),
-            publications_info=edge.get(self.publications_info_prop),
+            publications=publications,
+            publications_info=publications_info,
             qualifiers=qualifiers,
             attributes=attributes,
         )
@@ -327,6 +440,7 @@ class BaseHarmonizer(ABC):
         chemical_formula: str | list[str] | None = None,
         exact_mass: float | None = None,
         publications: str | list[str] = None,
+        taxa: str | list[str] | set[str] | None = None,
         attributes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not (curie and categories and provided_by):
@@ -381,6 +495,9 @@ class BaseHarmonizer(ABC):
         equivalent_ids_final = list(cleaned_equiv_ids | {curie_normalized})
         node[NODE_EQUIVALENT_IDS] = equivalent_ids_final
 
+        if taxa:
+            node[NODE_TAXA] = list(dict.fromkeys(to_list(taxa)))  # list so taxa union-merge across sources
+
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
             node[NODE_SYNONYMS] = [s for s in cleaned_synonyms if s]
@@ -400,7 +517,7 @@ class BaseHarmonizer(ABC):
         primary_ks: str | list[str],
         knowledge_level: str,
         agent_type: str | list[str],
-        aggregator_ks: str | None = None,
+        aggregator_ks: str | list[str] | None = None,
         supporting_sources: list[str] | None = None,
         publications: str | list[str] | None = None,
         publications_info: dict[str, Any] | None = None,

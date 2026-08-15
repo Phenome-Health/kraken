@@ -37,6 +37,9 @@ class OptionsConfig(BaseModel):
     metagraph_creation: bool = False
     validate_output: bool = True
     validation_only: bool = False
+    # Ask for interactive confirmation of the source versions before building. Automatically skipped when
+    # stdin is not a TTY (e.g. cron/CI), so it never blocks non-interactive runs.
+    confirm_source_versions: bool = True
 
 
 class TestExportConfig(BaseModel):
@@ -49,6 +52,7 @@ class PostProcessingConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
+    version: str | None = None  # version/release of the source that was ingested (e.g. "2.10.2", "june2025")
     input_file: str | None = None
     nodes_input: str | None = None
     edges_input: str | None = None
@@ -111,6 +115,17 @@ class KrakenConfig(BaseModel):
         source_pool = include_sources if include_sources else all_sources
         self.sources_to_use = source_pool - exclude_sources
 
+        # Every source actually included in the build must declare a version (recorded in build_info.json
+        # and the metagraphs for provenance). Only in-use sources are checked, so an excluded or unused
+        # source with an unknown version never blocks the build.
+        missing_versions = sorted(name for name in self.sources_to_use if not self.sources[name].version)
+        if missing_versions:
+            raise ValueError(
+                f"These sources are included in the build but have no 'version' set under 'sources' in the "
+                f"build config: {missing_versions}. Set a version for each (a release, a download date, or an "
+                f"explicit value like 'unknown'). Only sources actually included in the build are checked."
+            )
+
         # Resolve paths for each source
         for source_name in self.sources_to_use:
             self.sources[source_name].resolve(self.base_path_resolved)
@@ -150,6 +165,15 @@ class KrakenConfig(BaseModel):
     @property
     def integrated_edges_path(self) -> Path:
         return self.integrated_dir / f"kraken_edges_{self.kraken_version}.jsonl"
+
+    @property
+    def source_versions(self) -> dict[str, str | None]:
+        """Map each source in use to its configured version (None if unknown/unspecified).
+
+        Recorded in build_info.json so a KG release can be traced back to the exact
+        source versions that went into it.
+        """
+        return {source: self.sources[source].version for source in sorted(self.sources_to_use)}
 
     @property
     def create_metagraphs(self) -> bool:

@@ -1,16 +1,16 @@
-kraken_version: 2.0.1
+kraken_version: 2.1.0
 biolink_version: 4.2.5
 log_level: INFO
 steps:
-  harmonize: False
+  harmonize: True
   integrate: True
   postprocess: True
 options:
   metagraph_creation: True
   validate_output: True
   validation_only: False
-  include_sources: null
-  exclude_sources: ["clingen", "molepro", "spoke"]
+  include_sources: []
+  exclude_sources: ["clingen", "molepro"]
 
 # Base directory path to use for all input/output files (should be absolute path)
 # Set to null to use kraken project root as base path
@@ -35,47 +35,82 @@ post_processing:
 
 sources:
   kg2:
+    version: "2.10.2"
     nodes_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-nodes.jsonl"
     edges_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-edges.jsonl"
     can_merge_existing_nodes: True
 
   robokop:
+    version: "june2025"
     nodes_input: "input_data/robokop/june2025/nodes.jsonl"
     edges_input: "input_data/robokop/june2025/edges.jsonl"
     can_merge_existing_nodes: True
 
-  molepro:
-    nodes_input: "input_data/molepro/jan2026/nodes.tsv"
-    edges_input: "input_data/molepro/jan2026/edges.tsv"
-    can_merge_existing_nodes: False
+  translator-kg-open:
+    version: "2026_07_19"
+    nodes_input: "input_data/translator-kg-open/2026_07_19/nodes.jsonl"
+    edges_input: "input_data/translator-kg-open/2026_07_19/edges.jsonl"
+    can_merge_existing_nodes: True  # equiv-ids dropped in the harmonizer instead (prevents the class/member over-merge without the can_merge=False orphan bug)
 
   microbiome-kg:
+    version: "2.1.0"
     nodes_input: "input_data/microbiome-kg/Microbiome_KG_nodes_v2.1.0.tsv"
     edges_input: "input_data/microbiome-kg/Microbiome_KG_edges_p2.1.0.tsv"
     can_merge_existing_nodes: True
 
   multiomics-kg:
+    version: "2.1.0"
     nodes_input: "input_data/multiomics-kg/Multiomics_KG_nodes_v2.1.0.tsv"
     edges_input: "input_data/multiomics-kg/Multiomics_KG_edges_p2.1.0.tsv"
     can_merge_existing_nodes: True
 
-  spoke:
-    # SPOKE has mixed nodes and edges in one file
-    input_file: "input_data/spoke/v6/spokeV6_human.jsonl"
-    can_merge_existing_nodes: False
-
   umls:
+    version: "2025AA"
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
     can_merge_existing_nodes: True
 
   lipidmaps:
+    version: "accessed_2026-08-07"
     input_file: "input_data/lipidmaps/structures.sdf"
     can_merge_existing_nodes: True
 
   refmet:
+    version: "accessed_2026-08-07"
     input_file: "input_data/refmet/refmet.csv"
     can_merge_existing_nodes: True
 
-  clingen:
-    input_file: "input_data/clingen/acmg_actionability.json"
+  loinc:
+    version: "2.82"
+    input_file: "input_data/loinc/Loinc_2.82"
+    can_merge_existing_nodes: True
+
+  cdes:
+    version: "accessed_2026-07-29"
+    input_file: "input_data/cdes/SearchExport.json"
+    can_merge_existing_nodes: True
+
+  pgs-catalog:
+    version: "2026-07-29"
+    input_file: "input_data/pgs-catalog/pgs_all_metadata.xlsx"
+    can_merge_existing_nodes: True
+
+  bio-bmi:
+    version: "2023"  # Watanabe et al. Nat Med 2023 (doi:10.1038/s41591-023-02248-0)
+    input_file: "input_data/bio-bmi"
+    can_merge_existing_nodes: True
+
+  bio-age:
+    version: "2019"  # Earls et al. J Gerontol A 2019 (doi:10.1093/gerona/glz220)
+    input_file: "input_data/bio-age"
+    can_merge_existing_nodes: True
+
+
+  molepro:
+    version: "jan2026"
+    nodes_input: "input_data/molepro/jan2026/nodes.tsv"
+    edges_input: "input_data/molepro/jan2026/edges.tsv"
     can_merge_existing_nodes: False
+
+  clingen:
+    version: null  # TODO: fill in ClinGen release/download date
+    input_file: "input_data/clingen/acmg_actionability.json"

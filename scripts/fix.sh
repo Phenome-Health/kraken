@@ -11,5 +11,3 @@ echo "Running ruff fixes..."
 uv run ruff check --fix
 
 echo "✅ Auto-fixes applied!"
-echo ""
-echo "Note: Any potential Pyright errors would need manual fixing."

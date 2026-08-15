@@ -5,6 +5,7 @@ Main orchestration functions for KRAKEN build
 import importlib.metadata
 import logging
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,22 +14,27 @@ import yaml
 
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
+from kraken.harmonizers.bio_age import BioAgeHarmonizer
+from kraken.harmonizers.bio_bmi import BioBMIHarmonizer
 from kraken.harmonizers.cdes import CDEHarmonizer
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
+from kraken.harmonizers.loinc import LoincHarmonizer
 from kraken.harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
 from kraken.harmonizers.molepro import MoleProHarmonizer
 from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
+from kraken.harmonizers.pgs_catalog import PGSCatalogHarmonizer
 from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
 from kraken.harmonizers.spoke import SpokeHarmonizer
+from kraken.harmonizers.translator_kg_open import TranslatorKGOpenHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
 from kraken.integrate import integrate_sources
 from kraken.metagraph import generate_metagraph_for_source
 from kraken.post_processing.test_file_generator import create_test_kg_files
 from kraken.utils.constants import PROJECT_ROOT
-from kraken.utils.kg_io import form_tarball, unzip_files, zip_files
+from kraken.utils.kg_io import unzip_files, zip_files
 from kraken.utils.logging_config import setup_logging
 from kraken.validator import KrakenValidator
 
@@ -45,9 +51,14 @@ class KrakenBuildOrchestrator:
         "spoke": SpokeHarmonizer,
         "umls": UMLSHarmonizer,
         "lipidmaps": LipidMapsHarmonizer,
+        "loinc": LoincHarmonizer,
         "refmet": RefMetHarmonizer,
         "clingen": ClinGenHarmonizer,
         "cdes": CDEHarmonizer,
+        "translator-kg-open": TranslatorKGOpenHarmonizer,
+        "pgs-catalog": PGSCatalogHarmonizer,
+        "bio-bmi": BioBMIHarmonizer,
+        "bio-age": BioAgeHarmonizer,
     }
 
     def __init__(self):
@@ -66,6 +77,8 @@ class KrakenBuildOrchestrator:
         logging.info("Starting KRAKEN build...")
         start = time.time()
         logging.info(f"Will include {len(self.config.sources_to_use)} sources: {self.config.sources_to_use}")
+        self._log_source_versions()
+        self._confirm_source_versions()
 
         if self.config.steps.harmonize:
             self._harmonize_sources()
@@ -82,6 +95,32 @@ class KrakenBuildOrchestrator:
         self._write_build_info(elapsed)
 
         return self.config.integrated_nodes_path, self.config.integrated_edges_path
+
+    def _log_source_versions(self) -> None:
+        """Log each in-use source's declared version next to its resolved input path(s), so any drift
+        between the configured version and the actual input files is easy to eyeball before a build."""
+        logging.info("Source versions for this build (version <- input path):")
+        for source_name in sorted(self.config.sources_to_use):
+            version = self.config.sources[source_name].version
+            paths = ", ".join(str(p) for p in self.config.all_source_input_paths_resolved[source_name])
+            logging.info(f"  {source_name}: {version!r} <- {paths}")
+
+    def _confirm_source_versions(self) -> None:
+        """Ask the user to confirm the listed source versions before the build proceeds. Skipped when
+        disabled (options.confirm_source_versions=False) or when stdin is not interactive (cron/CI), so
+        it never blocks non-interactive runs."""
+        if not self.config.options.confirm_source_versions:
+            return
+        if not sys.stdin.isatty():
+            logging.info("stdin is not interactive; skipping source-version confirmation.")
+            return
+        try:
+            response = input("Proceed with the build using these source versions? [y/N]: ").strip().lower()
+        except EOFError:
+            response = ""
+        if response not in {"y", "yes"}:
+            logging.info("Build aborted: source versions not confirmed.")
+            raise SystemExit(0)
 
     def _write_build_info(self, elapsed_seconds: float) -> None:
         """Write build_info.json to integrated_dir for downstream consumers (e.g. Kestrel /health)."""
@@ -115,6 +154,7 @@ class KrakenBuildOrchestrator:
             ),
             build_duration_minutes=round(elapsed_seconds / 60, 1),
             kg_label=getattr(self.config, "kg_label", None),
+            source_versions=getattr(self.config, "source_versions", None),
         )
 
         self.config.integrated_dir.mkdir(parents=True, exist_ok=True)
@@ -169,6 +209,8 @@ class KrakenBuildOrchestrator:
                 edges_path=edges_output,
                 output_dir=self.config.metagraph_dir / source_name,
                 graph_name=source_name,
+                source_versions={source_name: self.config.sources[source_name].version},
+                biolink_version=self.config.biolink_version,
             )
 
     def _integrate_sources(self):
@@ -187,23 +229,16 @@ class KrakenBuildOrchestrator:
 
         if not self.config.options.validation_only:
 
-            tarball_component_paths = [self.config.integrated_nodes_path, self.config.integrated_edges_path]
-
             if self.config.create_metagraphs:
-                metagraph_path = generate_metagraph_for_source(
+                generate_metagraph_for_source(
                     nodes_path=self.config.integrated_nodes_path,
                     edges_path=self.config.integrated_edges_path,
                     output_dir=self.config.metagraph_dir,
                     graph_name="kraken",
                     graph_version=self.config.kraken_version,
+                    source_versions=self.config.source_versions,
+                    biolink_version=self.config.biolink_version,
                 )
-                tarball_component_paths.append(metagraph_path)
-
-            form_tarball(
-                tarball_component_paths,
-                self.config.integrated_dir,
-                tarball_name=f"kraken_{self.config.kraken_version}.tar.gz",
-            )
 
     def _post_process(self):
         """Run all post-processing steps on the unified KG"""
@@ -221,21 +256,16 @@ class KrakenBuildOrchestrator:
                     output_dir=self.config.test_export_dir,
                     num_edges=test_export_config.num_edges,
                 )
-                test_tarball_component_paths = [test_nodes_path, test_edges_path]
 
                 if self.config.create_metagraphs:
-                    metagraph_path = generate_metagraph_for_source(
+                    generate_metagraph_for_source(
                         nodes_path=test_nodes_path,
                         edges_path=test_edges_path,
                         output_dir=self.config.metagraph_dir,
                         graph_name="kraken_test",
+                        graph_version=self.config.kraken_version,
+                        source_versions=self.config.source_versions,
+                        biolink_version=self.config.biolink_version,
                     )
-                    test_tarball_component_paths.append(metagraph_path)
-
-                form_tarball(
-                    test_tarball_component_paths,
-                    self.config.integrated_dir,
-                    tarball_name=f"kraken_{self.config.kraken_version}_test.tar.gz",
-                )
 
         logging.info("Post-processing complete!")

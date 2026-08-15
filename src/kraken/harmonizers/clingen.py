@@ -28,7 +28,6 @@ class ClinGenHarmonizer(BaseHarmonizer):
     ACMG Clinical Genome Resource (ClinGen) Actionability Working Group.
     """
 
-    source_name = "clingen"
     source_infores = CLINGEN_INFORES
 
     def __init__(self, biolink_client: BiolinkClient):

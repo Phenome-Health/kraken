@@ -13,6 +13,25 @@ from pathlib import Path
 from typing import Any
 
 
+def _iter_meta_triples(meta_triples: dict) -> "list[tuple[str, str, str]]":
+    """Yield (subject, predicate, object) tuples from a metagraph's meta_triples block.
+
+    Supports the nested format ({subject: {predicate: {object: count}}}) as well as the
+    legacy flat format ({"subject__predicate__object": count}) for older metagraph files.
+    """
+    triples = []
+    for subject, rest in meta_triples.items():
+        if isinstance(rest, dict):  # nested format
+            for predicate, objects in rest.items():
+                for obj in objects:
+                    triples.append((subject, predicate, obj))
+        else:  # legacy flat "subject__predicate__object": count
+            parts = subject.split("__")
+            if len(parts) == 3:
+                triples.append(tuple(parts))
+    return triples
+
+
 @dataclass
 class KGMetaGraph:
     """Parsed representation of a KG meta graph."""
@@ -35,7 +54,9 @@ class KGMetaGraph:
             total_edges=summary.get("total_edges", sum(data.get("edge_predicates", {}).values())),
             node_categories=data.get("node_categories", {}),
             edge_predicates=data.get("edge_predicates", {}),
-            knowledge_sources=data.get("knowledge_sources", {}),
+            # metagraphs now split provenance by role; compare on primary sources
+            # (fall back to the legacy combined key for older metagraph files)
+            knowledge_sources=data.get("primary_knowledge_sources", data.get("knowledge_sources", {})),
             meta_doubles=data.get("meta_doubles", {}),
             meta_triples=data.get("meta_triples", {}),
         )
@@ -127,20 +148,13 @@ class KGComparison:
         """Returns set of (subject_cat, predicate, object_cat) tuples."""
         triples = set()
         for g in self.graphs.values():
-            for meta_triple_str, count in g.meta_triples.items():
-                subj, pred, obj = meta_triple_str.split("__")
-                triples.add((subj, pred, obj))
+            triples.update(_iter_meta_triples(g.meta_triples))
         return triples
 
     def meta_triples_for(self, kg_name: str) -> set[tuple[str, str, str]]:
         if kg_name not in self.graphs:
             return set()
-        triples = set()
-        g = self.graphs[kg_name]
-        for meta_triple_str, count in g.meta_triples.items():
-            subj, pred, obj = meta_triple_str.split("__")
-            triples.add((subj, pred, obj))
-        return triples
+        return set(_iter_meta_triples(self.graphs[kg_name].meta_triples))
 
     def meta_triples_unique_to(self, kg_name: str) -> set[tuple[str, str, str]]:
         this_triples = self.meta_triples_for(kg_name)

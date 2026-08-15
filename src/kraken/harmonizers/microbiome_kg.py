@@ -3,7 +3,6 @@ from kraken.utils.constants import MICROBIOME_KG_INFORES
 
 
 class MicrobiomeKGHarmonizer(BaseHarmonizer):
-    source_name = "microbiome-kg"
     source_infores = MICROBIOME_KG_INFORES
 
     # Node property config

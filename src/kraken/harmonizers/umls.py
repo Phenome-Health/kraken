@@ -14,7 +14,6 @@ from kraken.utils.kg_io import save_to_jsonl
 class UMLSHarmonizer(BaseHarmonizer):
     """Harmonizer for UMLS TSV files"""
 
-    source_name = "umls"
     source_infores = UMLS_MTH_INFORES
 
     def __init__(self, biolink_client: BiolinkClient):

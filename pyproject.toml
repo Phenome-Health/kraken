@@ -3,12 +3,28 @@ name = "kraken"
 version = "0.1.0"
 description = "Build system for Phenome Health's unified knowledge graph, KRAKEN"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Amy Glen", email = "amy.glen@phenomehealth.org" },
+    { name = "Drew Witherington" },
+    { name = "Trent Leslie" },
+    { name = "Andrew Baumgartner" },
+    { name = "Ashen Fernando" },
+    { name = "Bhargav Vemuri" },
+    { name = "Ornit Nahman" },
+    { name = "Gwênlyn Glusman" },
+    { name = "Leroy Hood" },
+    { name = "Lance Pflieger" },
+    { name = "Noa Rappaport" },
+]
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.14.3",
     "biomapper2",
     "bmt>=1.4.5",
     "jsonlines>=4.0.0",
+    "openpyxl>=3.1.5",
     "pydantic>=2.12.5",
     "pyyaml>=6.0.2",
     "rdkit>=2025.3.6",
@@ -23,6 +39,7 @@ dev = [
 ]
 viz = [
     "matplotlib>=3.10.6",
+    "mpl-chord-diagram>=0.4.1",
     "networkx>=3.4.2",
     "numpy>=2.2.6",
     "pandas>=2.3.2",

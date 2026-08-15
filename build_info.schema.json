@@ -94,6 +94,28 @@
       ],
       "default": null,
       "title": "Edge Count"
+    },
+    "source_versions": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Versions"
     }
   },
   "required": [

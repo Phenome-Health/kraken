@@ -12,7 +12,6 @@ from kraken.utils.kg_io import load_csv_to_dict_list, save_to_jsonl
 class RefMetHarmonizer(BaseHarmonizer):
     """Harmonizer for RefMet CSV files"""
 
-    source_name = "refmet"
     source_infores = REFMET_INFORES
 
     attribute_props = {"super_class", "main_class", "sub_class"}

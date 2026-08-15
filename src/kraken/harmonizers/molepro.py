@@ -3,7 +3,6 @@ from kraken.utils.constants import MANUAL_AGENT, MOLEPRO_INFORES, NOT_PROVIDED
 
 
 class MoleProHarmonizer(BaseHarmonizer):
-    source_name = "molepro"
     source_infores = MOLEPRO_INFORES
     list_delimiter = "|"
     is_aggregator = True
