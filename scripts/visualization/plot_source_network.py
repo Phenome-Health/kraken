@@ -279,6 +279,13 @@ def main():
         help="Handoff strength: 'distinct' shared entities (hub-proof, default) "
         "or 'volume' of adjacent edge pairs (hub-dominated)",
     )
+    ap.add_argument(
+        "--exclude",
+        default="ubergraph",
+        help="Comma-separated source-name substrings to drop (matched after stripping "
+        "'infores:'; default 'ubergraph', which is not really a primary KS). "
+        "Substring match, so e.g. 'ubergraph' does not affect 'uberon'.",
+    )
     ap.add_argument("-o", "--output", type=Path, default=Path("source_network.pdf"))
     ap.add_argument(
         "--edge-curve", type=float, default=0.1, help="Edge curvature (arc3 rad); 0 = straight lines (default 0.1)"
@@ -335,10 +342,17 @@ def main():
     pair_fam = pair_dist if args.measure == "distinct" else pair_vol
     pair = {p: sum(fc.values()) for p, fc in pair_fam.items()}  # total handoff strength per pair
 
+    # drop excluded sources (substring match on the bare name); applied here so it
+    # also works against a cached scan without re-scanning
+    excludes = [s.strip() for s in args.exclude.split(",") if s.strip()]
+    keep = lambda name: not any(x in name for x in excludes)  # noqa: E731
+
     gfull = nx.Graph()
     for (a, b), w in pair.items():
-        if w >= args.min_handoff:
+        if w >= args.min_handoff and keep(a) and keep(b):
             gfull.add_edge(a, b, weight=w)
+    if excludes:
+        print(f"excluding sources matching: {', '.join(excludes)}")
     if gfull.number_of_nodes() == 0:
         raise SystemExit(f"No source pairs reach --min-handoff={args.min_handoff}.")
     G = topk_backbone(gfull, args.top_k)

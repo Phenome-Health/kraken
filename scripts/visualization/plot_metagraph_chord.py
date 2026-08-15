@@ -82,7 +82,7 @@ def category_family(category: str) -> str:
         return "purple"
     if has("disease"):
         return "pink"
-    if has("clinicalattribute", "clinicalcourse", "clinicalonset", "clinicalmeasurement"):
+    if has("clinicalattribute", "clinicalcourse", "clinicalonset", "clinicalmeasurement", "commondataelement"):
         return "pink"
     if has("phenotyp", "behavioralfeature", "clinicalfinding"):
         return "pink"
