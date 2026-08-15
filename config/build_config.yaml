@@ -50,7 +50,7 @@ sources:
     version: "2026_07_19"
     nodes_input: "input_data/translator-kg-open/2026_07_19/nodes.jsonl"
     edges_input: "input_data/translator-kg-open/2026_07_19/edges.jsonl"
-    can_merge_existing_nodes: False  # Contains class (glycolipid) conflations with members (sphingomyelin)
+    can_merge_existing_nodes: True  # equiv-ids dropped in the harmonizer instead (prevents the class/member over-merge without the can_merge=False orphan bug)
 
   microbiome-kg:
     version: "2.1.0"

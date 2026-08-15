@@ -6,8 +6,13 @@ class TranslatorKGOpenHarmonizer(BaseHarmonizer):
     source_infores = TRANSLATOR_SOURCE_ID
     is_aggregator = True
 
-    # Node property config
-    equivalent_ids_prop = "equivalent_identifiers"
+    # Node property config. We deliberately do NOT use translator's equivalent_identifiers for node merging: as
+    # an SRI Node Normalizer-based aggregator, its nodes carry broad equivalence sets that bridge distinct
+    # entities (e.g. the glycolipid class fused with its sphingomyelin member), over-merging the graph. Setting
+    # this to "" makes each node keep only its own primary id; the raw equivalent_identifiers still land in
+    # attributes for debugging. (This replaces the can_merge_existing_nodes=False workaround, which could evict
+    # bridging ids from the node set and orphan edges -- to be handled properly in the ER overhaul.)
+    equivalent_ids_prop = ""
     taxon_props = {"taxon", "in_taxon"}  # both are used; unioned into a single top-level taxon list
 
     # NOTE: nodes also carry an `xref` field, but we deliberately do NOT fold it into equivalent_ids for now. Beyond
