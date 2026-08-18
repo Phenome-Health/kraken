@@ -1,7 +1,8 @@
 # Contributing to KRAKEN
 
 ## Setup
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.12 (CI's version).
+Requires [uv](https://docs.astral.sh/uv/) and Python ≥3.10. The repo pins 3.12
+(`.python-version`) and CI runs on it, so 3.12 is the safe default.
 ```bash
 uv sync --all-groups   # runtime + dev + viz deps
 ```
