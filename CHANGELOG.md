@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2](https://github.com/Phenome-Health/kraken/compare/v2.1.1...v2.1.2) (2026-08-18)
+
+
+### Documentation
+
+* clarify python version compatibility ([b5d0c83](https://github.com/Phenome-Health/kraken/commit/b5d0c83a326a58c65f53b5049e54378a65f6e2a4))
+
 ## [2.1.1](https://github.com/Phenome-Health/kraken/compare/v2.1.0...v2.1.1) (2026-08-18)
 
 
