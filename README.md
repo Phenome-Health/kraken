@@ -1,6 +1,6 @@
 # kraken-build
 
-[![DOI](https://zenodo.org/badge/1093677239.svg)](https://doi.org/10.5281/zenodo.21940866)
+[![CI](https://github.com/Phenome-Health/kraken/actions/workflows/ci.yml/badge.svg)](https://github.com/Phenome-Health/kraken/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Build system for Phenome Health's unified general-purpose knowledge graph, **KRAKEN** _(Knowledge Research & Analysis Kit for Evidence Networks)_.
 
