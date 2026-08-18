@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.1](https://github.com/Phenome-Health/kraken/compare/v2.1.0...v2.1.1) (2026-08-18)
+
+
+### Documentation
+
+* add a contributing.md, other minor tweaks ([16b1568](https://github.com/Phenome-Health/kraken/commit/16b1568201eda07bafbb0d82adcb148cdfca0a7b))
+* add zenodo link ([5a6a6ce](https://github.com/Phenome-Health/kraken/commit/5a6a6ce65d9a523d4005d80c6ca6cf07da1eb49a))
+* add/adjust badges showing in readme ([7bd7366](https://github.com/Phenome-Health/kraken/commit/7bd73660d2220a34ea8a94a6c3b8efb32787990b))
+
 ## [2.1.0](https://github.com/Phenome-Health/kraken/compare/v0.1.0...v2.1.0) (2026-08-15)
 
 
