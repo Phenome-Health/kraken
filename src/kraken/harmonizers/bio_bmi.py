@@ -39,10 +39,6 @@ MODEL_COL_PREFIXES = ["BMI", "MetBMI", "ProtBMI", "ChemBMI", "CombiBMI"]
 PRIMARY_MODEL = "CombiBMI"  # drives edge direction + the significance filter
 SIG_THRESHOLD = 0.05  # keep rows with {PRIMARY_MODEL}_AdjPval_all below this
 
-# Kraken-internal prefixes biomapper2's normalizer doesn't recognize (not registered Biolink vocabularies) but
-# which are valid node ids in our graph -- PGS Catalog scores (we mint these) and CDEs. Pass them through unchanged.
-PASSTHROUGH_PREFIXES = {"PGS", "CDE"}
-
 
 class BioBMIHarmonizer(BaseHarmonizer):
     """Harmonizer for multiomic 'biological BMI' (Watanabe et al., Nat Med 2023;
@@ -200,16 +196,13 @@ class BioBMIHarmonizer(BaseHarmonizer):
 
     def _normalize_curie(self, raw_id: str | None) -> str | None:
         """Validate/canonicalize a curated kraken CURIE via biomapper2. Returns None (and warns once) for empty
-        ids or vocabs biomapper doesn't recognize (except kraken-internal PASSTHROUGH_PREFIXES)."""
+        ids or vocabs biomapper2 doesn't recognize."""
         raw_id = (raw_id or "").strip()
         if not raw_id or ":" not in raw_id:
             return None
         if raw_id in self._curie_cache:
             return self._curie_cache[raw_id]
         prefix, _, local = raw_id.partition(":")
-        if prefix in PASSTHROUGH_PREFIXES:
-            self._curie_cache[raw_id] = raw_id
-            return raw_id
         resolved, _, _ = self.normalizer.get_curies({prefix: local}, stop_on_invalid_id=False, log_warnings=False)
         curie = next(iter(resolved), None)
         if not curie:

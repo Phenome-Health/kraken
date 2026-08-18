@@ -44,6 +44,7 @@ viz = [
     "numpy>=2.2.6",
     "pandas>=2.3.2",
     "plotly>=6.3.0",
+    "pydot>=4.0.1",
     "seaborn>=0.13.2",
     "wordcloud>=1.9.4",
 ]
@@ -59,7 +60,7 @@ packages = ["src/kraken"]
 package = true
 
 [tool.uv.sources]
-biomapper2 = { git = "https://github.com/Phenome-Health/biomapper2.git", rev = "kraken2.1.0" }
+biomapper2 = { git = "https://github.com/Phenome-Health/biomapper2.git", rev = "main" }
 
 [tool.black]
 line-length = 120

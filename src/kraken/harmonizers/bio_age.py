@@ -36,11 +36,6 @@ COL_CI_HIGH = "ci_high"
 
 MAPPING_FILENAME = "bioage_condition_mappings.tsv"
 
-# Kraken-internal prefixes that biomapper2's normalizer doesn't recognize (they aren't registered Biolink
-# vocabularies) but which are nonetheless valid node ids in our graph -- e.g. the smoking-behavior CDEs. We let
-# these pass through unchanged rather than dropping them.
-PASSTHROUGH_PREFIXES = {"CDE"}
-
 
 class BioAgeHarmonizer(BaseHarmonizer):
     """Harmonizer for multi-omic biological age (bA) (Earls et al., J Gerontol A 2019;
@@ -177,16 +172,13 @@ class BioAgeHarmonizer(BaseHarmonizer):
 
     def _normalize_curie(self, raw_id: str | None) -> str | None:
         """Validate/canonicalize a curated kraken CURIE via biomapper2. Returns None (and warns once) for empty
-        ids or vocabs biomapper doesn't recognize (except kraken-internal PASSTHROUGH_PREFIXES)."""
+        ids or vocabs biomapper2 doesn't recognize."""
         raw_id = (raw_id or "").strip()
         if not raw_id or ":" not in raw_id:
             return None
         if raw_id in self._curie_cache:
             return self._curie_cache[raw_id]
         prefix, _, local = raw_id.partition(":")
-        if prefix in PASSTHROUGH_PREFIXES:
-            self._curie_cache[raw_id] = raw_id
-            return raw_id
         resolved, _, _ = self.normalizer.get_curies({prefix: local}, stop_on_invalid_id=False, log_warnings=False)
         curie = next(iter(resolved), None)
         if not curie:
