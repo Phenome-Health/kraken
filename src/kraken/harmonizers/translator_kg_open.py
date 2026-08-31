@@ -14,6 +14,7 @@ class TranslatorKGOpenHarmonizer(BaseHarmonizer):
     # bridging ids from the node set and orphan edges -- to be handled properly in the ER overhaul.)
     equivalent_ids_prop = ""
     taxon_props = {"taxon", "in_taxon"}  # both are used; unioned into a single top-level taxon list
+    synonyms_props = {"synonym", "full_name", "symbol"}
 
     # NOTE: nodes also carry an `xref` field, but we deliberately do NOT fold it into equivalent_ids for now. Beyond
     # `equivalent_identifiers` its only content appears to be SMILES, case-variant InChIKeys (duplicates of
