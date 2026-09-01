@@ -11,8 +11,8 @@ from collections import defaultdict
 
 import pytest
 
+from kraken.harmonizers.helpers.ncbigene_taxon_allowlist import TAXON_ALLOWLIST
 from kraken.harmonizers.ncbigene import NCBIGeneHarmonizer
-from kraken.harmonizers.ncbigene_taxon_allowlist import TAXON_ALLOWLIST
 from tests.helpers import build_test_taxonomy
 
 GENE_INFO_HEADER = (
@@ -319,7 +319,7 @@ def test_strain_published_gene_kept_when_its_species_is_allowlisted(harmonizer, 
 
 def test_taxa_rolled_up_to_species(harmonizer, tmp_path):
     """NCBI Gene reports many microbes at strain rank; other sources report the species. Storing the strain
-    unchanged would make a species-level `taxa` query silently miss these genes."""
+    unchanged would make a species-level `taxon` query silently miss these genes."""
     harmonizer.taxonomy = _taxonomy(tmp_path)
     assert harmonizer._species_tax_id("559292") == "4932"  # S288C -> S. cerevisiae
     assert harmonizer.rolled_up_to_species == 1
@@ -349,7 +349,7 @@ def test_fallback_description_names_the_organism(harmonizer, tmp_path):
 
 
 def test_fallback_description_uses_the_reported_taxon_not_the_rolled_up_one(harmonizer, tmp_path):
-    """A strain-specific gene should still say so in prose, even though `taxa` is rolled up to species."""
+    """A strain-specific gene should still say so in prose, even though `taxon` is rolled up to species."""
     harmonizer.taxonomy = _taxonomy(tmp_path)
     assert harmonizer._full_name_description("some gene", "559292") == "some gene (Saccharomyces cerevisiae S288C)"
 

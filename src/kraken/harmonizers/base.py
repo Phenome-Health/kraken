@@ -8,6 +8,7 @@ import jsonlines
 from biomapper2.core.normalizer import Normalizer
 
 from kraken.biolink_client import BiolinkClient
+from kraken.harmonizers.helpers.name_overrides import ORIGINAL_NAME_ATTRIBUTE, apply_name_override
 from kraken.utils.constants import (
     EDGE_AGENT_TYPE,
     EDGE_AGGREGATOR_KS,
@@ -48,11 +49,11 @@ from kraken.utils.kg_io import (
     stream_nodes_from_tsv,
 )
 
-# TRAPI-style edge provenance: an edge carrying this field lists its knowledge sources as objects of
-# {resource_id, resource_role}, which we parse instead of the flat primary_ks/supporting_sources props.
 # How many multi-taxon nodes to name individually in the run summary before merely counting the rest.
 MAX_MULTI_TAXON_EXAMPLES = 5
 
+# TRAPI-style edge provenance: an edge carrying this field lists its knowledge sources as objects of
+# {resource_id, resource_role}, which we parse instead of the flat primary_ks/supporting_sources props.
 TRAPI_SOURCES_FIELD = "sources"
 TRAPI_SOURCE_ROLES = {"primary_knowledge_source", "aggregator_knowledge_source", "supporting_data_source"}
 
@@ -139,6 +140,7 @@ class BaseHarmonizer(ABC):
         self.stripped_publications_count = 0
         self.multi_taxon_node_count = 0
         self.multi_taxon_examples: list[str] = []
+        self.name_override_count = 0
 
         self.core_node_props = (
             {
@@ -216,6 +218,12 @@ class BaseHarmonizer(ABC):
                 count += 1
         logging.info("Finished harmonizing nodes")
 
+        if self.name_override_count:
+            logging.info(
+                f"Appended a type to {self.name_override_count} node names whose vocabulary names them after "
+                f"what they're about rather than what they are (see harmonizers/name_overrides.py); the "
+                f"original name is kept in the '{ORIGINAL_NAME_ATTRIBUTE}' attribute"
+            )
         if self.multi_taxon_node_count:
             logging.warning(
                 f"{self.multi_taxon_node_count} nodes named more than one taxon and were left WITHOUT one "
@@ -467,8 +475,25 @@ class BaseHarmonizer(ABC):
 
         # Assemble the node, with properties in a specific order (for convenient review)
         curie_normalized = self.normalize_curie(curie)
+
+        # Categories are resolved before the name because name overrides key on them
+        categories_cleaned = [fix_repeated_prefix(category) for category in to_list(categories)]
+        categories = [self.category_overrides.get(category, category) for category in categories_cleaned]
+        leaf_categories = self.biolink.filter_to_leaf_categories(categories)
+
         node = {NODE_ID: curie_normalized}
         if name:
+            # Say what the node IS for vocabularies that name it after what it's about ("Parkinson disease"
+            # for a KEGG pathway). Applied BEFORE the synonym auto-add below, so the synonym picks up the
+            # renamed form -- deliberately not the bare name, which would rank this node alongside the real
+            # disease. Since overrides only append, the original is still a substring for text search, and
+            # it's kept verbatim in attributes. A synonym a harmonizer passes explicitly is left alone.
+            overridden_name = apply_name_override(curie_normalized, leaf_categories, name)
+            if overridden_name != name:
+                attributes[ORIGINAL_NAME_ATTRIBUTE] = name
+                self.name_override_count += 1
+                name = overridden_name
+
             node[NODE_NAME] = clean_text(name)
             # Make sure node's name is in our synonyms list
             if synonyms:
@@ -476,10 +501,7 @@ class BaseHarmonizer(ABC):
             else:
                 synonyms = [name]
 
-        # Clean categories and override as applicable
-        categories_cleaned = [fix_repeated_prefix(category) for category in to_list(categories)]
-        categories = [self.category_overrides.get(category, category) for category in categories_cleaned]
-        node[NODE_CATEGORIES] = self.biolink.filter_to_leaf_categories(categories)
+        node[NODE_CATEGORIES] = leaf_categories
 
         if urls:
             node[NODE_URLS] = to_list(urls)

@@ -12,7 +12,7 @@ import requests
 
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.harmonizers.pgs_gene_annotator import ENSEMBL_GTF_URL, GeneAnnotator
+from kraken.harmonizers.helpers.pgs_gene_annotator import ENSEMBL_GTF_URL, GeneAnnotator
 from kraken.utils.constants import DATA_ANALYSIS_PIPELINE, PGS_CATALOG_SOURCE_ID, STATISTICAL_ASSOCIATION
 from kraken.utils.kg_io import save_to_jsonl
 

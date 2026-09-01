@@ -23,7 +23,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from kraken.harmonizers.ncbigene_taxon_allowlist import TAXON_ALLOWLIST
+from kraken.harmonizers.helpers.ncbigene_taxon_allowlist import TAXON_ALLOWLIST
 from kraken.utils.taxonomy import TaxonNormalizer
 
 # Matched against raw JSONL text rather than parsed JSON: an NCBIGene CURIE is equally interesting whether it

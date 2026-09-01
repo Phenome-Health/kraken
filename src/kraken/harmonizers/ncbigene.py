@@ -10,7 +10,7 @@ from typing import Any
 import jsonlines
 
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.harmonizers.ncbigene_taxon_allowlist import TAXON_ALLOWLIST
+from kraken.harmonizers.helpers.ncbigene_taxon_allowlist import TAXON_ALLOWLIST
 from kraken.utils.constants import NCBIGENE_INFORES
 from kraken.utils.general import is_empty
 from kraken.utils.kg_io import fix_repeated_prefix, save_to_jsonl
@@ -23,10 +23,10 @@ ALL_SPECIES_FILENAME = "gene_info"
 # the all-species file is how you scope the ingest (see the class docstring).
 GROUP_FILE_SUFFIX = ".gene_info"
 SUMMARY_FILENAME = "gene_summary"
-# NCBI's taxonomy archive (ftp.ncbi.nlm.nih.gov/pub/taxonomy/). We read `names.dmp` straight out of
-# the tarball to label each gene's organism. `nodes.dmp` (the taxon hierarchy) rides along in the same file --
-# not used here, but it's what a hierarchy-aware taxon comparison needs, since NCBI Gene cites many microbes
-# at STRAIN rank while other sources cite the species (NCBITaxon:559292 vs :4932 are the same organism).
+# NCBI's taxonomy archive (ftp.ncbi.nlm.nih.gov/pub/taxonomy/), read straight out of the tarball: `nodes.dmp`
+# to roll each gene's taxon up to species rank, `names.dmp` to name the organism in its description. The
+# rollup matters because NCBI Gene publishes many microbes at STRAIN rank while other sources cite the species
+# (NCBITaxon:559292 and :4932 are the same organism).
 TAXDUMP_FILENAME = "taxdump.tar.gz"
 
 # --- gene_info columns ---
@@ -124,7 +124,7 @@ GENERIC_DESCRIPTION_PREFIXES = (
 NCBI_GENE_PREFIX = "NCBIGene"
 NCBI_TAXON_PREFIX = "NCBITaxon"
 # Attribute holding the taxon as NCBI Gene reported it, recorded only when it differed from the species-rank
-# taxon we store in `taxa` (i.e. for strain/subspecies records).
+# value stored in `taxon` (i.e. for strain/subspecies records).
 RAW_TAXON_ATTRIBUTE = "ncbi_reported_taxon"
 GENE_URL_TEMPLATE = "https://www.ncbi.nlm.nih.gov/gene/{gene_id}"
 
@@ -375,7 +375,7 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
             return None
 
         # Then the taxon, which rejects by far the most rows. Note it tests the SPECIES-rank taxon, matching
-        # how the allowlist is expressed and how `taxa` is stored.
+        # how the allowlist is expressed and how `taxon` is stored.
         raw_tax_id = self._value(row, COL_TAX_ID)
         species_tax_id = self._species_tax_id(raw_tax_id)
         if self.use_taxon_allowlist and species_tax_id not in self.allowed_species:
@@ -469,7 +469,7 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
         scientific name when we know it -- e.g. "amyloid beta precursor protein (Bos taurus)". The organism
         matters here because the same gene name recurs across species, so an unqualified full name reads as
         though it were the human one. Uses the taxon exactly as NCBI reported it, so a strain-specific gene
-        says so, even though the `taxa` property is rolled up to species. No taxdump loaded (or an unknown
+        says so, even though the `taxon` property is rolled up to species. No taxdump loaded (or an unknown
         tax_id) just means no parenthetical."""
         taxon_name = self.taxonomy.scientific_name(tax_id) if self.taxonomy else None
         return f"{full_name} ({taxon_name})" if full_name and taxon_name else full_name
@@ -491,7 +491,7 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
 
     def _species_tax_id(self, tax_id: str) -> str:
         """The gene's taxon rolled up to species rank. NCBI Gene reports many microbes at strain rank while
-        the aggregator KGs report the species, so normalizing here keeps a `taxa` query at species level from
+        the aggregator KGs report the species, so normalizing here keeps a `taxon` query at species level from
         silently missing strain-labeled genes. The raw strain id is kept in attributes (see _harmonize_row)."""
         if not tax_id:
             return ""

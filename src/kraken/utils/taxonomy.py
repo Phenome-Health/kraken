@@ -7,7 +7,7 @@ Two jobs, both harmonization-time concerns:
 The rollup exists because sources cite the taxonomy at different DEPTHS. NCBI Gene labels many microbes by
 strain -- S. cerevisiae genes carry NCBITaxon:559292 (S288C), E. coli genes NCBITaxon:511145 (K-12 MG1655) --
 while the aggregator KGs cite the species (4932, 562). Those are the same organism written two ways, so
-without normalization a `taxa` query at species level silently misses the strain-labeled nodes, and any
+without normalization a `taxon` query at species level silently misses the strain-labeled nodes, and any
 one-taxon-per-entity merge rule would treat them as a conflict and refuse a correct merge.
 
 Normalization only ever moves UP the tree. A rank below species (strain, subspecies, serovar, ...) becomes its
