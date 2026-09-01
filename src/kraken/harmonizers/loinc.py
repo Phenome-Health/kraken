@@ -2,6 +2,7 @@
 import csv
 import logging
 import re
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,12 +10,13 @@ from pathlib import Path
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.harmonizers.helpers.name_overrides import ORIGINAL_NAME_ATTRIBUTE
-from kraken.utils.constants import LOINC_INFORES
+from kraken.utils.constants import KNOWLEDGE_ASSERTION, LOINC_INFORES, MANUAL_AGENT
 from kraken.utils.kg_io import save_to_jsonl
 
-# Quick-and-dirty LOINC terminology ingest: one node per LOINC identifier, with a display name + name synonyms.
-# Nodes only (no edges). Everything lives under the single LOINC: prefix (numeric codes, LP parts, LA answers,
-# LL answer lists, LG groups).
+# LOINC terminology ingest: one node per LOINC identifier, with a display name + name synonyms. Everything
+# lives under the single LOINC: prefix (numeric codes, LP parts, LA answers, LL answer lists, LG groups).
+# Edges come only from LOINC's own external-terminology mappings (see EXT_CODE_SYSTEMS); LOINC's internal
+# hierarchy is not ingested.
 LOINC_PREFIX = "LOINC"
 
 # Per-identifier-type Biolink categories. LOINC is the source of truth for most of these, so we assign
@@ -118,6 +120,46 @@ def numeric_description(row: dict) -> str | None:
     return None
 
 
+# --- External code mappings ---
+# LOINC maps its Parts to external terminologies (PartRelatedCodeMapping.csv) and its answers to external
+# concepts (AnswerList.csv). Both name the target system by URI; these are the ones biomapper2 can form a
+# CURIE for. Anything else is counted and logged rather than dropped silently -- RadLex (~1.1k part mappings)
+# and ClinVar (~87) are the notable gaps, and both are biomapper2 vocab candidates.
+EXT_CODE_SYSTEMS = {
+    "http://snomed.info/sct": "SNOMEDCT",
+    "https://www.ebi.ac.uk/chebi": "CHEBI",
+    "https://www.ncbi.nlm.nih.gov/gene": "NCBIGene",
+    "http://www.genenames.org": "HGNC",
+    "http://www.nlm.nih.gov/research/umls/rxnorm": "RXCUI",
+    "https://www.ncbi.nlm.nih.gov/taxonomy": "NCBITaxon",
+    "http://fdasis.nlm.nih.gov": "UNII",
+    "http://pubchem.ncbi.nlm.nih.gov": "PUBCHEM.COMPOUND",
+}
+
+PART_MAPPING_FILE = "AccessoryFiles/PartFile/PartRelatedCodeMapping.csv"
+ANSWER_FILE_PATH = "AccessoryFiles/PanelsAndForms/AnswerList.csv"
+
+# LOINC's `Equivalence` values describe the TARGET concept relative to the LOINC one ("maps in which the
+# target concept is more granular than the LOINC concept ... are represented as 'narrower'" -- PartFileReadMe),
+# which is the same direction Biolink's match predicates describe their object. So the mapping is direct, with
+# LOINC's part as subject.
+#
+# Deliberately NOT subclass_of: these are cross-terminology mappings, not ontological subsumption. SKOS keeps
+# that distinction (`broader` within a scheme vs `broadMatch` across schemes) and so does entity resolution,
+# which must not treat a narrow/broad match as an equivalence.
+EQUIVALENT = "equivalent"  # becomes an equivalent_id rather than an edge
+EQUIVALENCE_PREDICATES = {
+    "narrower": "biolink:narrow_match",
+    "wider": "biolink:broad_match",
+    "relatedto": "biolink:related_to",
+}
+
+# An answer code is an information artifact that REFERS to a concept -- "Pompe disease [answer]" is a
+# permissible response, not the disorder -- so it mentions its external code rather than equating to it.
+# (Those two are also different Biolink branches, so equating them would be an entity-resolution error.)
+ANSWER_REFERENCE_PREDICATE = "biolink:mentions"
+
+
 @dataclass(frozen=True)
 class NodeSpec:
     """One kind of node to mint from a row. `category` and `description` are each either a fixed value, a
@@ -127,6 +169,9 @@ class NodeSpec:
     name_col: str
     category: str | Callable[[dict], str]
     description: str | Callable[[dict], str | None] | None = None
+    # Columns a description CALLABLE reads. Needed so they aren't also retained verbatim in attributes; when
+    # `description` is a plain column name that's inferred instead.
+    description_cols: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -143,7 +188,15 @@ class LoincFile:
 LOINC_FILES = [
     LoincFile(
         "LoincTable/Loinc.csv",
-        (NodeSpec("LOINC_NUM", "LONG_COMMON_NAME", numeric_category, numeric_description),),
+        (
+            NodeSpec(
+                "LOINC_NUM",
+                "LONG_COMMON_NAME",
+                numeric_category,
+                numeric_description,
+                description_cols=(DEFINITION_COLUMN, SURVEY_QUESTION_COLUMN),
+            ),
+        ),
         synonym_cols=("SHORTNAME", "DisplayName", "CONSUMER_NAME"),
     ),
     LoincFile(
@@ -157,7 +210,7 @@ LOINC_FILES = [
     # Each row carries both an answer (LA...) and the answer list it belongs to (LL...). The Description
     # column describes the answer, so only that spec takes it.
     LoincFile(
-        "AccessoryFiles/PanelsAndForms/AnswerList.csv",
+        ANSWER_FILE_PATH,
         (
             NodeSpec("AnswerStringId", "DisplayText", INFO_CATEGORY, "Description"),
             NodeSpec("AnswerListId", "AnswerListName", INFO_CATEGORY),
@@ -169,10 +222,12 @@ BATCH_SIZE = 50_000
 
 
 class LoincHarmonizer(BaseHarmonizer):
-    """Quick-and-dirty LOINC ingest. Mints one node per LOINC identifier (numeric lab codes, LP parts, LA
-    answers, LL answer lists, LG groups) with a display name and any short/display-name synonyms, all under the
-    LOINC: prefix. Nodes only -- no edges, no hierarchy. Node category is a single swappable placeholder
-    (NamedThing); the real type is picked up when the corresponding node from a richer source merges in.
+    """LOINC ingest. Mints one node per LOINC identifier (numeric lab codes, LP parts, LA answers, LL answer
+    lists, LG groups) with a display name and any short/display-name synonyms, all under the LOINC: prefix.
+
+    Takes LOINC's own mappings to external terminologies: `equivalent` ones become equivalent_ids (giving
+    otherwise-orphan Parts a route into the graph), and the narrower/wider/relatedto ones become edges, as do
+    the concepts an answer code refers to. LOINC's internal hierarchy is NOT ingested.
     """
 
     source_infores = LOINC_INFORES
@@ -182,6 +237,12 @@ class LoincHarmonizer(BaseHarmonizer):
         self._curie_cache: dict[str, str | None] = {}  # LOINC local id -> canonical curie (or None)
         self._n_unmapped = 0
         self._n_qualified = 0
+        self._edges: list[dict] = []
+        self._part_equivalences: dict[str, list[str]] = {}
+        self._unmapped_code_systems: dict[str, int] = defaultdict(int)
+        self._invalid_ext_codes: dict[str, int] = defaultdict(int)
+        self._unknown_equivalences: dict[str, int] = defaultdict(int)
+        self._external_nodes: dict[str, str] = {}  # edge target CURIE -> its display name
 
     def harmonize(
         self,
@@ -198,21 +259,40 @@ class LoincHarmonizer(BaseHarmonizer):
         logging.info(f"Harmonizing {self.source_name}: {base} -> {nodes_output}")
 
         save_to_jsonl([], nodes_output, mode="w")  # truncate; we stream below
-        save_to_jsonl([], edges_output, mode="w")  # nodes-only source
 
         self._n_unmapped = 0
         self._n_qualified = 0
         seen: set[str] = set()
         counts: dict[str, int] = {}
+        # External mappings first: the equivalent ones become equivalent_ids on the part nodes minted below,
+        # and the rest (plus the answers' references) become this source's only edges.
+        self._part_equivalences = self._load_part_mappings(base)
+        self._collect_answer_reference_edges(base)
+
         for loinc_file in LOINC_FILES:
             counts[loinc_file.path] = self._ingest(base, loinc_file, nodes_output, seen)
+        counts["external stubs"] = self._write_external_nodes(nodes_output, seen)
+        save_to_jsonl(self._edges, edges_output, mode="w")
 
         summary = ", ".join(f"{Path(p).name}={n}" for p, n in counts.items())
         logging.info(
-            f"{self.source_name} harmonization complete: {len(seen)} LOINC nodes ({summary})"
+            f"{self.source_name} harmonization complete: {len(seen)} LOINC nodes, {len(self._edges)} edges "
+            f"({summary})"
             + (f"; {self._n_qualified} part names qualified by part type" if self._n_qualified else "")
             + (f"; {self._n_unmapped} ids dropped (biomapper2 could not form a CURIE)" if self._n_unmapped else "")
         )
+        if self._unmapped_code_systems:
+            logging.warning(
+                f"Dropped external mappings from {len(self._unmapped_code_systems)} code system(s) with no "
+                f"biomapper2 vocab: {dict(self._unmapped_code_systems)}. Register the worthwhile ones there."
+            )
+        if self._invalid_ext_codes:
+            logging.warning(f"External codes that failed biomapper2 validation: {dict(self._invalid_ext_codes)}")
+        if self._unknown_equivalences:
+            logging.warning(
+                f"Unrecognized Equivalence values (mapping neither kept nor edged): "
+                f"{dict(self._unknown_equivalences)}"
+            )
 
     # ------------------------------------------------------------------ core
 
@@ -251,10 +331,22 @@ class LoincHarmonizer(BaseHarmonizer):
                     # parts, so leaving them bare would put an unqualified "Creatinine" back on the divisor
                     # node -- exactly the collision with the analyte that qualifying is meant to remove.
                     synonyms = {self._qualify(synonym, qualifier) for synonym in synonyms}
-                if raw_part_type := (row.get(PART_TYPE_COLUMN) or "").strip():
-                    attributes[PART_TYPE_COLUMN] = raw_part_type
+                # Retain every column we didn't map to a property, matching what BaseHarmonizer does for the
+                # generic sources. LOINC's six axes (COMPONENT, PROPERTY, TIME_ASPCT, SYSTEM, SCALE_TYP,
+                # METHOD_TYP) are what a code actually IS, and they'd otherwise be dropped.
+                attributes |= self._unmapped_columns(row, loinc_file, spec)
 
-                batch.append(self._make_node(curie, name, synonyms, category, description, attributes))
+                batch.append(
+                    self._make_node(
+                        curie,
+                        name,
+                        synonyms,
+                        category,
+                        description,
+                        attributes,
+                        self._part_equivalences.get(curie, ()),
+                    )
+                )
                 n += 1
             if len(batch) >= BATCH_SIZE:
                 save_to_jsonl(batch, nodes_output, mode="a")
@@ -262,6 +354,138 @@ class LoincHarmonizer(BaseHarmonizer):
         if batch:
             save_to_jsonl(batch, nodes_output, mode="a")
         return n
+
+    # ------------------------------------------------------------------ external code mappings
+
+    def _ext_curie(self, row: dict) -> str | None:
+        """CURIE for a row's external code, or None if we can't form one. LOINC names the target system by
+        URI and sometimes writes the code already prefixed ("CHEBI:33216"), so the prefix is stripped before
+        biomapper2 -- which owns what a valid id looks like -- is asked to build the CURIE."""
+        system = (row.get("ExtCodeSystem") or "").strip()
+        code = (row.get("ExtCodeId") or "").strip()
+        if not code:
+            return None
+        vocab = EXT_CODE_SYSTEMS.get(system)
+        if not vocab:
+            self._unmapped_code_systems[system or "(blank)"] += 1
+            return None
+        local_id = code.split(":", 1)[1] if code.upper().startswith(f"{vocab.upper()}:") else code
+        resolved, invalid, _ = self.normalizer.get_curies(
+            {vocab: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+        )
+        if invalid:
+            self._invalid_ext_codes[vocab] += 1
+        return next(iter(resolved), None)
+
+    def _load_part_mappings(self, base: Path) -> dict[str, list[str]]:
+        """Read PartRelatedCodeMapping, returning part CURIE -> equivalent external CURIEs and stashing the
+        non-equivalent mappings as edges. LOINC states the specificity of each mapping, so `equivalent` can be
+        trusted as an equivalence while narrower/wider/relatedto must stay edges."""
+        path = base / PART_MAPPING_FILE
+        if not path.is_file():
+            logging.warning(f"{self.source_name}: no {PART_MAPPING_FILE}; parts will have no external mappings")
+            return {}
+
+        equivalences: dict[str, list[str]] = defaultdict(list)
+        for row in self._read_csv(path):
+            part_curie = self._normalize_curie((row.get("PartNumber") or "").strip())
+            ext_curie = self._ext_curie(row)
+            if not part_curie or not ext_curie:
+                continue
+            equivalence = (row.get("Equivalence") or "").strip().lower()
+            if equivalence == EQUIVALENT:
+                equivalences[part_curie].append(ext_curie)
+            elif predicate := EQUIVALENCE_PREDICATES.get(equivalence):
+                self._edges.append(self._make_edge(part_curie, predicate, ext_curie, row))
+            else:
+                self._unknown_equivalences[equivalence or "(blank)"] += 1
+        logging.info(
+            f"Loaded {sum(len(v) for v in equivalences.values())} equivalent external codes for "
+            f"{len(equivalences)} LOINC parts, plus {len(self._edges)} non-equivalent mapping edges"
+        )
+        self._warn_about_shared_equivalences(equivalences)
+        return equivalences
+
+    def _warn_about_shared_equivalences(self, equivalences: dict[str, list[str]]):
+        """Report parts that share an equivalent external code, since those will merge transitively.
+
+        LOINC's mappings are only as fine-grained as the terminology they point at: Phenytoin.free, .bound and
+        .total all map to one PubChem code, as do Triiodothyronine and its reverse isomer. We take LOINC at its
+        word anyway -- it's the source's own assertion, and no local rule reliably separates a good mapping
+        from a coarse one without knowing the target's granularity -- but entity resolution should weight these
+        below corroborated equivalences, and this is the number that says how much is at stake."""
+        claimants: dict[str, list[str]] = defaultdict(list)
+        for part_curie, ext_curies in equivalences.items():
+            for ext_curie in ext_curies:
+                claimants[ext_curie].append(part_curie)
+        shared = {code: parts for code, parts in claimants.items() if len(parts) > 1}
+        if not shared:
+            return
+        affected = {part for parts in shared.values() for part in parts}
+        logging.warning(
+            f"{len(shared)} external codes are claimed as equivalent by more than one LOINC part, pulling "
+            f"{len(affected)} parts into transitive merges (largest group {max(len(p) for p in shared.values())}). "
+            f"LOINC's mappings are as coarse as the target terminology, so these are a known over-merge risk "
+            f"and warrant a lower weight in entity resolution."
+        )
+
+    def _collect_answer_reference_edges(self, base: Path):
+        """An answer's external code says which concept it refers to, which is a `mentions` edge rather than
+        an equivalence (see ANSWER_REFERENCE_PREDICATE)."""
+        path = base / ANSWER_FILE_PATH
+        if not path.is_file():
+            return
+        seen_pairs: set[tuple[str, str]] = set()  # an answer repeats across the lists it belongs to
+        for row in self._read_csv(path):
+            answer_curie = self._normalize_curie((row.get("AnswerStringId") or "").strip())
+            ext_curie = self._ext_curie(row)
+            if not answer_curie or not ext_curie or (answer_curie, ext_curie) in seen_pairs:
+                continue
+            seen_pairs.add((answer_curie, ext_curie))
+            self._edges.append(self._make_edge(answer_curie, ANSWER_REFERENCE_PREDICATE, ext_curie, row))
+
+    def _write_external_nodes(self, nodes_output: Path, seen: set[str]) -> int:
+        """Mint a stub node for each external concept our edges point at, since every edge endpoint must exist
+        as a node in the same artifact.
+
+        Typed NamedThing: we don't know what an arbitrary SNOMED or ChEBI concept is, and NamedThing is the
+        honest placeholder -- it's also a wildcard for taxon/branch merge guards, so the stub takes on the real
+        type when the authoritative node for that CURIE merges in. LOINC does give us a display name for each,
+        so these aren't nameless."""
+        stubs = [
+            self._make_node(curie, display_name or None, set(), NAMED_THING)
+            for curie, display_name in sorted(self._external_nodes.items())
+            if curie not in seen
+        ]
+        if stubs:
+            save_to_jsonl(stubs, nodes_output, mode="a")
+            seen.update(node["id"] for node in stubs)
+        return len(stubs)
+
+    def _make_edge(self, subject: str, predicate: str, obj: str, row: dict) -> dict:
+        """LOINC curates these mappings by hand, hence knowledge_assertion / manual_agent.
+
+        Also records the edge's target so a stub node can be minted for it: every edge endpoint has to exist
+        as a node in the same artifact, and these point at external terminologies KRAKEN may not carry yet."""
+        self._external_nodes.setdefault(obj, (row.get("ExtCodeDisplayName") or "").strip())
+        return self.create_edge(
+            subject_id=subject,
+            object_id=obj,
+            predicate=predicate,
+            primary_ks=self.source_infores,
+            knowledge_level=KNOWLEDGE_ASSERTION,
+            agent_type=MANUAL_AGENT,
+        )
+
+    @staticmethod
+    def _unmapped_columns(row: dict, loinc_file: LoincFile, spec: NodeSpec) -> dict:
+        """Every non-empty column that didn't become a property, kept verbatim. On the answer file each row
+        mints two nodes, so each also carries the other's columns -- which is useful (an answer keeps the id
+        of the list it belongs to) rather than noise."""
+        consumed = {spec.id_col, spec.name_col, *loinc_file.synonym_cols, *spec.description_cols}
+        if isinstance(spec.description, str):
+            consumed.add(spec.description)
+        return {k: v.strip() for k, v in row.items() if k not in consumed and (v or "").strip()}
 
     @staticmethod
     def _description(row: dict, spec: NodeSpec) -> str | None:
@@ -301,12 +525,13 @@ class LoincHarmonizer(BaseHarmonizer):
         category: str,
         description: str | None = None,
         attributes: dict | None = None,
+        external_equivalent_ids: tuple[str, ...] = (),
     ) -> dict:
         return self.create_node(
             curie=curie,
             categories=[category],
             provided_by=self.source_infores,
-            equivalent_ids=[curie],
+            equivalent_ids=[curie, *external_equivalent_ids],
             name=name,
             synonyms=(synonyms or None),
             description=description,
