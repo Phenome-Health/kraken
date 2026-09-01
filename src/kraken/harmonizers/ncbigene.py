@@ -203,6 +203,8 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
         self.skipped_biological_regions = 0
         self.skipped_uncharacterized = 0
         self.unrecognized_gene_types: dict[str, int] = defaultdict(int)
+        self.unformable_curies: dict[str, int] = defaultdict(int)
+        self._taxon_curie_cache: dict[str, str | None] = {}
         self.skipped_by_taxon = 0
         self.taxonomy: TaxonNormalizer | None = None  # None if no taxdump provided
         self.allowed_species: frozenset[str] = frozenset()  # TAXON_ALLOWLIST, rolled up to species rank
@@ -389,6 +391,10 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
             return None
 
         gene_id = row[COL_GENE_ID]
+        gene_curie = self._curie(NCBI_GENE_PREFIX, gene_id)
+        if not gene_curie:
+            return None  # counted in unformable_curies; a gene we can't identify isn't worth a node
+
         full_name = self._value(row, COL_AUTHORITY_FULL_NAME) or self._gene_full_name(row, gene_type)
 
         # Prefer the nomenclature authority's official symbol as the node name, falling back to NCBI's symbol
@@ -413,10 +419,10 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
         if not description and self.use_full_name_as_description_fallback:
             description = self._full_name_description(full_name, raw_tax_id)
 
-        taxon = f"{NCBI_TAXON_PREFIX}:{species_tax_id}" if species_tax_id else None
+        taxon = self._taxon_curie(species_tax_id) if species_tax_id else None
         # Keep the taxon exactly as NCBI reported it whenever we rolled it up, so strain-level detail survives
         # the normalization and the rollup stays auditable.
-        raw_taxon_attribute = f"{NCBI_TAXON_PREFIX}:{raw_tax_id}" if species_tax_id != raw_tax_id else None
+        raw_taxon_attribute = self._taxon_curie(raw_tax_id) if species_tax_id != raw_tax_id else None
 
         attributes = {
             key: value
@@ -432,7 +438,7 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
         }
 
         return self.create_node(
-            curie=f"{NCBI_GENE_PREFIX}:{gene_id}",
+            curie=gene_curie,
             categories=categories,
             provided_by=self.source_infores,
             equivalent_ids=equivalent_ids,
@@ -500,6 +506,23 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
             self.rolled_up_to_species += 1
         return species_tax_id
 
+    def _curie(self, vocab: str, local_id: str) -> str | None:
+        """Form a CURIE through biomapper2, which owns what a valid prefix and id look like, rather than
+        string-building one we haven't validated. Returns None (counted) when it can't."""
+        resolved, _, _ = self.normalizer.get_curies(
+            {vocab: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+        )
+        curie = next(iter(resolved), None)
+        if not curie:
+            self.unformable_curies[vocab] += 1
+        return curie
+
+    def _taxon_curie(self, tax_id: str) -> str | None:
+        """Cached: a build sees ~119 distinct taxa across millions of genes, so this resolves each once."""
+        if tax_id not in self._taxon_curie_cache:
+            self._taxon_curie_cache[tax_id] = self._curie(NCBI_TAXON_PREFIX, tax_id)
+        return self._taxon_curie_cache[tax_id]
+
     def _equivalent_ids(self, row: dict[str, str]) -> list[str]:
         """Resolve NCBI's dbXrefs into KRAKEN CURIEs via biomapper2's normalizer, which owns what counts as a
         valid prefix and id and what each one's canonical form is (so "MIM:104760" becomes OMIM:104760 and
@@ -563,6 +586,11 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
             logging.info(
                 f"Skipped {self.skipped_biological_regions} '{BIOLOGICAL_REGION_TYPE}' records "
                 f"(set include_biological_regions=True to ingest them)"
+            )
+        if self.unformable_curies:
+            logging.warning(
+                f"Dropped records whose own identifiers biomapper2 could not form a CURIE for - counts by "
+                f"vocab are: {dict(self.unformable_curies)}"
             )
         if self.unrecognized_gene_types:
             ranked = dict(sorted(self.unrecognized_gene_types.items(), key=lambda kv: kv[1], reverse=True))

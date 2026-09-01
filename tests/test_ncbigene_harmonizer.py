@@ -60,6 +60,8 @@ def harmonizer() -> NCBIGeneHarmonizer:
     instance.skipped_biological_regions = 0
     instance.skipped_uncharacterized = 0
     instance.unrecognized_gene_types = defaultdict(int)
+    instance.unformable_curies = defaultdict(int)
+    instance._taxon_curie_cache = {}
     instance.skipped_by_taxon = 0
     instance.taxonomy = None
     instance.rolled_up_to_species = 0
