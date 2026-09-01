@@ -413,7 +413,7 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
         if not description and self.use_full_name_as_description_fallback:
             description = self._full_name_description(full_name, raw_tax_id)
 
-        taxa = [f"{NCBI_TAXON_PREFIX}:{species_tax_id}"] if species_tax_id else []
+        taxon = f"{NCBI_TAXON_PREFIX}:{species_tax_id}" if species_tax_id else None
         # Keep the taxon exactly as NCBI reported it whenever we rolled it up, so strain-level detail survives
         # the normalization and the rollup stays auditable.
         raw_taxon_attribute = f"{NCBI_TAXON_PREFIX}:{raw_tax_id}" if species_tax_id != raw_tax_id else None
@@ -440,7 +440,7 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
             synonyms=synonyms,
             description=description,
             urls=GENE_URL_TEMPLATE.format(gene_id=gene_id),
-            taxa=taxa,
+            taxon=taxon,
             attributes=attributes,
         )
 

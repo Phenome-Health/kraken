@@ -33,7 +33,7 @@ from kraken.utils.constants import (
     NODE_PROVIDED_BY,
     NODE_PUBLICATIONS,
     NODE_SYNONYMS,
-    NODE_TAXA,
+    NODE_TAXON,
     NODE_URLS,
     NOT_PROVIDED,
     UNRELIABLE_PUBLICATION_PRIMARY_KS,
@@ -50,6 +50,9 @@ from kraken.utils.kg_io import (
 
 # TRAPI-style edge provenance: an edge carrying this field lists its knowledge sources as objects of
 # {resource_id, resource_role}, which we parse instead of the flat primary_ks/supporting_sources props.
+# How many multi-taxon nodes to name individually in the run summary before merely counting the rest.
+MAX_MULTI_TAXON_EXAMPLES = 5
+
 TRAPI_SOURCES_FIELD = "sources"
 TRAPI_SOURCE_ROLES = {"primary_knowledge_source", "aggregator_knowledge_source", "supporting_data_source"}
 
@@ -134,6 +137,8 @@ class BaseHarmonizer(ABC):
         self.normalized_id_map = dict()
         self.unrecognized_source_roles = set()
         self.stripped_publications_count = 0
+        self.multi_taxon_node_count = 0
+        self.multi_taxon_examples: list[str] = []
 
         self.core_node_props = (
             {
@@ -211,6 +216,14 @@ class BaseHarmonizer(ABC):
                 count += 1
         logging.info("Finished harmonizing nodes")
 
+        if self.multi_taxon_node_count:
+            logging.warning(
+                f"{self.multi_taxon_node_count} nodes named more than one taxon and were left WITHOUT one "
+                f"(node.taxon is single-valued, and choosing between them would be arbitrary). This means the "
+                f"source conflates distinct entities under a single id. Examples: {self.multi_taxon_examples}. "
+                f"Untaxoned nodes are wildcards for taxon-based merge guards, so entity resolution can still "
+                f"pick up the right taxon from a source that knows it."
+            )
         if self.invalid_curies:
             logging.warning(
                 f"A total of {len(self.invalid_curies)} nodes had IDs that are not curies (left them as they are). "
@@ -296,7 +309,8 @@ class BaseHarmonizer(ABC):
             if new_synonyms:
                 synonyms |= set(new_synonyms)
 
-        # Collect taxon CURIE(s) from any configured taxon field(s), unioned
+        # Collect taxon CURIE(s) from any configured taxon field(s). Several fields can carry one, and a
+        # source occasionally names more than one taxon; create_node reduces them to the single `taxon` value.
         taxa = set()
         for taxon_prop in self.taxon_props:
             taxa |= set(to_list(node.get(taxon_prop)))
@@ -315,7 +329,7 @@ class BaseHarmonizer(ABC):
             chemical_formula=node.get(self.chemical_formula_prop),
             exact_mass=node.get(self.exact_mass_prop),
             publications=node.get(self.publications_prop),
-            taxa=taxa,
+            taxon=taxa,
             attributes=self._collect_node_attributes(node),
         )
 
@@ -440,7 +454,7 @@ class BaseHarmonizer(ABC):
         chemical_formula: str | list[str] | None = None,
         exact_mass: float | None = None,
         publications: str | list[str] = None,
-        taxa: str | list[str] | set[str] | None = None,
+        taxon: str | list[str] | set[str] | None = None,
         attributes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not (curie and categories and provided_by):
@@ -495,8 +509,18 @@ class BaseHarmonizer(ABC):
         equivalent_ids_final = list(cleaned_equiv_ids | {curie_normalized})
         node[NODE_EQUIVALENT_IDS] = equivalent_ids_final
 
-        if taxa:
-            node[NODE_TAXA] = list(dict.fromkeys(to_list(taxa)))  # list so taxa union-merge across sources
+        # `taxon` is single-valued (per Biolink). A node naming several taxa means the source has conflated
+        # distinct entities under one id -- translator labels the human gene CDH5 as both human and mouse.
+        # There's no way to tell which is meant, so such a node gets NO taxon rather than an arbitrary pick:
+        # untaxoned nodes are wildcards for taxon-based merge guards, so entity resolution can still take the
+        # right taxon from a source that knows it. Counted below so the source problem stays visible.
+        distinct_taxa = sorted({value for value in to_list(taxon) if value})
+        if len(distinct_taxa) == 1:
+            node[NODE_TAXON] = distinct_taxa[0]
+        elif distinct_taxa:
+            self.multi_taxon_node_count += 1
+            if len(self.multi_taxon_examples) < MAX_MULTI_TAXON_EXAMPLES:
+                self.multi_taxon_examples.append(f"{curie_normalized} {distinct_taxa}")
 
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
