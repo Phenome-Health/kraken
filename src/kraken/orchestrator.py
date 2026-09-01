@@ -24,6 +24,7 @@ from kraken.harmonizers.loinc import LoincHarmonizer
 from kraken.harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
 from kraken.harmonizers.molepro import MoleProHarmonizer
 from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
+from kraken.harmonizers.ncbigene import NCBIGeneHarmonizer
 from kraken.harmonizers.pgs_catalog import PGSCatalogHarmonizer
 from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
@@ -47,6 +48,7 @@ class KrakenBuildOrchestrator:
         "robokop": RobokopHarmonizer,
         "molepro": MoleProHarmonizer,
         "microbiome-kg": MicrobiomeKGHarmonizer,
+        "ncbigene": NCBIGeneHarmonizer,
         "multiomics-kg": MultiomicsKGHarmonizer,
         "spoke": SpokeHarmonizer,
         "umls": UMLSHarmonizer,

@@ -52,6 +52,11 @@ sources:
     edges_input: "input_data/translator-kg-open/2026_07_19/edges.jsonl"
     can_merge_existing_nodes: True  # equiv-ids dropped in the harmonizer instead (prevents the class/member over-merge without the can_merge=False orphan bug)
 
+  ncbigene:
+    version: "accessed_2026-08-31"
+    input_file: "input_data/ncbigene"
+    can_merge_existing_nodes: True
+
   microbiome-kg:
     version: "2.1.0"
     nodes_input: "input_data/microbiome-kg/Microbiome_KG_nodes_v2.1.0.tsv"

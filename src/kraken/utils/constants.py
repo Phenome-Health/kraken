@@ -22,6 +22,7 @@ REFMET_INFORES: str = f"{INFORES_PREFIX}:refmet"
 CLINGEN_INFORES = f"{INFORES_PREFIX}:clingen"
 HMDB_INFORES: str = f"{INFORES_PREFIX}:hmdb"
 LOINC_INFORES: str = f"{INFORES_PREFIX}:loinc"
+NCBIGENE_INFORES: str = f"{INFORES_PREFIX}:ncbi-gene"
 
 
 # Some sources do not (yet) have registered infores curies; use bare source IDs for those
