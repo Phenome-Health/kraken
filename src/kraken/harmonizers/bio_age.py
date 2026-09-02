@@ -15,8 +15,11 @@ from kraken.utils.kg_io import save_to_jsonl
 PAPER = "PMID:31724055"  # Earls et al., J Gerontol A 2019 -- doi:10.1093/gerona/glz220
 
 # --- Biolink types / minted ids (each a single swappable constant) ---
-# A biological-age score is a measurable characteristic of a person, so Attribute.
-NODE_CATEGORY = "biolink:Attribute"
+# Biological age is a computed multi-omic predictive score, not a direct lab
+# observation, so ClinicalMeasurement (Biolink: "results from a laboratory observation
+# from a subject") doesn't fit. Typed InformationContentEntity — a defined, computed
+# predictive score/model artifact — consistent with the PGS score node.
+NODE_CATEGORY = "biolink:InformationContentEntity"
 CORRELATE_STUB_CATEGORY = "biolink:NamedThing"  # disease/behavior endpoints; real type arrives on merge
 # ΔAge direction selects the predicate (correlation direction IS the predicate, so no qualifier needed):
 POSITIVELY_CORRELATED = "biolink:positively_correlated_with"  # condition -> increased ΔAge

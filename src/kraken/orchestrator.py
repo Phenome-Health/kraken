@@ -22,13 +22,11 @@ from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
 from kraken.harmonizers.loinc import LoincHarmonizer
 from kraken.harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
-from kraken.harmonizers.molepro import MoleProHarmonizer
 from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
 from kraken.harmonizers.ncbigene import NCBIGeneHarmonizer
 from kraken.harmonizers.pgs_catalog import PGSCatalogHarmonizer
 from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
-from kraken.harmonizers.spoke import SpokeHarmonizer
 from kraken.harmonizers.translator_kg_open import TranslatorKGOpenHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
 from kraken.integrate import integrate_sources
@@ -46,11 +44,9 @@ class KrakenBuildOrchestrator:
     HARMONIZERS = {
         "kg2": KG2Harmonizer,
         "robokop": RobokopHarmonizer,
-        "molepro": MoleProHarmonizer,
         "microbiome-kg": MicrobiomeKGHarmonizer,
         "ncbigene": NCBIGeneHarmonizer,
         "multiomics-kg": MultiomicsKGHarmonizer,
-        "spoke": SpokeHarmonizer,
         "umls": UMLSHarmonizer,
         "lipidmaps": LipidMapsHarmonizer,
         "loinc": LoincHarmonizer,

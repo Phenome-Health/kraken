@@ -36,8 +36,11 @@ TOP_N_VARIANTS_FOR_EDGES = 10_000
 TOP_N_GENES_PER_PGS = 500
 
 # --- PLACEHOLDER Biolink types (pending a types review; each is a single swappable constant) ---
-# There is no clean Biolink class for a polygenic score; InformationContentEntity is a stand-in.
-PGS_NODE_CATEGORY = "biolink:Attribute"  # a PGS is a measurable characteristic of a person (TODO(types): revisit)
+# There is no clean Biolink class for a polygenic score. The node is the score *definition*
+# (a published, catalogued, reusable scoring model with a PGS accession), i.e. an information
+# artifact, so we type it as InformationContentEntity rather than Attribute (which describes a
+# per-person value, not the model). No more-specific Biolink subtype fits without over-committing.
+PGS_NODE_CATEGORY = "biolink:InformationContentEntity"
 TRAIT_STUB_CATEGORY = "biolink:NamedThing"  # minimal stub; real category arrives when ontology sources merge in
 GENE_CATEGORY = "biolink:Gene"  # gene endpoints; emitted as ENSEMBL:<ENSG>, merge into graph gene nodes via ER
 VARIANT_CATEGORY = "biolink:SequenceVariant"  # variant endpoints (rsID-bearing variants only)

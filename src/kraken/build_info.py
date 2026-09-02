@@ -31,7 +31,7 @@ class BuildInfo(BaseModel):
     build_duration_minutes: float
 
     # Optional analyst-facing enrichments (forward-compatible; may be absent/None)
-    kg_label: str | None = None  # e.g. "kraken-with-spoke" / "kraken-no-spoke"
+    kg_label: str | None = None  # e.g. "kraken-full" / "kraken-lite"
     node_count: int | None = None
     edge_count: int | None = None
     # Per-source version/release ingested for this build; value is None when unknown.

@@ -18,11 +18,23 @@ class HarmonizationConfig(BaseModel):
 
 class IntegrationConfig(BaseModel):
     output_directory: str
-    primary_source: str
 
 
 class MetagraphConfig(BaseModel):
     output_directory: str
+
+
+class EntityResolutionConfig(BaseModel):
+    """Clustering-based entity resolution (opt-in; replaces integrate.py's node
+    merge). Default OFF — the legacy merge remains the build default until this is
+    validated. See src/kraken/entity_resolution/ and docs/entity_resolution_plan.md.
+
+    Curated inputs (branch families, prefix ranking, weights, ground truth) live at
+    fixed paths under config/entity_resolution/ and are loaded directly by the ER
+    modules — they are not build-config knobs.
+    """
+
+    enabled: bool = False
 
 
 class StepsConfig(BaseModel):
@@ -56,7 +68,6 @@ class SourceConfig(BaseModel):
     input_file: str | None = None
     nodes_input: str | None = None
     edges_input: str | None = None
-    can_merge_existing_nodes: bool = False
 
     # Computed (set by KrakenConfig validator)
     input_file_resolved: Path | None = Field(default=None, init=False)
@@ -76,7 +87,7 @@ class SourceConfig(BaseModel):
 class KrakenConfig(BaseModel):
     biolink_version: str
     kraken_version: str
-    kg_label: str | None = None  # human-readable build name, e.g. "kraken-no-spoke"
+    kg_label: str | None = None  # human-readable build name, e.g. "kraken-lite"
     log_level: str = "INFO"
     base_path: str | None = None
     harmonization: HarmonizationConfig
@@ -85,6 +96,7 @@ class KrakenConfig(BaseModel):
     steps: StepsConfig
     options: OptionsConfig
     post_processing: PostProcessingConfig | None = None
+    entity_resolution: EntityResolutionConfig = Field(default_factory=EntityResolutionConfig)
     sources: dict[str, SourceConfig]
 
     # Computed field (not from yaml)
@@ -93,12 +105,6 @@ class KrakenConfig(BaseModel):
     @model_validator(mode="after")
     def validate_and_resolve_sources(self) -> Self:
         all_sources = set(self.sources.keys())
-
-        # Validate primary_source exists
-        if self.integration.primary_source not in all_sources:
-            raise ValueError(
-                f"primary_source '{self.integration.primary_source}' must exist under 'sources': {all_sources}"
-            )
 
         include_sources = set(to_list(self.options.include_sources))
         exclude_sources = set(to_list(self.options.exclude_sources))
@@ -157,6 +163,16 @@ class KrakenConfig(BaseModel):
     @property
     def integrated_debug_dir(self) -> Path:
         return self.integrated_dir / "debug"
+
+    # Entity-resolution outputs (curated inputs load from fixed config paths in
+    # the ER modules themselves). These resolve against base_path.
+    @property
+    def er_nodenorm_cache_path(self) -> Path:
+        return self.base_path_resolved / "artifacts" / "entity_resolution" / "nodenorm_cache.sqlite"
+
+    @property
+    def er_membership_path(self) -> Path:
+        return self.integrated_dir / f"kraken_membership_{self.kraken_version}.jsonl"
 
     @property
     def integrated_nodes_path(self) -> Path:

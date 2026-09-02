@@ -634,7 +634,7 @@ class BaseHarmonizer(ABC):
 
     def normalize_curie(self, curie: str) -> str:
         # TODO: Eventually run all curies through biomapper, but some bug fixes are needed first
-        # TODO: Temporarily we'll just run it on molepro's known problem curies
+        # TODO: Temporarily we'll just run it on the known problem curies below
         if ":" in curie and curie.split(":")[0].upper() in {"CHEMBL.COMPOUND", "CHEMBL.TARGET", "UNII", "KEGG"}:
             # Returned the cached mapping if we've seen this curie before
             if curie in self.normalized_id_map:
@@ -647,8 +647,8 @@ class BaseHarmonizer(ABC):
                 self.normalized_id_map[curie] = curie
                 return curie
 
-            # Molepro and probably others sometimes mistakenly use KEGG prefix
-            #   instead of kEGG.COMPOUND... let biomapper choose between these
+            # Some sources sometimes mistakenly use the KEGG prefix
+            #   instead of KEGG.COMPOUND... let biomapper choose between these
             if prefix.lower() == "kegg":
                 prefix = ("kegg", "kegg.compound", "kegg.target")
 

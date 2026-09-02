@@ -1,0 +1,71 @@
+# Ranked prefixes per branch-family, for choosing a cluster's representative
+# (SEED — needs curation with Amy).
+#
+# Because query ids all resolve to the canonical node, the representative id is
+# cosmetic: it only decides which member's NAME (and, if it has one, DESCRIPTION)
+# labels the cluster. Selection:
+#   * representative id  = member whose prefix ranks highest for the cluster's family
+#   * name               = highest-ranked member that has a name
+#   * description        = highest-ranked member that has a non-empty description
+#                          (may come from a lower-ranked id than the name)
+# Prefixes not listed rank after listed ones, then lexically. Amy: reorder freely.
+
+rankings:
+  gene_protein:
+    - HGNC
+    - NCBIGene
+    - ENSEMBL
+    - UniProtKB
+    - PR
+    - OMIM
+
+  disease_phenotype:
+    - MONDO
+    - DOID
+    - orphanet
+    - OMIM
+    - HP
+    - MESH
+    - NCIT
+    - MEDDRA
+    - SNOMEDCT
+    - UMLS
+
+  chemical:
+    - RM          # RefMet
+    - HMDB
+    - LM          # LIPID MAPS
+    - CHEBI
+    - PUBCHEM.COMPOUND
+    - DRUGBANK
+    - KEGG
+    - INCHIKEY
+
+  anatomy:
+    - UBERON
+    - CL
+    - GO
+    - FMA
+    - MESH
+
+  process_activity:
+    - GO
+    - REACT
+    - MetaCyc
+    - KEGG
+    - MESH
+
+  organism:
+    - NCBITaxon
+
+# Used when a cluster's family is unknown/wildcard or has no ranking above.
+_default:
+  - MONDO
+  - HGNC
+  - NCBIGene
+  - REFMET
+  - CHEBI
+  - UBERON
+  - GO
+  - NCBITaxon
+  - UMLS
