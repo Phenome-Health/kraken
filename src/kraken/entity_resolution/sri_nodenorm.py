@@ -6,8 +6,10 @@ guardrail is inert. This client supplies both, using the RENCI API directly.
 
 Key decisions (correcting the plan doc, per Amy):
 
-* ``conflate=true`` — we WANT gene/protein conflation — and
-  ``drug_chemical_conflate=false``.
+* ``conflate=true`` (gene/protein conflation) and ``drug_chemical_conflate=true``
+  (drug/chemical conflation) — both wanted. NOTE: the cache key is the CURIE only,
+  so changing either flag makes prior cache entries stale — clear the cache and
+  re-resolve after a flag change.
 * ``individual_types=true`` so each equivalent identifier carries its own
   category (not just the clique's).
 * Per-CURIE label comes from that CURIE's entry in ``equivalent_identifiers``,
@@ -26,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,17 +63,47 @@ PREFIX_CATEGORY: dict[str, str] = {
 # skip them entirely rather than wasting an API round trip.
 NON_QUERYABLE_PREFIXES: frozenset[str] = frozenset({"SMILES", "INCHI"})
 
+# Prefix -> taxon for single-species nomenclature authorities (the prefix itself
+# DEFINES the species). Used ONLY as a backup when the normalizer returns no
+# taxon (e.g. an id the normalizer doesn't recognize) — never overriding a real
+# NN answer. Kept to prefixes that are unambiguously one species; multi-species
+# prefixes (NCBIGene, UniProtKB, ENSEMBL, Xenbase) are deliberately omitted.
+TAXON_BY_PREFIX: dict[str, str] = {
+    "HGNC": "NCBITaxon:9606",       # human
+    "MGI": "NCBITaxon:10090",       # mouse
+    "RGD": "NCBITaxon:10116",       # rat
+    "ZFIN": "NCBITaxon:7955",       # zebrafish
+    "FB": "NCBITaxon:7227",         # fruit fly (FlyBase)
+    "FlyBase": "NCBITaxon:7227",
+    "WB": "NCBITaxon:6239",         # C. elegans (WormBase)
+    "WormBase": "NCBITaxon:6239",
+    "SGD": "NCBITaxon:559292",      # S. cerevisiae S288C
+    "PomBase": "NCBITaxon:4896",    # S. pombe
+    "dictyBase": "NCBITaxon:44689",  # D. discoideum
+    "TAIR": "NCBITaxon:3702",       # A. thaliana
+}
+
 
 @dataclass(frozen=True)
 class NormInfo:
-    """Label + categories for one CURIE (categories may be empty)."""
+    """Per-CURIE facts from the normalizer. ``taxa`` and ``categories`` may be
+    empty; ``canonical`` is the clique's canonical id (used to group cliques for
+    equivalence evidence). A member shares a clique with every other member that
+    has the same ``canonical``."""
 
     label: str | None
     categories: tuple[str, ...]
+    taxa: tuple[str, ...] = ()
+    canonical: str | None = None
 
 
 def infer_category(curie: str) -> str | None:
     return PREFIX_CATEGORY.get(curie.split(":", 1)[0])
+
+
+def infer_taxon(curie: str) -> str | None:
+    """Backup taxon from a single-species nomenclature prefix (or None)."""
+    return TAXON_BY_PREFIX.get(curie.split(":", 1)[0])
 
 
 class NodeNormClient:
@@ -80,10 +113,13 @@ class NodeNormClient:
         *,
         base_url: str = DEFAULT_BASE_URL,
         conflate: bool = True,
-        drug_chemical_conflate: bool = False,
+        drug_chemical_conflate: bool = True,
         individual_types: bool = True,
         batch_size: int = 1000,
         timeout: float = 60.0,
+        max_retries: int = 4,
+        retry_backoff: float = 2.0,
+        progress_every: int = 200,
         session: requests.Session | None = None,
     ):
         self.base_url = base_url
@@ -92,30 +128,51 @@ class NodeNormClient:
         self.individual_types = individual_types
         self.batch_size = batch_size
         self.timeout = timeout
+        self.max_retries = max_retries  # retry a failed batch this many times (exponential backoff)
+        self.retry_backoff = retry_backoff  # base seconds; sleep = retry_backoff * 2**attempt
+        self.progress_every = progress_every  # log + commit cache every N batches
         self._session = session or requests.Session()
         self._db = sqlite3.connect(str(cache_path))
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS norm_cache ("
-            "curie TEXT PRIMARY KEY, label TEXT, categories TEXT, resolved INTEGER)"
+            "curie TEXT PRIMARY KEY, canonical TEXT, label TEXT, categories TEXT, "
+            "taxa TEXT, resolved INTEGER)"
         )
+        # Migrate an older cache (label/categories/resolved only) by adding the new
+        # columns; rows written before this change lack canonical/taxa, so a rerun
+        # that needs cliques or taxa must be run against a cleared cache.
+        existing = {r[1] for r in self._db.execute("PRAGMA table_info(norm_cache)")}
+        for column in ("canonical", "taxa"):
+            if column not in existing:
+                self._db.execute(f"ALTER TABLE norm_cache ADD COLUMN {column} TEXT")
+        self._db.execute("CREATE INDEX IF NOT EXISTS idx_norm_canonical ON norm_cache(canonical)")
         self._db.commit()
 
     # ---- cache ----
 
     def _cache_get(self, curie: str) -> NormInfo | None:
         row = self._db.execute(
-            "SELECT label, categories, resolved FROM norm_cache WHERE curie = ?", (curie,)
+            "SELECT label, categories, taxa, canonical FROM norm_cache WHERE curie = ?", (curie,)
         ).fetchone()
         if row is None:
             return None
-        label, categories_json, _resolved = row
+        label, categories_json, taxa_json, canonical = row
         categories = tuple(json.loads(categories_json)) if categories_json else ()
-        return NormInfo(label=label, categories=categories)
+        taxa = tuple(json.loads(taxa_json)) if taxa_json else ()
+        return NormInfo(label=label, categories=categories, taxa=taxa, canonical=canonical)
 
     def _cache_put(self, curie: str, info: NormInfo, resolved: bool) -> None:
         self._db.execute(
-            "INSERT OR REPLACE INTO norm_cache (curie, label, categories, resolved) VALUES (?, ?, ?, ?)",
-            (curie, info.label, json.dumps(list(info.categories)), int(resolved)),
+            "INSERT OR REPLACE INTO norm_cache (curie, canonical, label, categories, taxa, resolved) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                curie,
+                info.canonical,
+                info.label,
+                json.dumps(list(info.categories)),
+                json.dumps(list(info.taxa)),
+                int(resolved),
+            ),
         )
 
     # ---- API ----
@@ -127,91 +184,189 @@ class NodeNormClient:
             "individual_types": str(self.individual_types).lower(),
         }
 
-    def _fetch_batch(self, curies: list[str]) -> dict[str, NormInfo]:
+    def _fetch_batch(self, curies: list[str]) -> dict[str, NormInfo] | None:
+        """Fetch one batch, retrying transient failures with exponential backoff.
+        Returns the parsed dict on success (curies absent from it are legitimately
+        unresolved), or ``None`` if it failed after all retries (caller must NOT
+        cache those — they should be retried on the next run, not poisoned empty)."""
         payload = {"curies": curies, **{k: v == "true" for k, v in self._params().items()}}
-        try:
-            resp = self._session.post(self.base_url, json=payload, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
-        except (requests.RequestException, ValueError) as exc:
-            logging.warning("Node Normalizer request failed for %d curies: %s", len(curies), exc)
-            return {}
-        return self._parse_response(curies, data)
+        for attempt in range(self.max_retries + 1):
+            try:
+                resp = self._session.post(self.base_url, json=payload, timeout=self.timeout)
+                resp.raise_for_status()
+                return self._parse_response(resp.json())
+            except (requests.RequestException, ValueError) as exc:
+                if attempt < self.max_retries:
+                    sleep_s = self.retry_backoff * (2**attempt)
+                    logging.warning(
+                        "Node Normalizer batch failed (attempt %d/%d), retrying in %.0fs: %s",
+                        attempt + 1,
+                        self.max_retries + 1,
+                        sleep_s,
+                        exc,
+                    )
+                    time.sleep(sleep_s)
+                else:
+                    logging.error(
+                        "Node Normalizer batch of %d curies failed after %d attempts; leaving uncached "
+                        "(will retry next run): %s",
+                        len(curies),
+                        self.max_retries + 1,
+                        exc,
+                    )
+        return None
 
     @staticmethod
-    def _parse_response(curies: Iterable[str], data: dict) -> dict[str, NormInfo]:
-        out: dict[str, NormInfo] = {}
-        for curie in curies:
-            entry = data.get(curie)
+    def _parse_response(data: dict) -> dict[str, NormInfo]:
+        """HARVEST every clique member from the response, not just the queried ids.
+
+        One query returns the full clique (every ``equivalent_identifiers`` row
+        with its own label/type/taxa), so we record all of them — the caller
+        caches them, which both de-duplicates future queries (clique-mates are
+        already resolved) and provides the clique membership (via ``canonical``)
+        used to emit equivalence evidence. Per-id ``type``/``taxa`` fall back to
+        the clique-level values when a row omits them."""
+        harvested: dict[str, NormInfo] = {}
+        for entry in data.values():
             if not entry:
                 continue
-            # per-CURIE label + type from the matching equivalent_identifiers row
-            label: str | None = None
-            categories: tuple[str, ...] = ()
+            canonical = (entry.get("id") or {}).get("identifier")
+            clique_types = entry.get("type") or []
+            clique_taxa = entry.get("taxa") or []
             for eq in entry.get("equivalent_identifiers", []):
-                if eq.get("identifier") == curie:
-                    label = eq.get("label")
-                    types = eq.get("type") or []
-                    categories = tuple(types) if isinstance(types, list) else (types,)
-                    break
-            if not categories:
-                # fall back to the clique-level type only for the category
-                top_types = entry.get("type") or []
-                categories = tuple(top_types) if isinstance(top_types, list) else (top_types,)
-            out[curie] = NormInfo(label=label, categories=categories)
-        return out
+                member = eq.get("identifier")
+                if not member:
+                    continue
+                types = eq.get("type") or clique_types
+                categories = tuple(types) if isinstance(types, list) else (types,)
+                taxa_raw = eq.get("taxa") or clique_taxa
+                taxa = tuple(taxa_raw) if isinstance(taxa_raw, list) else (taxa_raw,)
+                harvested[member] = NormInfo(
+                    label=eq.get("label"),
+                    categories=categories,
+                    taxa=taxa,
+                    canonical=canonical,
+                )
+        return harvested
 
     # ---- public ----
 
     def resolve(self, curies: Iterable[str], *, use_inference: bool = True) -> dict[str, NormInfo]:
-        """Return ``{curie: NormInfo}``. The normalizer is the source of truth:
-        every id is queried (batched) and its result cached, including negatives.
-        Prefix inference is used ONLY as a **backup category** when the normalizer
-        doesn't recognize an id (or returns no type) — trusting a prefix→category
-        heuristic over the normalizer is exactly the kind of shortcut that goes
-        wrong, so it never overrides a real answer. Non-queryable prefixes (raw
-        structure strings like SMILES) skip the API and fall straight to inference.
+        """Return ``{curie: NormInfo}``. The normalizer is the source of truth for
+        categories AND taxa; prefix inference is only a **backup** for ids it
+        doesn't recognize (or leaves untyped/untaxoned) — never overriding a real
+        answer. Non-queryable prefixes (SMILES etc.) skip the API.
+
+        HARVEST + DEDUP: one query returns a CURIE's whole clique, so every
+        clique-mate's facts are cached too. A queued id already filled in by an
+        earlier batch's harvest is skipped, so each clique is fetched once, not
+        once per member. The cached ``canonical`` also lets ``iter_cliques`` emit
+        equivalence evidence from the normalizer's cliques.
         """
-        wanted = list(dict.fromkeys(curies))  # dedup, keep order
+        wanted = list(dict.fromkeys(curies))  # dedup input, keep order
         result: dict[str, NormInfo] = {}
-        to_fetch: list[str] = []
+        queue: list[str] = []
 
         for curie in wanted:
             cached = self._cache_get(curie)
             if cached is not None:
                 result[curie] = cached
-                continue
-            if curie.split(":", 1)[0] in NON_QUERYABLE_PREFIXES:
-                info = self._inference_backup(curie) if use_inference else NormInfo(label=None, categories=())
+            elif curie.split(":", 1)[0] in NON_QUERYABLE_PREFIXES:
+                info = self._backup(curie) if use_inference else NormInfo(None, ())
                 result[curie] = info
                 self._cache_put(curie, info, resolved=False)
-                continue
-            to_fetch.append(curie)
+            else:
+                queue.append(curie)
 
-        for start in range(0, len(to_fetch), self.batch_size):
-            batch = to_fetch[start : start + self.batch_size]
-            fetched = self._fetch_batch(batch)
-            for curie in batch:
-                info = fetched.get(curie)
-                recognized = info is not None and bool(info.categories)
-                if not recognized and use_inference:
-                    # normalizer didn't type it -> prefix inference as a backup,
-                    # keeping any label the normalizer did return.
-                    backup = self._inference_backup(curie)
-                    label = info.label if info is not None else None
-                    info = NormInfo(label=label, categories=backup.categories)
-                elif info is None:
-                    info = NormInfo(label=None, categories=())
-                result[curie] = info
-                self._cache_put(curie, info, resolved=recognized)
+        logging.info(
+            "Node Normalizer: up to %d curies to fetch (%d served from cache), harvesting cliques",
+            len(queue),
+            len(wanted) - len(queue),
+        )
+        pending: list[str] = []
+        done = fetched_batches = failed_batches = 0
+
+        def flush_batch() -> None:
+            nonlocal done, fetched_batches, failed_batches
+            if not pending:
+                return
+            fetched_batches += 1
+            harvested = self._fetch_batch(pending)
+            if harvested is None:
+                failed_batches += 1
+                for c in pending:  # transient failure: backup for this run, do NOT cache
+                    result[c] = self._backup(c) if use_inference else NormInfo(None, ())
+            else:
+                # cache EVERY harvested member (clique-mates included) so future
+                # queued ids in the same clique become cache hits (the dedup).
+                for member, info in harvested.items():
+                    self._cache_put(member, self._apply_backups(member, info) if use_inference else info, resolved=True)
+                for c in pending:  # a queried id NN didn't return -> unrecognized
+                    result[c] = self._cache_get(c) or self._record_unrecognized(c, use_inference)
+            done += len(pending)
+            if fetched_batches % self.progress_every == 0:
+                self._db.commit()
+                logging.info(
+                    "Node Normalizer: fetched %d curies (%d batches%s)",
+                    done,
+                    fetched_batches,
+                    f", {failed_batches} failed" if failed_batches else "",
+                )
+            pending.clear()
+
+        for curie in queue:
+            cached = self._cache_get(curie)  # may have been harvested by an earlier batch
+            if cached is not None:
+                result[curie] = cached
+                continue
+            pending.append(curie)
+            if len(pending) >= self.batch_size:
+                flush_batch()
+        flush_batch()
 
         self._db.commit()
         return result
 
-    @staticmethod
-    def _inference_backup(curie: str) -> NormInfo:
-        inferred = infer_category(curie)
-        return NormInfo(label=None, categories=(inferred,) if inferred else ())
+    def iter_cliques(self):
+        """Yield ``(canonical, [member curies])`` for every normalizer clique in the
+        cache (resolved rows only), streamed in canonical order so memory is bounded
+        by one clique. This is the equivalence signal for the match graph."""
+        cursor = self._db.execute(
+            "SELECT canonical, curie FROM norm_cache "
+            "WHERE canonical IS NOT NULL AND resolved = 1 ORDER BY canonical"
+        )
+        current: str | None = None
+        members: list[str] = []
+        for canonical, curie in cursor:
+            if canonical != current and members:
+                yield current, members
+                members = []
+            current = canonical
+            members.append(curie)
+        if members:
+            yield current, members
+
+    def _apply_backups(self, curie: str, info: NormInfo) -> NormInfo:
+        """Fill category/taxon gaps in a normalizer answer from prefix backups
+        (never overriding a value the normalizer supplied)."""
+        categories = info.categories
+        if not categories:
+            inferred = infer_category(curie)
+            categories = (inferred,) if inferred else ()
+        taxa = info.taxa
+        if not taxa:
+            inferred_taxon = infer_taxon(curie)
+            taxa = (inferred_taxon,) if inferred_taxon else ()
+        return NormInfo(label=info.label, categories=categories, taxa=taxa, canonical=info.canonical)
+
+    def _backup(self, curie: str) -> NormInfo:
+        """Backup facts (category + taxon) for an id with no normalizer answer."""
+        return self._apply_backups(curie, NormInfo(label=None, categories=()))
+
+    def _record_unrecognized(self, curie: str, use_inference: bool) -> NormInfo:
+        info = self._backup(curie) if use_inference else NormInfo(None, ())
+        self._cache_put(curie, info, resolved=False)
+        return info
 
     def close(self) -> None:
         self._db.commit()

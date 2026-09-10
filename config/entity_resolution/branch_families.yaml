@@ -11,7 +11,7 @@
 # doubt, be generous. Review every line; edit freely.
 #
 # Key bridges: ClinicalFinding -> [clinical_obs, disease_pheno];
-#   Procedure -> [clinical_obs, procedure]; NucleicAcidEntity -> [chemical, gene_protein].
+#   Procedure -> [clinical_obs, treatment]; NucleicAcidEntity -> [chemical, gene_protein].
 
 categories:
   biolink:AccessibleDnaRegion: [gene_protein]
@@ -135,7 +135,7 @@ categories:
   biolink:PopulationOfIndividualOrganisms: [organism]
   biolink:PosttranslationalModification: [gene_protein]
   biolink:PreprintPublication: [info_content]
-  biolink:Procedure: [clinical_obs, procedure]
+  biolink:Procedure: [clinical_obs, treatment]
   biolink:ProcessedMaterial: [chemical]
   biolink:Protein: [gene_protein]
   biolink:ProteinDomain: [gene_protein]
@@ -168,3 +168,25 @@ categories:
   biolink:Virus: [organism]
   biolink:WebPage: [info_content]
   biolink:Zygosity: [genomic_variant]
+
+  # --- Biolink mixins (a node's individual_types can include these) ---
+  biolink:ActivityAndBehavior: [process_activity]
+  biolink:ChemicalEntityOrGeneOrGeneProduct: [chemical, gene_protein]
+  biolink:ChemicalEntityOrProteinOrPolypeptide: [chemical, gene_protein]
+  biolink:ChemicalOrDrugOrTreatment: [chemical, treatment]
+  biolink:Entity: []  # wildcard
+  biolink:EpigenomicEntity: [gene_protein]
+  biolink:ExposureEvent: [exposure]
+  biolink:GeneGroupingMixin: [gene_protein]
+  biolink:GeneOrGeneProduct: [gene_protein]
+  biolink:GeneProductIsoformMixin: [gene_protein]
+  biolink:GeneProductMixin: [gene_protein]
+  biolink:GenomicEntity: [gene_protein, genomic_variant]
+  biolink:MacromolecularMachineMixin: [gene_protein]
+  biolink:Occurrent: []  # wildcard
+  biolink:OntologyClass: []  # wildcard
+  biolink:PathologicalEntityMixin: []  # wildcard
+  biolink:PhysicalEssence: []  # wildcard
+  biolink:PhysicalEssenceOrOccurrent: []  # wildcard
+  biolink:SubjectOfInvestigation: []  # wildcard
+  biolink:ThingWithTaxon: []  # wildcard

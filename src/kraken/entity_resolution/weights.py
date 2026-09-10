@@ -3,14 +3,20 @@
 Design (see ``docs/entity_resolution_plan.md`` §1):
 
 * Weights are **per source** and **accumulate across agreeing sources**.
-* Discriminative power comes from sources *disagreeing*, so weight design
-  matters more than gamma. The key calibration is relative to gamma (the
-  clustering resolution): a source whose weight exceeds gamma can merge a pair
-  on its own; a source below gamma can only *corroborate*. Over-conflating
-  sources (the aggregators) therefore sit **below** gamma.
+* Clustering is label propagation (no resolution parameter), so the gate is
+  **tau**: a CURIE pair whose accumulated weight reaches tau gets an edge, and
+  label propagation then merges what is connected (subject to the guardrails). So
+  a source whose weight alone reaches tau can merge a pair on its own; a source
+  below tau can only *corroborate* (its weight sums with other sub-tau evidence
+  to cross tau). Only ``close_match`` sits below tau (a weak "roughly the same"
+  assertion); every equivalence source — including the aggregators' SRI/Babel
+  cliques — sits **at or above** tau so it can merge on its own. The aggregators
+  are kept safe not by a sub-tau weight but by (a) sharing one source group
+  (max, not sum) so echoing Babel counts once, and (b) the guardrail edge-prune,
+  which drops cross-family conflation edges before clustering regardless of weight.
 * Correlated sources are de-correlated: KG2 / ROBOKOP / Translator all derive
   equivalence from the SRI Node Normalizer (Babel), so they are **not**
-  independent evidence. Evidence within a correlation group is combined by
+  independent evidence. Evidence within a source group is combined by
   **max**, not sum, so their shared ancestry cannot triple-count and re-import
   Babel's clustering. Independent sources accumulate by sum.
 
@@ -45,41 +51,42 @@ NAME_SIMILARITY_GROUP = "name_similarity"
 class ERWeights(BaseModel):
     """Weights + thresholds for match-graph construction and clustering."""
 
-    # Clustering resolution. A and B joined by total weight w stay separate iff
-    # gamma * |A| * |B| > w. Kept here so weights can be reasoned about relative
-    # to it (the file that documents the calibration owns the number).
-    gamma: float = 0.5
-
-    # Minimum accumulated pair weight to keep an edge at all (pre-filter). Runs
-    # before connected components, so it shapes the component structure.
+    # Edge-existence threshold. A CURIE pair whose accumulated weight reaches tau
+    # gets an edge (and label propagation will then merge it, guardrails allowing);
+    # below tau it is dropped. This is THE merge gate under label propagation.
     tau: float = 0.3
 
     # Per-source weight for an equivalency-list assertion (one clique edge).
     # Sources absent from this map use ``default_equivalency_weight``.
     equivalency_weights: dict[str, float] = Field(
         default_factory=lambda: {
-            # Curated, structurally tight -> can merge on their own (> gamma).
+            # THE equivalence backbone: the SRI Node Normalizer's cliques (source
+            # "nn"), queried live so they're the current, cleanest Babel mapping.
+            # Above tau so a clique merges on its own; cross-family conflations are
+            # pruned pairwise before clustering, so this only governs SAME-family
+            # merges. We NO LONGER use the aggregators' baked-in equivalent_ids
+            # lists (stale snapshots + per-source over-conflation, e.g. kg2 fusing
+            # 1300+ Reactome ids into a gene); NN cliques replace them.
+            "nn": 0.5,
+            # Curated, structurally tight -> reach tau, so they merge on their own.
             "ncbigene": 1.0,
             "refmet": 1.0,
             "lipidmaps": 1.0,
             "umls": 0.8,
             "loinc": 0.6,
             "cdes": 0.6,
-            # Aggregators / SRI-NN-derived -> corroboration only (< gamma).
-            "kg2": 0.3,
-            "robokop": 0.3,
-            "translator-kg-open": 0.3,
-            "microbiome-kg": 0.3,
-            "multiomics-kg": 0.3,
         }
     )
     default_equivalency_weight: float = 0.4
 
-    # Per-predicate weights for source match-predicate edges.
+    # Per-predicate weights for source match-predicate edges. close_match is a weak
+    # "roughly the same" assertion (not true equivalence), so it's kept very low —
+    # well below tau, so it only ever corroborates, never merges on its own (and the
+    # subclass co-occurrence penalty can drive it lower still).
     exact_match_weight: float = 1.0
-    close_match_weight: float = 0.2
+    close_match_weight: float = 0.1
 
-    # Name-similarity edges: ABOVE gamma, so two nodes linked ONLY by a shared
+    # Name-similarity edges: at/above tau, so two nodes linked ONLY by a shared
     # (normalized, primary) name still merge. This is safe because the guardrail
     # edge-prune at formation already removes name edges between incompatible
     # nodes (different branch / taxon / enforced structural id), so a name edge
@@ -97,18 +104,21 @@ class ERWeights(BaseModel):
     # evidence -> weaker close_match. 1.0 disables the penalty. UNTUNED.
     subclass_penalty_decay: float = 0.5
 
-    # Correlation groups: sources listed together contribute by MAX, not sum.
+    # Source groups: sources listed together contribute by MAX, not sum.
     # Each source maps to a group id; sources not listed are their own group.
-    correlation_groups: dict[str, list[str]] = Field(
+    source_groups: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "sri_nn_derived": ["kg2", "robokop", "translator-kg-open", "microbiome-kg", "multiomics-kg"],
         }
     )
 
-    # Equivalency clique handling. Sets up to this size become full cliques;
-    # larger sets become stars (fragile on purpose — big "equivalent" lists are
-    # usually junk). See plan §1.
-    clique_cap: int = 20
+    # Equivalency clique handling. Sets up to this size become full cliques; larger
+    # sets become a star from the lexically-smallest hub. Now that equivalence comes
+    # from the normalizer's CLEAN cliques (not aggregators' junk lists), this is a
+    # pure SCALE valve (avoid N^2 edges on a pathological clique), not a distrust
+    # mechanism — so keep it above real clique sizes (gene/protein ~30-40, disease
+    # ~15-20) so legitimate cliques stay full (robust), and only true outliers star.
+    clique_cap: int = 100
 
     # Name-similarity blocking: skip groups larger than this (likely a generic
     # token), and drop names shorter than this or purely numeric.
@@ -116,16 +126,16 @@ class ERWeights(BaseModel):
     min_name_length: int = 3
 
     def model_post_init(self, _context: object) -> None:
-        # Precompute source -> correlation-group-id.
+        # Precompute source -> source-group-id.
         self._source_to_group: dict[str, str] = {}
-        for group_id, members in self.correlation_groups.items():
+        for group_id, members in self.source_groups.items():
             for member in members:
                 self._source_to_group[member] = group_id
 
     # ---- lookups ----
 
-    def correlation_group(self, source: str) -> str:
-        """Group id used for de-correlation; independent sources get their own."""
+    def source_group(self, source: str) -> str:
+        """Group id used for source-group de-correlation; independent sources get their own."""
         return self._source_to_group.get(source, f"src:{source}")
 
     def equivalency_weight(self, source: str) -> float:

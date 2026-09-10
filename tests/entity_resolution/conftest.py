@@ -17,6 +17,9 @@ class _OfflineNodeNorm:
     def resolve(self, curies, **kwargs):
         return {c: NormInfo(label=None, categories=()) for c in curies}
 
+    def iter_cliques(self):
+        return iter(())  # no normalizer cliques offline; tests needing them stub their own
+
     def close(self):
         pass
 

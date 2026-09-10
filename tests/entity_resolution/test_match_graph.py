@@ -1,4 +1,4 @@
-"""Tests for match-graph construction, accumulation, and de-correlation."""
+"""Tests for match-graph construction, accumulation, and source-group de-correlation."""
 
 from kraken.entity_resolution.match_graph import (
     accumulate,
@@ -51,7 +51,7 @@ def test_accumulate_sums_independent_sources():
 def test_accumulate_decorrelates_aggregators():
     w = ERWeights()
     # KG2, ROBOKOP, Translator all assert the same pair. They share the
-    # sri_nn_derived correlation group -> combine by MAX, not sum.
+    # sri_nn_derived source group -> combine by MAX, not sum.
     ev = []
     for src in ["kg2", "robokop", "translator-kg-open"]:
         ev += list(clique_evidence(["A:1", "B:1"], src, w))

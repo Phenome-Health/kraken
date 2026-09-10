@@ -19,7 +19,7 @@ rankings:
     - PR
     - OMIM
 
-  disease_phenotype:
+  disease_pheno:
     - MONDO
     - DOID
     - orphanet
@@ -63,7 +63,7 @@ _default:
   - MONDO
   - HGNC
   - NCBIGene
-  - REFMET
+  - RM
   - CHEBI
   - UBERON
   - GO

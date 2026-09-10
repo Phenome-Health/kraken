@@ -7,7 +7,7 @@ import pytest
 
 from kraken.entity_resolution.build import _original_endpoints, resolve_entities
 
-pytest.importorskip("leidenalg")
+pytest.importorskip("igraph")
 
 
 def test_original_endpoints_uncanonicalizes_kg2():
@@ -242,6 +242,9 @@ def test_bare_id_nn_label_is_retained_as_synonym(tmp_path, monkeypatch):
                 if c == "MESH:D000806"
             }
 
+        def iter_cliques(self):
+            return iter(())  # merge here comes from the native ncbigene clique, not NN
+
         def close(self):
             pass
 
@@ -287,7 +290,7 @@ def test_bare_id_nn_label_is_retained_as_synonym(tmp_path, monkeypatch):
 
 def test_name_only_pair_merges_when_compatible(tmp_path):
     # Two nodes linked ONLY by a shared normalized name, same branch, no enforced
-    # id -> they should merge (name weight is above gamma).
+    # id -> they should merge (name weight reaches tau).
     harmonized = {
         "src": _write_source(
             tmp_path,
@@ -414,6 +417,42 @@ def test_kg2_match_edge_merges_original_endpoints_not_canonical(tmp_path):
     m = resolve_entities(config, biolink=None)
     assert m["ATC:X"] == m["UMLS:Y"]  # merged via the un-canonicalized exact_match
     assert "UNII:1" not in m and "PUBCHEM.COMPOUND:1" not in m  # canonical ids never used
+
+
+def test_inherited_cats_from_single_family_referencing_nodes(tmp_path):
+    # A bare id (only in an equiv list) inherits its category from the single-family
+    # node that lists it; a conflated multi-family node does NOT propagate.
+    from kraken.entity_resolution.build import _stage1_write_evidence_and_facts
+    from kraken.entity_resolution.families import BranchFamilies
+    from kraken.entity_resolution.weights import ERWeights
+
+    fams = BranchFamilies.load()
+    src, _edges = _write_source(
+        tmp_path,
+        "src",
+        [
+            {
+                "id": "UBERON:1",
+                "categories": ["biolink:AnatomicalEntity"],
+                "provided_by": ["src"],
+                "equivalent_ids": ["UBERON:1", "AEO:1"],
+            },  # clean single-family -> propagates
+            {
+                "id": "KG2NODE:1",
+                "categories": ["biolink:Disease", "biolink:Gene"],
+                "provided_by": ["kg2"],
+                "equivalent_ids": ["KG2NODE:1", "BARE:2"],
+            },  # conflated multi-family -> does NOT propagate
+        ],
+    )
+    config = SimpleNamespace(all_harmonized_paths_resolved={"src": (src, tmp_path / "none.jsonl")})
+    inherited, _taxon, node_ids, _seeds = _stage1_write_evidence_and_facts(
+        config, ERWeights(), fams, tmp_path / "ev.tmp", tmp_path / "nm.tmp"
+    )
+    assert inherited["AEO:1"] == {"biolink:AnatomicalEntity"}  # bare id typed via its referencing node
+    assert inherited["UBERON:1"] == {"biolink:AnatomicalEntity"}  # self-typed
+    assert "BARE:2" not in inherited  # conflated multi-family node did not spread its typing
+    assert node_ids == {"UBERON:1", "KG2NODE:1"}
 
 
 def test_build_isolated_node_becomes_singleton(tmp_path):

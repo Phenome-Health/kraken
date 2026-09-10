@@ -135,8 +135,19 @@ def materialize_cluster(
     equivalent_ids = set(_union_field(members, NODE_EQUIVALENT_IDS))
     equivalent_ids.update(m[NODE_ID] for m in members)
 
-    # synonyms = union of member synonyms plus any member names not chosen as THE name
-    synonyms = set(_union_field(members, NODE_SYNONYMS))
+    # synonyms = union of member synonym BAGS, but only from members whose own
+    # equivalency list stays WITHIN this cluster. A member that "spills" (its equiv
+    # list names ids the clustering split into OTHER clusters -- e.g. an aggregator
+    # node that fused 1300 Reactome ids into a gene) is conflated relative to us, and
+    # its bag is not per-id attributable, so we keep only its primary name (below),
+    # not the bag. Members with no/subset equiv lists are self-consistent -> trusted.
+    cluster_ids = {m[NODE_ID] for m in members}
+    synonyms: set[str] = set()
+    for m in members:
+        member_equiv = {e for e in (m.get(NODE_EQUIVALENT_IDS) or ()) if e}
+        if member_equiv <= cluster_ids:
+            synonyms.update(s for s in (m.get(NODE_SYNONYMS) or ()) if s)
+    # every member's primary name IS attributable to its own id, so always keep it
     chosen_name = name_src.get(NODE_NAME) if name_src else None
     for m in members:
         nm = m.get(NODE_NAME)

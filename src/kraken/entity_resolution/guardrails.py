@@ -14,10 +14,9 @@ Guardrails implemented:
   *instrumented but not enforced* by default; promote once the histogram is
   clean.
 
-Repair strategy for a violating cluster: first try to split it better (raise
-gamma and re-Leiden on the induced subgraph — injected as ``splitter``); if that
-doesn't split it, fall back to a deterministic greedy valid partition that
-respects edge connectivity (seeded label propagation's role — repairs but cannot
+Repair strategy for a violating cluster: an optional injected ``splitter`` may
+try to split it better; otherwise (or if it can't) fall back to a deterministic
+greedy valid partition that respects edge connectivity (repairs but cannot
 discover). The one-id repair is capped: forcing k clusters for k ids is fine at 2
 but absurd at 6, so beyond the cap we log and leave the cluster intact.
 
@@ -59,10 +58,14 @@ DEFAULT_CANDIDATE_PREFIXES: frozenset[str] = frozenset({"HGNC"})
 
 @dataclass(frozen=True)
 class NodeInfo:
-    """Per-CURIE facts the guardrails need."""
+    """Per-CURIE facts the guardrails need. ``branches`` is the node's precomputed
+    branch-family set (resolved from its category upstream, in build), so every
+    guardrail check operates on families directly — no repeated category->family
+    conversion during the split-until-valid recursion. Default is the wildcard
+    ``ALL_FAMILIES`` (an untyped node never constrains a merge)."""
 
     curie: str
-    categories: tuple[str, ...] = ()
+    branches: frozenset[str] = ALL_FAMILIES
     taxon: str | None = None
 
     @property
@@ -84,12 +87,9 @@ class GuardrailConfig:
 NodeInfoMap = Mapping[str, NodeInfo]
 
 
-def _branches_of(members: Iterable[str], info: NodeInfoMap, families: BranchFamilies) -> list[frozenset[str]]:
-    return [families.branches(info[m].categories if m in info else None) for m in members]
-
-
-def branch_valid(members: Iterable[str], info: NodeInfoMap, families: BranchFamilies) -> bool:
-    return BranchFamilies.cluster_branches(_branches_of(members, info, families)) is not None
+def branch_valid(members: Iterable[str], info: NodeInfoMap) -> bool:
+    node_branches = [info[m].branches if m in info else ALL_FAMILIES for m in members]
+    return BranchFamilies.cluster_branches(node_branches) is not None
 
 
 def taxon_valid(members: Iterable[str], info: NodeInfoMap) -> bool:
@@ -109,14 +109,13 @@ def one_id_valid(members: Iterable[str], enforced_prefixes: frozenset[str]) -> b
 def cluster_violations(
     members: list[str],
     info: NodeInfoMap,
-    families: BranchFamilies,
     config: GuardrailConfig,
 ) -> list[str]:
     """Return the list of guardrail names a cluster violates (empty = valid)."""
     if len(members) <= 1:
         return []
     violations = []
-    if not branch_valid(members, info, families):
+    if not branch_valid(members, info):
         violations.append("branch")
     if not taxon_valid(members, info):
         violations.append("taxon")
@@ -129,18 +128,16 @@ def _node_valid_in_group(
     node: str,
     group: list[str],
     info: NodeInfoMap,
-    families: BranchFamilies,
     config: GuardrailConfig,
 ) -> bool:
     """Would adding ``node`` to ``group`` keep every guardrail satisfied?"""
     candidate = group + [node]
-    return not cluster_violations(candidate, info, families, config)
+    return not cluster_violations(candidate, info, config)
 
 
 def greedy_valid_partition(
     members: list[str],
     info: NodeInfoMap,
-    families: BranchFamilies,
     config: GuardrailConfig,
     adjacency: Mapping[str, Mapping[str, float]] | None = None,
 ) -> list[list[str]]:
@@ -157,9 +154,8 @@ def greedy_valid_partition(
         if m not in info:
             return True
         ni = info[m]
-        branches = families.branches(ni.categories)
         return (
-            (branches is ALL_FAMILIES or branches == ALL_FAMILIES)
+            (ni.branches is ALL_FAMILIES or ni.branches == ALL_FAMILIES)
             and ni.taxon is None
             and ni.prefix not in (config.enforced_prefixes | config.candidate_prefixes)
         )
@@ -170,7 +166,7 @@ def greedy_valid_partition(
         best_idx = -1
         best_score = None
         for idx, group in enumerate(groups):
-            if not _node_valid_in_group(node, group, info, families, config):
+            if not _node_valid_in_group(node, group, info, config):
                 continue
             score = sum(adjacency.get(node, {}).get(other, 0.0) for other in group)
             # prefer higher connectivity; tie-break to earliest group (deterministic)
@@ -187,7 +183,6 @@ def greedy_valid_partition(
 def enforce_cluster(
     members: list[str],
     info: NodeInfoMap,
-    families: BranchFamilies,
     config: GuardrailConfig,
     *,
     splitter: Splitter | None = None,
@@ -195,12 +190,12 @@ def enforce_cluster(
 ) -> list[list[str]]:
     """Split a cluster until every part is guardrail-valid.
 
-    Tries ``splitter`` (raise gamma + re-Leiden) first; if it fails to reduce the
-    cluster, falls back to ``greedy_valid_partition``. Terminates because both
+    Tries ``splitter`` first if provided; otherwise (or if it fails to reduce the
+    cluster) falls back to ``greedy_valid_partition``. Terminates because both
     fallbacks strictly shrink clusters and singletons are always valid.
     """
     members = sorted(members)
-    violations = cluster_violations(members, info, families, config)
+    violations = cluster_violations(members, info, config)
     if not violations:
         return [members]
 
@@ -223,7 +218,7 @@ def enforce_cluster(
         if len(candidate) > 1:
             sub = candidate
     if sub is None:
-        sub = greedy_valid_partition(members, info, families, config, adjacency)
+        sub = greedy_valid_partition(members, info, config, adjacency)
     if len(sub) <= 1:
         # nothing split it (e.g. an unsplittable single-branch blob) -> stop
         logging.warning("could not split violating cluster %s (violations=%s)", members[:6], violations)
@@ -234,7 +229,7 @@ def enforce_cluster(
         if part == members:  # no progress; avoid infinite recursion
             result.append(part)
         else:
-            result.extend(enforce_cluster(part, info, families, config, splitter=splitter, adjacency=adjacency))
+            result.extend(enforce_cluster(part, info, config, splitter=splitter, adjacency=adjacency))
     return result
 
 

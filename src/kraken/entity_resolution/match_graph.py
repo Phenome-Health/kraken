@@ -7,7 +7,7 @@ Evidence comes from three places (plan §1):
    broad_match/narrow_match excluded).
 3. **Name similarity** (primary names only; see ``name_norm``).
 
-Each evidence item is tagged with a *correlation group* so accumulation can
+Each evidence item is tagged with a *source group* so accumulation can
 de-correlate the aggregators: within a group weights combine by **max**, across
 groups by **sum** (plan §1, and the ACE/RTD correlated-aggregator problem).
 
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from kraken.entity_resolution.weights import ERWeights
 
-# One piece of evidence for a pair: (a, b, correlation_group, weight), a < b.
+# One piece of evidence for a pair: (a, b, source_group, weight), a < b.
 Evidence = tuple[str, str, str, float]
 WeightedPair = tuple[str, str, float]
 
@@ -47,7 +47,7 @@ def clique_evidence(
     ids = sorted({i for i in equivalent_ids if i})
     if len(ids) < 2:
         return
-    group = weights.correlation_group(source)
+    group = weights.source_group(source)
     weight = weights.equivalency_weight(source)
     if len(ids) <= weights.clique_cap:
         n = len(ids)
@@ -75,7 +75,7 @@ def match_predicate_evidence(
     if weight is None or not subject or not object_ or subject == object_:
         return None
     a, b = _ordered(subject, object_)
-    return (a, b, weights.correlation_group(source), weight)
+    return (a, b, weights.source_group(source), weight)
 
 
 def name_similarity_evidence(
@@ -83,7 +83,7 @@ def name_similarity_evidence(
     weights: ERWeights,
 ) -> Iterator[Evidence]:
     """Wrap name-similarity pairs (from ``name_norm``) as evidence. Name evidence
-    is its own correlation group so it never double-counts with itself."""
+    is its own source group so it never double-counts with itself."""
     from kraken.entity_resolution.weights import NAME_SIMILARITY_GROUP
 
     weight = weights.name_similarity_weight
@@ -97,7 +97,7 @@ def name_similarity_evidence(
 def accumulate(evidence: Iterable[Evidence], weights: ERWeights) -> dict[tuple[str, str], float]:
     """Accumulate evidence into per-pair total weight.
 
-    Within a correlation group: **max**. Across groups: **sum**. This treats
+    Within a source group: **max**. Across groups: **sum**. This treats
     correlated sources (the SRI-NN-derived aggregators) as a single source while
     letting independent sources reinforce each other.
     """

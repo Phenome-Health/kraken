@@ -18,9 +18,9 @@ would otherwise dominate memory are kept **out of core**:
 
 The numeric core (factorization, connected components) uses numpy/scipy, which
 are both far faster and far more memory-compact than Python dicts/objects:
-CURIE strings become int codes, components come from ``scipy`` csgraph, and
-Leiden runs per non-trivial component so peak clustering memory is bounded by the
-largest component rather than the whole graph.
+CURIE strings become int codes, components come from ``scipy`` csgraph, and label
+propagation runs per non-trivial component so peak clustering memory is bounded by
+the largest component rather than the whole graph.
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ import pandas as pd
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
-from kraken.entity_resolution.clustering import DEFAULT_SEED, leiden_cpm
-from kraken.entity_resolution.families import BranchFamilies
+from kraken.entity_resolution.clustering import DEFAULT_SEED, label_propagation
+from kraken.entity_resolution.families import ALL_FAMILIES, BranchFamilies
 from kraken.entity_resolution.guardrails import (
     GuardrailConfig,
     NodeInfo,
@@ -124,20 +124,30 @@ def _external_sort(input_path: Path, output_path: Path, key_args: list[str], tem
 def _stage1_write_evidence_and_facts(
     config,
     weights: ERWeights,
+    families: BranchFamilies,
     evidence_path: Path,
     names_path: Path,
-) -> tuple[dict[str, set[str]], dict[str, str], set[str]]:
-    """One streaming pass over harmonized nodes+edges. Writes equivalency-clique and
-    match-predicate evidence, writes ``normalized_name<TAB>curie`` rows for name
-    similarity, and returns per-CURIE categories/taxon plus the set of harmonized
-    node primary ids (so bare equivalency-list ids can be told apart later).
+) -> tuple[dict[str, set[str]], dict[str, str], set[str], set[str]]:
+    """One streaming pass over harmonized nodes+edges. Writes equivalency-clique
+    (native sources only) and match-predicate evidence, writes
+    ``normalized_name<TAB>curie`` rows for name similarity, and returns:
+
+    * ``inherited_cats``: curie -> candidate categories, propagated from every node
+      whose categories are cleanly SINGLE-family onto each id in that node's
+      equivalency list. This is how the vast majority of ids (which only ever appear
+      as equiv-list members, never as a primary node) get a category. Conflated
+      multi-family nodes are deliberately skipped so their mis-typing doesn't spread.
+    * per-CURIE harmonized taxon, the set of harmonized node primary ids, and
+      ``seeds`` (every curie seen -- node ids + equiv members -- to resolve through
+      the normalizer, whose cliques are the equivalence backbone; see stage 1c).
 
     Category strings are interned so the facts dict stays compact (there are only
     ~150 distinct Biolink categories).
     """
-    node_cats: dict[str, set[str]] = {}
+    inherited_cats: dict[str, set[str]] = {}
     node_taxon: dict[str, str] = {}
     node_ids: set[str] = set()
+    seeds: set[str] = set()
 
     with open(evidence_path, "w") as ev, open(names_path, "w") as nm:
         for source, (nodes_path, edges_path) in sorted(config.all_harmonized_paths_resolved.items()):
@@ -147,11 +157,24 @@ def _stage1_write_evidence_and_facts(
                     if not node_id:
                         continue
                     node_ids.add(node_id)
-                    for a, b, group, weight in clique_evidence(node.get(NODE_EQUIVALENT_IDS) or [], source, weights):
-                        ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+                    seeds.add(node_id)
+                    equiv_ids = node.get(NODE_EQUIVALENT_IDS) or []
+                    seeds.update(equiv_ids)
+                    # Equivalence for the CANONICALIZED AGGREGATORS comes from the
+                    # normalizer's live cliques (stage 1c), NOT their baked-in
+                    # equivalent_ids lists (stale Babel snapshot + per-source over-
+                    # conflation, e.g. kg2 fusing 1300+ Reactome ids into a gene).
+                    # Native sources' curated lists are structural/tight, so keep them.
+                    if source not in CANONICALIZED_AGGREGATOR_SOURCES:
+                        for a, b, group, weight in clique_evidence(equiv_ids, source, weights):
+                            ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
                     cats = node.get(NODE_CATEGORIES) or []
-                    if cats:
-                        node_cats.setdefault(node_id, set()).update(sys.intern(c) for c in cats)
+                    branches = families.branches(cats) if cats else ALL_FAMILIES
+                    if cats and branches is not ALL_FAMILIES and len(branches) == 1:
+                        interned = tuple(sys.intern(c) for c in cats)
+                        inherited_cats.setdefault(node_id, set()).update(interned)
+                        for equiv_id in equiv_ids:
+                            inherited_cats.setdefault(equiv_id, set()).update(interned)
                     taxon = node.get(NODE_TAXON)
                     if taxon:
                         node_taxon[node_id] = sys.intern(taxon)
@@ -179,7 +202,28 @@ def _stage1_write_evidence_and_facts(
                             if ev_edge is not None:
                                 a, b, group, weight = ev_edge
                                 ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
-    return node_cats, node_taxon, node_ids
+    return inherited_cats, node_taxon, node_ids, seeds
+
+
+def _stage1c_append_nn_clique_evidence(
+    nodenorm: NodeNormClient,
+    seeds: set[str],
+    evidence_path: Path,
+    weights: ERWeights,
+) -> None:
+    """Resolve every seed through the normalizer (harvesting whole cliques, so each
+    clique costs one query, not one per member) and append equivalence evidence from
+    the normalizer's cliques. This is the cross-ontology backbone -- clean and current
+    -- replacing the aggregators' baked-in equivalent_ids lists."""
+    logging.info("entity_resolution: resolving %d seed curies via node normalizer (harvesting cliques)", len(seeds))
+    nodenorm.resolve(seeds)
+    n_cliques = 0
+    with open(evidence_path, "a") as ev:
+        for _canonical, members in nodenorm.iter_cliques():
+            for a, b, group, weight in clique_evidence(members, "nn", weights):
+                ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+            n_cliques += 1
+    logging.info("entity_resolution: appended equivalence evidence from %d normalizer cliques", n_cliques)
 
 
 # subclass_of / superclass_of between the same pair signals the co-occurring close_match
@@ -217,7 +261,7 @@ def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
             else:
                 match_pairs.append((a, b, predicate))
 
-    group = weights.correlation_group("kg2")
+    group = weights.source_group("kg2")
     for a, b, predicate in match_pairs:
         base = weights.predicate_weight(predicate)
         weight = _subclass_penalized_weight(base, hierarchical_counts.get((a, b), 0), weights.subclass_penalty_decay)
@@ -266,7 +310,7 @@ def _stage1b_append_name_similarity(names_path: Path, evidence_path: Path, weigh
 
 
 def _stage2_accumulate_pairs(evidence_path: Path, pairs_path: Path, weights: ERWeights, temp_dir: Path) -> int:
-    """Combine evidence per CURIE pair (max within correlation group, sum across)
+    """Combine evidence per CURIE pair (max within source group, sum across)
     and keep pairs meeting tau. Returns the number of pairs written."""
     sorted_ev = temp_dir / "er_s2_evidence_sorted.tmp"
     n_pairs = 0
@@ -311,7 +355,7 @@ def _stage3_cluster(
     weights: ERWeights,
     families: BranchFamilies,
     guardrail_config: GuardrailConfig,
-    harmonized_cats: dict[str, set[str]],
+    inherited_cats: dict[str, set[str]],
     node_taxon: dict[str, str],
     node_ids: set[str],
     nodenorm: NodeNormClient,
@@ -355,31 +399,57 @@ def _stage3_cluster(
     comp_node_starts = np.searchsorted(labels_sorted, np.arange(n_components), side="left")
     comp_node_ends = np.searchsorted(labels_sorted, np.arange(n_components), side="right")
 
-    # ONE intrinsic category per match-graph node. A match-graph node is a single
-    # unmerged identifier, so it must carry exactly one category (its own), NOT the
-    # possibly-conflated category list of a harmonized node it appears in. The node
-    # normalizer is the source of truth (it types each id individually); on a miss
-    # we fall back to a lone harmonized category if the source gave exactly one,
-    # else NamedThing (empty -> wildcard). This is what lets the branch guardrail
-    # bite: a conflated MONDO node becomes just Disease, not {Disease,Gene,Protein}.
+    # One category SET per match-graph node (may hold several biolink categories —
+    # we keep all of them, and the node's family is their union), from a chain that
+    # never leaves it untyped:
+    #   1. the node normalizer's per-id type LIST (source of truth; types each id
+    #      individually, so a conflated MONDO node becomes just Disease, while a
+    #      genuine bridge id keeps both types — e.g. [ChemicalEntity, Protein]);
+    #   2. else the categories inherited from the single-family nodes that list this id
+    #      in their equivalency list — the full inherited set, but ONLY if it resolves
+    #      to a single family; cross-family disagreement (different aggregators typing
+    #      it differently) is ambiguous and falls through;
+    #   3. else NamedThing (a guardrail wildcard).
+    # This keeps the branch guardrail from going inert on the huge fraction of ids
+    # that only ever appear as equiv-list members, without re-importing Babel's
+    # mis-typing (multi-family nodes never propagate in stage 1).
     all_curies = [uniques[i] for i in range(num_nodes)]
-    logging.info("entity_resolution: resolving %d match-graph node categories via node normalizer", len(all_curies))
-    resolved = nodenorm.resolve(all_curies)
+    logging.info("entity_resolution: resolving %d match-graph node categories/taxa (cached)", len(all_curies))
+    resolved = nodenorm.resolve(all_curies)  # cache hits after stage 1c; no new API calls
     mg_categories: dict[str, tuple[str, ...]] = {}
+    mg_taxon: dict[str, str] = {}
     bare_names: dict[str, str] = {}
     for curie in all_curies:
         norm = resolved.get(curie)
         cats = tuple(norm.categories) if norm and norm.categories else ()
         if not cats:
-            harm = harmonized_cats.get(curie)
-            if harm and len(harm) == 1:  # trust a lone source category; ignore conflated multi
-                cats = tuple(harm)
+            inherited = inherited_cats.get(curie)
+            if inherited:
+                branches = families.branches(tuple(inherited))
+                if branches is not ALL_FAMILIES and len(branches) == 1:
+                    cats = tuple(sorted(inherited))  # single-family inherited category
+        if not cats:
+            cats = ("biolink:NamedThing",)  # untyped/ambiguous -> NamedThing (a guardrail wildcard)
         mg_categories[curie] = cats
+        # Taxon: the normalizer is the source of truth (its answer already includes
+        # the single-species prefix backup); fall back to the harmonized node's
+        # taxon, else untaxoned (a guardrail wildcard).
+        taxa = norm.taxa if norm else ()
+        if taxa:
+            mg_taxon[curie] = taxa[0]
+        elif curie in node_taxon:
+            mg_taxon[curie] = node_taxon[curie]
         if norm and norm.label and curie not in node_ids:
             bare_names[curie] = norm.label
 
     def info_provider(curie: str) -> NodeInfo:
-        return NodeInfo(curie=curie, categories=mg_categories.get(curie, ()), taxon=node_taxon.get(curie))
+        # Stamp the node with its resolved branch-FAMILY set (category -> family done
+        # once here), so the guardrails cluster on families directly.
+        return NodeInfo(
+            curie=curie,
+            branches=families.branches(mg_categories.get(curie, ())),
+            taxon=mg_taxon.get(curie),
+        )
 
     curie_to_cluster: dict[str, int] = {}
     all_clusters: list[list[str]] = []
@@ -399,21 +469,19 @@ def _stage3_cluster(
             # can also split the component for free). cluster_violations on the pair
             # covers all enforced guardrails: branch, one_id, taxon.
             comp_edges = [
-                e for e in comp_edges if not cluster_violations([e[0], e[1]], info, families, guardrail_config)
+                e for e in comp_edges if not cluster_violations([e[0], e[1]], info, guardrail_config)
             ]
-            if len(member_curies) == 2:
-                merged = bool(comp_edges) and comp_edges[0][2] > weights.gamma
-                raw_clusters = [member_curies] if merged else [[member_curies[0]], [member_curies[1]]]
-            else:
-                raw_clusters = leiden_cpm(member_curies, comp_edges, weights.gamma, seed=seed)
+            # Label propagation on the pruned component (no resolution parameter —
+            # LP merges what's connected; the guardrails do the splitting).
+            raw_clusters = label_propagation(member_curies, comp_edges, seed=seed)
             # Guardrails as the backstop, split until valid (catches transitive
-            # conflicts the pairwise prune can't see).
+            # conflicts the pairwise prune can't see). LP has no resolution to raise,
+            # so there's no clustering-based splitter — greedy_valid_partition repairs.
             adjacency = _adjacency(comp_edges)
-            splitter = _make_splitter(adjacency, weights.gamma, seed)
             checked: list[list[str]] = []
             for cluster in raw_clusters:
                 checked.extend(
-                    enforce_cluster(cluster, info, families, guardrail_config, splitter=splitter, adjacency=adjacency)
+                    enforce_cluster(cluster, info, guardrail_config, splitter=None, adjacency=adjacency)
                 )
             raw_clusters = checked
 
@@ -433,25 +501,6 @@ def _adjacency(edges: list[tuple[str, str, float]]) -> dict[str, dict[str, float
         adj[a][b] = weight
         adj[b][a] = weight
     return adj
-
-
-def _make_splitter(adjacency, gamma, seed):
-    def splitter(members: list[str]) -> list[list[str]]:
-        member_set = set(members)
-        seen: set[tuple[str, str]] = set()
-        edges: list[tuple[str, str, float]] = []
-        for a in members:
-            for b, weight in adjacency.get(a, {}).items():
-                if b in member_set:
-                    key = (a, b) if a < b else (b, a)
-                    if key not in seen:
-                        seen.add(key)
-                        edges.append((key[0], key[1], weight))
-        if not edges:
-            return [members]
-        return leiden_cpm(members, edges, gamma * 2.0, seed=seed)
-
-    return splitter
 
 
 # --------------------------------------------------------------------------------------
@@ -533,10 +582,19 @@ def _stage4_materialize(
                 if not group:
                     return
                 node = materialize_cluster(group, ranking, families)
+                # Drop bare-only clusters (no harmonized member -> empty provided_by):
+                # these are unreachable orphan equivalency-list ids that never merged
+                # into a real entity. Edges only reference harmonized node ids, so
+                # dropping them loses nothing and matches legacy equiv-id semantics.
+                if not node.get(NODE_PROVIDED_BY):
+                    return
                 if biolink is not None and node.get(NODE_CATEGORIES):
                     leaves = biolink.filter_to_leaf_categories(node[NODE_CATEGORIES])
                     if leaves:
                         node[NODE_CATEGORIES] = sorted(leaves)
+                # Every node needs a category; an untyped survivor becomes NamedThing.
+                if not node.get(NODE_CATEGORIES):
+                    node[NODE_CATEGORIES] = ["biolink:NamedThing"]
                 # equivalent_ids = exact cluster membership (guarantees disjointness)
                 if group_key.startswith("c"):
                     node[NODE_EQUIVALENT_IDS] = sorted(cluster_members[int(group_key[1:])])
@@ -584,10 +642,11 @@ def resolve_entities(config, biolink) -> dict[str, str]:
     nodenorm = NodeNormClient(config.er_nodenorm_cache_path)
     try:
         logging.info("entity_resolution: streaming evidence + facts...")
-        harmonized_cats, node_taxon, node_ids = _stage1_write_evidence_and_facts(
-            config, weights, evidence_path, names_path
+        inherited_cats, node_taxon, node_ids, seeds = _stage1_write_evidence_and_facts(
+            config, weights, families, evidence_path, names_path
         )
         _stage1b_append_name_similarity(names_path, evidence_path, weights, temp_dir)
+        _stage1c_append_nn_clique_evidence(nodenorm, seeds, evidence_path, weights)
 
         logging.info("entity_resolution: accumulating pairs...")
         _stage2_accumulate_pairs(evidence_path, pairs_path, weights, temp_dir)
@@ -598,7 +657,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             weights,
             families,
             guardrail_config,
-            harmonized_cats,
+            inherited_cats,
             node_taxon,
             node_ids,
             nodenorm,

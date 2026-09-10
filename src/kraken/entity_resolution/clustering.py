@@ -1,24 +1,25 @@
-"""Clustering: connected components, then Leiden/CPM per non-trivial component.
+"""Clustering: connected components, then label propagation per component.
 
-Pipeline (plan §2):
+Pipeline:
 
 1. **Connected components** (union-find) — decomposition + parallelism; trivial
-   components (isolated pairs handled, singletons added by ``resolve``) need no
-   Leiden.
-2. **Leiden with CPM** on each non-trivial component — the primary mechanism. It
-   is what separates ``Adams-Oliver syndrome 1`` from ``AOS2``, which no
-   guardrail can see. CPM avoids modularity's resolution limit.
+   components need no work.
+2. **Label propagation** on each non-trivial component (weighted). Unlike
+   Leiden/CPM there is no resolution parameter: label propagation merges what is
+   connected, and the guardrails (branch / taxon / one-id) do the splitting. The
+   match graph is already shaped for this — evidence below tau is dropped, and
+   guardrail-conflicting edges are pruned before clustering — so LP labels the
+   surviving connected structure and the guardrails break up anything that
+   crossed a hard boundary transitively.
 
-``gamma``'s plain reading: A and B joined by total weight w stay separate iff
-``gamma * |A| * |B| > w``.
-
-**Determinism is required** (releases are DOI-archived): fixed seed and sorted
-node order everywhere.
+**Determinism** (releases are DOI-archived): fixed seed (igraph RNG seeded) and
+sorted node order everywhere.
 """
 
 from __future__ import annotations
 
 import logging
+import random
 from collections.abc import Iterable
 
 from kraken.entity_resolution.match_graph import WeightedPair
@@ -40,8 +41,7 @@ class _UnionFind:
         root = x
         while self.parent[root] != root:
             root = self.parent[root]
-        # path compression
-        while self.parent[x] != root:
+        while self.parent[x] != root:  # path compression
             self.parent[x], x = root, self.parent[x]
         return root
 
@@ -75,38 +75,34 @@ def connected_components(pairs: Iterable[WeightedPair]) -> list[list[str]]:
     return result
 
 
-def leiden_cpm(
+def label_propagation(
     nodes: list[str],
     edges: list[WeightedPair],
-    gamma: float,
     *,
     seed: int = DEFAULT_SEED,
 ) -> list[list[str]]:
-    """Run Leiden with CPM on one component. Deterministic given seed + sorted
-    node order. Returns sub-clusters as sorted node lists.
+    """Weighted label propagation on one component. Deterministic given seed +
+    sorted node order. Returns sub-clusters as sorted node lists.
 
-    ``nodes`` must contain every endpoint in ``edges``.
+    ``nodes`` must contain every endpoint in ``edges``. With no edges, every node
+    is its own cluster.
     """
     import igraph  # imported lazily so the module loads without the C deps
-    import leidenalg
 
     ordered = sorted(nodes)
     index = {name: i for i, name in enumerate(ordered)}
     g = igraph.Graph()
     g.add_vertices(len(ordered))
-    ig_edges = [(index[a], index[b]) for a, b, _w in edges]
-    ig_weights = [w for _a, _b, w in edges]
-    g.add_edges(ig_edges)
-    if ig_weights:
-        g.es["weight"] = ig_weights
-    partition = leidenalg.find_partition(
-        g,
-        leidenalg.CPMVertexPartition,
-        weights="weight" if ig_weights else None,
-        resolution_parameter=gamma,
-        n_iterations=-1,
-        seed=seed,
-    )
+    g.add_edges([(index[a], index[b]) for a, b, _w in edges])
+    weights = [w for _a, _b, w in edges]
+
+    # Seed igraph's RNG so label propagation is reproducible run-to-run.
+    try:
+        igraph.set_random_number_generator(random.Random(seed))
+    except Exception:  # pragma: no cover - older/newer igraph API differences
+        random.seed(seed)
+    partition = g.community_label_propagation(weights=weights or None)
+
     clusters = [sorted(ordered[i] for i in community) for community in partition]
     clusters.sort(key=lambda members: members[0])
     return clusters
@@ -114,19 +110,17 @@ def leiden_cpm(
 
 def cluster_pairs(
     pairs: Iterable[WeightedPair],
-    gamma: float,
     *,
     seed: int = DEFAULT_SEED,
 ) -> list[list[str]]:
-    """Full clustering of the match graph: components then Leiden/CPM.
+    """Full clustering of the match graph: components then label propagation.
 
     Returns every multi-node and single-node cluster arising from ``pairs``.
-    (CURIEs never appearing in ``pairs`` are added as singletons by ``resolve``.)
+    (CURIEs never appearing in ``pairs`` are added as singletons by the caller.)
     """
     pair_list = list(pairs)
     components = connected_components(pair_list)
 
-    # index edges by component for the non-trivial ones
     node_to_comp: dict[str, int] = {}
     for ci, comp in enumerate(components):
         for node in comp:
@@ -139,16 +133,8 @@ def cluster_pairs(
     for ci, comp in enumerate(components):
         if len(comp) == 1:
             clusters.append(comp)
-        elif len(comp) == 2:
-            # CPM on an isolated pair degenerates to: split iff gamma > w.
-            (_a, _b, w) = comp_edges[ci][0]
-            if w > gamma:
-                clusters.append(comp)
-            else:
-                clusters.append([comp[0]])
-                clusters.append([comp[1]])
         else:
-            clusters.extend(leiden_cpm(comp, comp_edges[ci], gamma, seed=seed))
+            clusters.extend(label_propagation(comp, comp_edges[ci], seed=seed))
     logging.info(
         "clustering: %d components -> %d clusters from %d pairs",
         len(components),
