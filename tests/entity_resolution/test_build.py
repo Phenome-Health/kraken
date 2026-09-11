@@ -245,6 +245,14 @@ def test_bare_id_nn_label_is_retained_as_synonym(tmp_path, monkeypatch):
         def iter_cliques(self):
             return iter(())  # merge here comes from the native ncbigene clique, not NN
 
+        def iter_labels(self):
+            return iter([("MESH:D000806", "Angiotensin Converting Enzyme")])
+
+        def get(self, curie):
+            if curie == "MESH:D000806":
+                return NormInfo(label="Angiotensin Converting Enzyme", categories=("biolink:Gene",))
+            return None
+
         def close(self):
             pass
 
@@ -446,8 +454,8 @@ def test_inherited_cats_from_single_family_referencing_nodes(tmp_path):
         ],
     )
     config = SimpleNamespace(all_harmonized_paths_resolved={"src": (src, tmp_path / "none.jsonl")})
-    inherited, _taxon, node_ids, _seeds = _stage1_write_evidence_and_facts(
-        config, ERWeights(), fams, tmp_path / "ev.tmp", tmp_path / "nm.tmp"
+    inherited, _taxon, node_ids, _seeds, _prov = _stage1_write_evidence_and_facts(
+        config, ERWeights(), fams, tmp_path / "ev.tmp", tmp_path / "nm.tmp", {"src": 0}
     )
     assert inherited["AEO:1"] == {"biolink:AnatomicalEntity"}  # bare id typed via its referencing node
     assert inherited["UBERON:1"] == {"biolink:AnatomicalEntity"}  # self-typed

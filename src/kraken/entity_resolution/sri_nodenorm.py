@@ -266,22 +266,29 @@ class NodeNormClient:
         wanted = list(dict.fromkeys(curies))  # dedup input, keep order
         result: dict[str, NormInfo] = {}
         queue: list[str] = []
+        cached_hits = non_queryable = 0
 
         for curie in wanted:
             cached = self._cache_get(curie)
             if cached is not None:
                 result[curie] = cached
+                cached_hits += 1
             elif curie.split(":", 1)[0] in NON_QUERYABLE_PREFIXES:
+                # SMILES/INCHI are raw structure strings the normalizer cannot resolve
+                # (verified) -- skip the API and go straight to inference.
                 info = self._backup(curie) if use_inference else NormInfo(None, ())
                 result[curie] = info
                 self._cache_put(curie, info, resolved=False)
+                non_queryable += 1
             else:
                 queue.append(curie)
 
         logging.info(
-            "Node Normalizer: up to %d curies to fetch (%d served from cache), harvesting cliques",
+            "Node Normalizer: up to %d curies to fetch (%d already cached, %d non-queryable "
+            "[SMILES/INCHI, skipped]), harvesting cliques",
             len(queue),
-            len(wanted) - len(queue),
+            cached_hits,
+            non_queryable,
         )
         pending: list[str] = []
         done = fetched_batches = failed_batches = 0
@@ -326,6 +333,17 @@ class NodeNormClient:
 
         self._db.commit()
         return result
+
+    def get(self, curie: str) -> NormInfo | None:
+        """Cached facts for one CURIE (or None if never resolved). Public accessor
+        so materialization can look up an isolated id's category/label/taxa."""
+        return self._cache_get(curie)
+
+    def iter_labels(self):
+        """Yield ``(curie, label)`` for every cached id that has a normalizer label.
+        This is the PER-ID name source for name-similarity: every identifier is named
+        individually (by its own NN label), not by some source node's primary name."""
+        yield from self._db.execute("SELECT curie, label FROM norm_cache WHERE label IS NOT NULL AND label != ''")
 
     def iter_cliques(self):
         """Yield ``(canonical, [member curies])`` for every normalizer clique in the

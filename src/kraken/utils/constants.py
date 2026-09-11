@@ -42,6 +42,9 @@ KNOWN_INVALID = "KNOWN_INVALID"
 NOT_PROVIDED = "not_provided"
 MANUAL_AGENT = "manual_agent"
 KNOWLEDGE_ASSERTION = "knowledge_assertion"
+# Infores for equivalence asserted by the SRI Node Normalizer (Babel).
+SRI_NN_INFORES = "infores:sri-node-normalizer"
+SAME_AS_PREDICATE = "biolink:same_as"
 # Biolink KLAT values. For edges that report direct, dataset-specific statistical results (e.g. a feature's
 # association with an outcome in a model's cohort), statistical_association pairs with data_analysis_pipeline.
 # computational_model is for agents that generate broader conclusions/predictions (kept for such future edges).

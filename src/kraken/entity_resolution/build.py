@@ -52,13 +52,15 @@ from kraken.entity_resolution.match_graph import clique_evidence, match_predicat
 from kraken.entity_resolution.materialize import PrefixRanking, materialize_cluster
 from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, normalize_name
 from kraken.entity_resolution.sri_nodenorm import NodeNormClient
+from kraken.entity_resolution.uncanonicalize import (
+    CANONICALIZED_AGGREGATOR_SOURCES,
+)
+from kraken.entity_resolution.uncanonicalize import (
+    original_endpoints as _original_endpoints,
+)
 from kraken.entity_resolution.weights import NAME_SIMILARITY_GROUP, ERWeights
 from kraken.utils.constants import (
-    EDGE_ATTRIBUTES,
-    EDGE_OBJECT,
     EDGE_PREDICATE,
-    EDGE_SUBJECT,
-    KG2_INFORES,
     NODE_CATEGORIES,
     NODE_EQUIVALENT_IDS,
     NODE_ID,
@@ -69,42 +71,6 @@ from kraken.utils.constants import (
 from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 SEP = "\t"
-
-# Aggregators that pre-merge via SRI NN / Babel: their harmonized edge subject/object
-# are canonicalized ids, so a match-predicate edge must be un-canonicalized to its
-# ORIGINAL endpoints before entering the match graph (else it just re-imports Babel).
-# KG2 keeps the originals in ``kg2pre_ids`` (handled below). The other four emit no
-# match-predicate edges today (verified), so we have no format to parse for them yet;
-# their match edges are skipped until they do / their format is known.
-CANONICALIZED_AGGREGATOR_SOURCES: frozenset[str] = frozenset(
-    {"kg2", "robokop", "translator-kg-open", "microbiome-kg", "multiomics-kg"}
-)
-# KG2's per-edge original ids: "orig_subject---relation---q---q---q---orig_object---src".
-KG2_PRE_IDS_ATTR = "kg2pre_ids"
-_KG2_ID_SEP = "---"
-
-
-def _original_endpoints(edge: dict, source: str) -> list[tuple[str, str]] | None:
-    """Original (pre-canonicalization) subject/object pairs for a match-predicate edge.
-
-    A Babel-canonicalizing aggregator stores merged endpoints; the originals live in edge
-    attributes, and one merged edge can carry several original pairs. KG2: parse them out
-    of ``kg2pre_ids`` (subject at field 0, object at field 5). Native (non-canonicalized)
-    sources just use their own subject/object. Returns None for a canonicalized aggregator
-    we can't yet un-canonicalize, so its match edges are skipped rather than ingested as
-    Babel's own clustering.
-    """
-    if source == "kg2":
-        attrs = (edge.get(EDGE_ATTRIBUTES) or {}).get(KG2_INFORES) or {}
-        pairs: list[tuple[str, str]] = []
-        for raw in attrs.get(KG2_PRE_IDS_ATTR) or []:
-            parts = raw.split(_KG2_ID_SEP)
-            if len(parts) >= 6 and parts[0] not in ("", "None") and parts[5] not in ("", "None"):
-                pairs.append((parts[0], parts[5]))
-        return pairs or None
-    if source in CANONICALIZED_AGGREGATOR_SOURCES:
-        return None
-    return [(edge.get(EDGE_SUBJECT, ""), edge.get(EDGE_OBJECT, ""))]
 
 
 def _external_sort(input_path: Path, output_path: Path, key_args: list[str], temp_dir: Path) -> None:
@@ -127,7 +93,8 @@ def _stage1_write_evidence_and_facts(
     families: BranchFamilies,
     evidence_path: Path,
     names_path: Path,
-) -> tuple[dict[str, set[str]], dict[str, str], set[str], set[str]]:
+    source_bits: dict[str, int],
+) -> tuple[dict[str, set[str]], dict[str, str], set[str], dict[str, int], dict[str, set[str]]]:
     """One streaming pass over harmonized nodes+edges. Writes equivalency-clique
     (native sources only) and match-predicate evidence, writes
     ``normalized_name<TAB>curie`` rows for name similarity, and returns:
@@ -147,27 +114,35 @@ def _stage1_write_evidence_and_facts(
     inherited_cats: dict[str, set[str]] = {}
     node_taxon: dict[str, str] = {}
     node_ids: set[str] = set()
-    seeds: set[str] = set()
+    # seeds: every id we've seen -> a bitmask of the sources that provided it (a node
+    # id or an equiv-list member). Doubles as the normalizer seed set (its keys) and
+    # the provenance for retaining EVERY id as a node (singleton if it never merges).
+    seeds: dict[str, int] = {}
+    # per-source infores provided_by (so a retained bare id can carry real provenance).
+    source_provided_by: dict[str, set[str]] = defaultdict(set)
 
     with open(evidence_path, "w") as ev, open(names_path, "w") as nm:
         for source, (nodes_path, edges_path) in sorted(config.all_harmonized_paths_resolved.items()):
+            bit = 1 << source_bits[source]
             if Path(nodes_path).exists():
                 for node in stream_nodes_from_jsonl(Path(nodes_path)):
                     node_id = node.get(NODE_ID)
                     if not node_id:
                         continue
                     node_ids.add(node_id)
-                    seeds.add(node_id)
+                    seeds[node_id] = seeds.get(node_id, 0) | bit
+                    source_provided_by[source].update(node.get(NODE_PROVIDED_BY) or ())
                     equiv_ids = node.get(NODE_EQUIVALENT_IDS) or []
-                    seeds.update(equiv_ids)
-                    # Equivalence for the CANONICALIZED AGGREGATORS comes from the
-                    # normalizer's live cliques (stage 1c), NOT their baked-in
-                    # equivalent_ids lists (stale Babel snapshot + per-source over-
-                    # conflation, e.g. kg2 fusing 1300+ Reactome ids into a gene).
-                    # Native sources' curated lists are structural/tight, so keep them.
-                    if source not in CANONICALIZED_AGGREGATOR_SOURCES:
-                        for a, b, group, weight in clique_evidence(equiv_ids, source, weights):
-                            ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+                    for equiv_id in equiv_ids:
+                        seeds[equiv_id] = seeds.get(equiv_id, 0) | bit
+                    # Equivalency-clique evidence from EVERY source, weighted per source:
+                    # native curated lists are strong (>=tau, merge on their own); the
+                    # canonicalized aggregators are LOW (sub-tau, corroboration only) and
+                    # share the "sri_nn_derived" source group so their Babel echo counts
+                    # once. The clean, current cross-ontology backbone comes from the
+                    # normalizer's cliques (stage 1c); aggregator lists just corroborate.
+                    for a, b, group, weight in clique_evidence(equiv_ids, source, weights):
+                        ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
                     cats = node.get(NODE_CATEGORIES) or []
                     branches = families.branches(cats) if cats else ALL_FAMILIES
                     if cats and branches is not ALL_FAMILIES and len(branches) == 1:
@@ -178,9 +153,15 @@ def _stage1_write_evidence_and_facts(
                     taxon = node.get(NODE_TAXON)
                     if taxon:
                         node_taxon[node_id] = sys.intern(taxon)
-                    name_norm = normalize_name(node.get(NODE_NAME))
-                    if not is_droppable(name_norm, min_length=weights.min_name_length, stoplist=DEFAULT_STOPLIST):
-                        nm.write(f"{name_norm}{SEP}{node_id}\n")
+                    # Name rows for name-similarity are PER-ID. A NATIVE source names
+                    # its own id (attributable). A CANONICALIZED aggregator node's name
+                    # is the clique's PREFERRED label -- not reliably the canonical id's
+                    # own name -- so we do NOT emit it; those ids are named per-id by
+                    # their NN label instead (stage 1c).
+                    if source not in CANONICALIZED_AGGREGATOR_SOURCES:
+                        name_norm = normalize_name(node.get(NODE_NAME))
+                        if not is_droppable(name_norm, min_length=weights.min_name_length, stoplist=DEFAULT_STOPLIST):
+                            nm.write(f"{name_norm}{SEP}{node_id}\n")
             # Match-predicate (close/exact/same_as) edges are match-graph evidence, but
             # only on their ORIGINAL endpoints (see _original_endpoints): a Babel-
             # canonicalized endpoint would just re-import Babel's clustering. KG2 also
@@ -202,19 +183,25 @@ def _stage1_write_evidence_and_facts(
                             if ev_edge is not None:
                                 a, b, group, weight = ev_edge
                                 ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
-    return inherited_cats, node_taxon, node_ids, seeds
+    return inherited_cats, node_taxon, node_ids, seeds, source_provided_by
 
 
-def _stage1c_append_nn_clique_evidence(
+def _stage1c_normalizer_evidence_and_names(
     nodenorm: NodeNormClient,
     seeds: set[str],
     evidence_path: Path,
+    names_path: Path,
     weights: ERWeights,
 ) -> None:
     """Resolve every seed through the normalizer (harvesting whole cliques, so each
-    clique costs one query, not one per member) and append equivalence evidence from
-    the normalizer's cliques. This is the cross-ontology backbone -- clean and current
-    -- replacing the aggregators' baked-in equivalent_ids lists."""
+    clique costs one query, not one per member), then append two things:
+
+    * **equivalence evidence** from the normalizer's cliques -- the clean, current
+      cross-ontology backbone that replaces the aggregators' baked-in lists;
+    * **per-id name rows** from each id's own NN label -- so name-similarity links
+      INDIVIDUAL identifiers by their INDIVIDUAL names (not by some source node's
+      primary name), which is the only correct granularity for it.
+    """
     logging.info("entity_resolution: resolving %d seed curies via node normalizer (harvesting cliques)", len(seeds))
     nodenorm.resolve(seeds)
     n_cliques = 0
@@ -223,7 +210,16 @@ def _stage1c_append_nn_clique_evidence(
             for a, b, group, weight in clique_evidence(members, "nn", weights):
                 ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
             n_cliques += 1
-    logging.info("entity_resolution: appended equivalence evidence from %d normalizer cliques", n_cliques)
+    n_names = 0
+    with open(names_path, "a") as nm:
+        for curie, label in nodenorm.iter_labels():
+            name_norm = normalize_name(label)
+            if not is_droppable(name_norm, min_length=weights.min_name_length, stoplist=DEFAULT_STOPLIST):
+                nm.write(f"{name_norm}{SEP}{curie}\n")
+                n_names += 1
+    logging.info(
+        "entity_resolution: appended %d normalizer cliques + %d per-id name rows", n_cliques, n_names
+    )
 
 
 # subclass_of / superclass_of between the same pair signals the co-occurring close_match
@@ -512,26 +508,59 @@ def _stage4_materialize(
     config,
     curie_to_cluster: dict[str, int],
     mg_categories: dict[str, tuple[str, ...]],
-    bare_names: dict[str, str],
     node_ids: set[str],
+    seeds: dict[str, int],
+    source_provided_by: dict[str, set[str]],
+    source_bits: dict[str, int],
+    inherited_cats: dict[str, set[str]],
+    nodenorm: NodeNormClient,
     ranking: PrefixRanking,
     families: BranchFamilies,
     biolink,
     temp_dir: Path,
 ) -> dict[str, str]:
-    """Stream harmonized nodes, group by cluster on disk, reconcile one cluster at
-    a time, and write the canonical nodes file. Returns ``node_id -> representative``.
+    """Stream harmonized nodes, group by cluster on disk, reconcile one cluster at a
+    time, and write the canonical nodes file. Returns ``node_id -> representative``.
 
-    Materialization is cluster-driven: bare member ids (from canonicalized sources'
-    equivalency lists, with no harmonized node of their own) are emitted as
-    synthetic member dicts carrying their node-normalizer name/category, so an
-    entity that splits off an aggregator clique becomes its own named node instead
-    of being dropped. A harmonized node whose id is not in any pair is its own
-    singleton cluster (keyed by its id). Peak memory is one cluster's members.
+    EVERY id a source provided is materialized -- merged into its cluster, or emitted
+    as its own SINGLETON if it never merged. Bare ids (equiv-list members with no
+    harmonized node) become synthetic member dicts carrying their normalizer
+    name/category/taxon and real provenance (decoded from the ``seeds`` bitmask), so
+    nothing a source provided is ever dropped. Peak memory is one cluster's members.
     """
     keyed = temp_dir / "er_s4_nodes_keyed.tmp"
     keyed_sorted = temp_dir / "er_s4_nodes_keyed_sorted.tmp"
     node_id_to_rep: dict[str, str] = {}
+    bit_to_source = {bit: src for src, bit in source_bits.items()}
+
+    def provenance(mask: int) -> list[str]:
+        provided: set[str] = set()
+        for bit, src in bit_to_source.items():
+            if mask & (1 << bit):
+                provided.update(source_provided_by.get(src, ()) or {src})
+        return sorted(provided)
+
+    def label_of(curie: str) -> str | None:
+        info = nodenorm.get(curie)
+        return info.label if info else None
+
+    def taxon_of(curie: str) -> str | None:
+        info = nodenorm.get(curie)
+        return info.taxa[0] if info and info.taxa else None
+
+    def bare_category(curie: str) -> list[str]:
+        cats = mg_categories.get(curie)  # computed in stage 3 for match-graph ids
+        if cats:
+            return sorted(cats)
+        info = nodenorm.get(curie)  # isolated id: NN cache -> inherited -> NamedThing
+        if info and info.categories:
+            return sorted(info.categories)
+        inherited = inherited_cats.get(curie)
+        if inherited:
+            branches = families.branches(tuple(inherited))
+            if branches is not ALL_FAMILIES and len(branches) == 1:
+                return sorted(inherited)
+        return ["biolink:NamedThing"]
 
     # Inverse of curie_to_cluster: the canonical node's equivalent_ids must be its
     # exact cluster membership, NOT the union of member source lists (which can
@@ -553,22 +582,33 @@ def _stage4_materialize(
                     # id's single intrinsic category, so the merged node's categories
                     # are the union of its members' true types, not conflation leftovers.
                     node[NODE_CATEGORIES] = sorted(mg_categories.get(node_id, ()))
+                    # Prefer the NN taxon for this exact id (retain NN's answer); keep the
+                    # source taxon already on the dict when NN has none.
+                    nn_taxon = taxon_of(node_id)
+                    if nn_taxon:
+                        node[NODE_TAXON] = nn_taxon
                     cid = curie_to_cluster.get(node_id)
                     key = f"c{cid}" if cid is not None else f"s:{node_id}"
                     writer.write([key, node])
-            # Synthetic member dicts for bare ids (no harmonized node of their own).
-            for curie, cid in curie_to_cluster.items():
+            # Synthetic member dicts for EVERY bare id (equiv-list member with no
+            # harmonized node): merged into its cluster if it merged, else its own
+            # SINGLETON -- so every id a source provided survives to the graph.
+            for curie, mask in seeds.items():
                 if curie in node_ids:
-                    continue
+                    continue  # has a harmonized node (already written above)
+                cid = curie_to_cluster.get(curie)
+                key = f"c{cid}" if cid is not None else f"s:{curie}"
                 synthetic = {
                     NODE_ID: curie,
-                    NODE_CATEGORIES: sorted(mg_categories.get(curie, ())),
-                    NODE_PROVIDED_BY: [],
+                    NODE_CATEGORIES: bare_category(curie),
+                    NODE_PROVIDED_BY: provenance(mask),
                 }
-                label = bare_names.get(curie)
-                if label:
-                    synthetic[NODE_NAME] = label
-                writer.write([f"c{cid}", synthetic])
+                info = nodenorm.get(curie)
+                if info and info.label:
+                    synthetic[NODE_NAME] = info.label
+                if info and info.taxa:
+                    synthetic[NODE_TAXON] = info.taxa[0]
+                writer.write([key, synthetic])
         _external_sort(keyed, keyed_sorted, ["-k1,1"], temp_dir)
 
         with (
@@ -581,13 +621,10 @@ def _stage4_materialize(
             def flush(group_key: str, group: list[dict]) -> None:
                 if not group:
                     return
-                node = materialize_cluster(group, ranking, families)
-                # Drop bare-only clusters (no harmonized member -> empty provided_by):
-                # these are unreachable orphan equivalency-list ids that never merged
-                # into a real entity. Edges only reference harmonized node ids, so
-                # dropping them loses nothing and matches legacy equiv-id semantics.
-                if not node.get(NODE_PROVIDED_BY):
-                    return
+                node = materialize_cluster(group, ranking, families, label_of=label_of)
+                # No drop rule: every id a source provided is kept (bare ids now carry
+                # real provenance, so nothing is provenance-less). A bare-only cluster
+                # becomes its own node instead of vanishing.
                 if biolink is not None and node.get(NODE_CATEGORIES):
                     leaves = biolink.filter_to_leaf_categories(node[NODE_CATEGORIES])
                     if leaves:
@@ -638,21 +675,26 @@ def resolve_entities(config, biolink) -> dict[str, str]:
     names_path = temp_dir / "er_s1_names.tmp"
     pairs_path = temp_dir / "er_s2_pairs.tmp"
 
+    # Deterministic source -> bit index, for encoding per-id provenance in ``seeds``.
+    source_bits = {src: i for i, src in enumerate(sorted(config.all_harmonized_paths_resolved))}
+
     config.er_nodenorm_cache_path.parent.mkdir(parents=True, exist_ok=True)
     nodenorm = NodeNormClient(config.er_nodenorm_cache_path)
     try:
         logging.info("entity_resolution: streaming evidence + facts...")
-        inherited_cats, node_taxon, node_ids, seeds = _stage1_write_evidence_and_facts(
-            config, weights, families, evidence_path, names_path
+        inherited_cats, node_taxon, node_ids, seeds, source_provided_by = _stage1_write_evidence_and_facts(
+            config, weights, families, evidence_path, names_path, source_bits
         )
+        # 1c (normalizer cliques + per-id NN name rows) BEFORE 1b, so name-similarity
+        # groups over EVERY id's individual name, not just harmonized primary names.
+        _stage1c_normalizer_evidence_and_names(nodenorm, seeds, evidence_path, names_path, weights)
         _stage1b_append_name_similarity(names_path, evidence_path, weights, temp_dir)
-        _stage1c_append_nn_clique_evidence(nodenorm, seeds, evidence_path, weights)
 
         logging.info("entity_resolution: accumulating pairs...")
         _stage2_accumulate_pairs(evidence_path, pairs_path, weights, temp_dir)
 
         logging.info("entity_resolution: clustering...")
-        curie_to_cluster, histogram, bare_names, mg_categories = _stage3_cluster(
+        curie_to_cluster, histogram, _bare_names, mg_categories = _stage3_cluster(
             pairs_path,
             weights,
             families,
@@ -667,7 +709,19 @@ def resolve_entities(config, biolink) -> dict[str, str]:
 
         logging.info("entity_resolution: materializing canonical nodes...")
         node_id_to_rep = _stage4_materialize(
-            config, curie_to_cluster, mg_categories, bare_names, node_ids, ranking, families, biolink, temp_dir
+            config,
+            curie_to_cluster,
+            mg_categories,
+            node_ids,
+            seeds,
+            source_provided_by,
+            source_bits,
+            inherited_cats,
+            nodenorm,
+            ranking,
+            families,
+            biolink,
+            temp_dir,
         )
     finally:
         nodenorm.close()

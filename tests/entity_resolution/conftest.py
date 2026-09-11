@@ -20,6 +20,12 @@ class _OfflineNodeNorm:
     def iter_cliques(self):
         return iter(())  # no normalizer cliques offline; tests needing them stub their own
 
+    def iter_labels(self):
+        return iter(())  # no per-id labels offline
+
+    def get(self, curie):
+        return None
+
     def close(self):
         pass
 

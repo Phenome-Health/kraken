@@ -119,8 +119,14 @@ def materialize_cluster(
     members: Sequence[dict],
     ranking: PrefixRanking,
     families: BranchFamilies,
+    label_of: Callable[[str], str | None] = lambda _curie: None,
 ) -> dict:
-    """Reconcile member node dicts into one canonical node (order-independent)."""
+    """Reconcile member node dicts into one canonical node (order-independent).
+
+    ``label_of`` returns the normalizer's per-id label for a CURIE (or None); the
+    display name prefers the REPRESENTATIVE id's own NN label (attributable to that
+    exact canonical id), falling back to the highest-ranked member name when NN has
+    none. Every other member name is retained as a synonym either way."""
     if not members:
         raise ValueError("cannot materialize an empty cluster")
 
@@ -147,12 +153,15 @@ def materialize_cluster(
         member_equiv = {e for e in (m.get(NODE_EQUIVALENT_IDS) or ()) if e}
         if member_equiv <= cluster_ids:
             synonyms.update(s for s in (m.get(NODE_SYNONYMS) or ()) if s)
-    # every member's primary name IS attributable to its own id, so always keep it
-    chosen_name = name_src.get(NODE_NAME) if name_src else None
+    # Display name: the representative id's OWN NN label wins (per-id, attributable);
+    # else the highest-ranked member name. Every other member name (incl. the rep's
+    # own source name when the NN label differs) is retained as a synonym below.
+    chosen_name = label_of(representative[NODE_ID]) or (name_src.get(NODE_NAME) if name_src else None)
     for m in members:
-        nm = m.get(NODE_NAME)
-        if nm and nm != chosen_name:
-            synonyms.add(nm)
+        # keep each member's source name AND its own NN label (never throw either away)
+        for candidate in (m.get(NODE_NAME), label_of(m[NODE_ID])):
+            if candidate and candidate != chosen_name:
+                synonyms.add(candidate)
     synonyms.discard(chosen_name)
 
     # categories: leaf-filtered union is deferred to the caller (needs BiolinkClient);

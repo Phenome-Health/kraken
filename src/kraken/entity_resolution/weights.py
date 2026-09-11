@@ -64,9 +64,7 @@ class ERWeights(BaseModel):
             # "nn"), queried live so they're the current, cleanest Babel mapping.
             # Above tau so a clique merges on its own; cross-family conflations are
             # pruned pairwise before clustering, so this only governs SAME-family
-            # merges. We NO LONGER use the aggregators' baked-in equivalent_ids
-            # lists (stale snapshots + per-source over-conflation, e.g. kg2 fusing
-            # 1300+ Reactome ids into a gene); NN cliques replace them.
+            # merges.
             "nn": 0.5,
             # Curated, structurally tight -> reach tau, so they merge on their own.
             "ncbigene": 1.0,
@@ -75,6 +73,18 @@ class ERWeights(BaseModel):
             "umls": 0.8,
             "loinc": 0.6,
             "cdes": 0.6,
+            # Aggregators' baked-in equivalent_ids lists: stale Babel snapshots +
+            # per-source over-conflation (kg2 fusing 1300+ Reactome ids into a gene),
+            # so kept BELOW tau -- corroboration only, never merging on their own;
+            # they need NN/name-sim/etc. to sum over tau. All share the
+            # "sri_nn_derived" source group (max-not-sum), so echoing the same Babel
+            # assertion across aggregators counts once. Their VALUE is recovering
+            # mappings NN doesn't know (the coverage gap), not driving merges.
+            "kg2": 0.15,
+            "robokop": 0.15,
+            "translator-kg-open": 0.15,
+            "microbiome-kg": 0.15,
+            "multiomics-kg": 0.15,
         }
     )
     default_equivalency_weight: float = 0.4
@@ -108,7 +118,11 @@ class ERWeights(BaseModel):
     # Each source maps to a group id; sources not listed are their own group.
     source_groups: dict[str, list[str]] = Field(
         default_factory=lambda: {
-            "sri_nn_derived": ["kg2", "robokop", "translator-kg-open", "microbiome-kg", "multiomics-kg"],
+            # All Babel/SRI-NN-derived equivalence shares one group so echoing the same
+            # Babel assertion (live NN clique + the aggregators' baked-in lists) counts
+            # once (max), not summed. "nn" is the live NN cliques; the rest are the
+            # aggregators' stored lists.
+            "sri_nn_derived": ["nn", "kg2", "robokop", "translator-kg-open", "microbiome-kg", "multiomics-kg"],
         }
     )
 

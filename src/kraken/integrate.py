@@ -20,19 +20,29 @@ import jsonlines
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
 from kraken.entity_resolution.build import resolve_entities
+from kraken.entity_resolution.sri_nodenorm import NodeNormClient
+from kraken.entity_resolution.uncanonicalize import original_endpoints
 from kraken.schema import EdgeModel
 from kraken.utils.constants import (
     EDGE_AGENT_TYPE,
+    EDGE_AGGREGATOR_KS,
     EDGE_ATTRIBUTES,
     EDGE_KNOWLEDGE_LEVEL,
     EDGE_OBJECT,
+    EDGE_PREDICATE,
+    EDGE_PRIMARY_KS,
     EDGE_SUBJECT,
+    KNOWLEDGE_ASSERTION,
     NODE_ATTRIBUTES,
+    NODE_EQUIVALENT_IDS,
     NODE_ID,
+    NODE_PROVIDED_BY,
     NOT_PROVIDED,
+    SAME_AS_PREDICATE,
+    SRI_NN_INFORES,
 )
 from kraken.utils.general import create_edge_key, to_list
-from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl
+from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
 def integrate_sources(config: KrakenConfig, biolink: BiolinkClient):
@@ -84,14 +94,105 @@ def integrate_edges(node_map: dict[str, str], config: KrakenConfig):
 
 def _write_keyed_edges(node_map: dict[str, str], config: KrakenConfig, keyed_edges_path: Path):
     """Stream every source's edges to a temp file as '<edge_key>\\t<edge_json>' lines, resolving each
-    edge's subject/object to canonical (representative) IDs first so the keys reflect the integrated graph."""
+    edge's subject/object to canonical (representative) IDs first so the keys reflect the integrated graph.
+
+    Edges are remapped by their ORIGINAL endpoints (un-canonicalizing aggregators): a canonicalizing
+    aggregator stores Babel-canonical endpoints, but our clustering diverges from Babel, so mapping a
+    canonical endpoint would attach the edge to the wrong node. One stored edge can carry several
+    original subject/object pairs (e.g. kg2), so it fans out into several edges. Sources we can't
+    un-canonicalize fall back to their stored endpoints."""
+    orphaned = self_loops = 0
     with open(keyed_edges_path, "w") as keyed_file:
         for source_name in config.sources_to_use:
             logging.info(f"Writing keyed edges from {source_name}..")
             _, edges_file = config.all_harmonized_paths_resolved[source_name]
             for edge in stream_edges_from_jsonl(edges_file):
-                resolve_to_canonical(edge, node_map)
-                keyed_file.write(f"{create_edge_key(edge)}{_EDGE_SORT_SEP}{json.dumps(edge)}\n")
+                pairs = original_endpoints(edge, source_name)
+                if pairs is None:  # canonicalized aggregator we can't un-canon -> stored endpoints
+                    pairs = [(edge.get(EDGE_SUBJECT), edge.get(EDGE_OBJECT))]
+                for subj_id, obj_id in pairs:
+                    rep_subj, rep_obj = node_map.get(subj_id), node_map.get(obj_id)
+                    if rep_subj is None or rep_obj is None:
+                        orphaned += 1  # an endpoint that never became a node -> skip this edge
+                        continue
+                    if rep_subj == rep_obj:
+                        self_loops += 1  # endpoints merged into one node -> self-loop, drop
+                        continue
+                    resolved = {**edge, EDGE_SUBJECT: rep_subj, EDGE_OBJECT: rep_obj}
+                    keyed_file.write(f"{create_edge_key(resolved)}{_EDGE_SORT_SEP}{json.dumps(resolved)}\n")
+        _write_equivalence_edges(node_map, config, keyed_file)
+    if orphaned:
+        logging.warning("Skipped %d edge endpoints with no node mapping (orphans)", orphaned)
+    if self_loops:
+        logging.info("Dropped %d self-loop edges (endpoints merged into one node)", self_loops)
+
+
+def _same_as_edge(subject: str, object_: str, primary_ks: str, aggregator_ks: list[str]) -> dict:
+    """A biolink same_as edge (symmetric: subject/object ordered so A~B and B~A collapse).
+
+    knowledge_level = knowledge_assertion (an asserted equivalence, not a prediction/
+    statistic). agent_type = not_provided: these edges are synthesized from equiv-list
+    co-membership, so the agent that originally asserted the equivalence is unknown (it
+    varies by source), and we don't claim one."""
+    subject, object_ = sorted((subject, object_))
+    edge = {
+        EDGE_SUBJECT: subject,
+        EDGE_OBJECT: object_,
+        EDGE_PREDICATE: SAME_AS_PREDICATE,
+        EDGE_PRIMARY_KS: primary_ks,
+        EDGE_KNOWLEDGE_LEVEL: KNOWLEDGE_ASSERTION,
+        EDGE_AGENT_TYPE: NOT_PROVIDED,
+    }
+    if aggregator_ks:
+        edge[EDGE_AGGREGATOR_KS] = list(aggregator_ks)
+    return edge
+
+
+def _write_equivalence_edges(node_map: dict[str, str], config: KrakenConfig, keyed_file):
+    """Retain the equivalence signal as real edges: for every asserted equivalence whose
+    two ids ended up in DIFFERENT clusters, emit a ``same_as`` edge between their
+    representatives (same-cluster assertions collapse to self-loops and are dropped).
+    So e.g. TP53 protein-isoforms that don't merge into the main TP53 node stay LINKED
+    to it. Two sources: each source's equiv-list (primary KS = that source) and the SRI
+    Node Normalizer's cliques (primary KS = the normalizer)."""
+    written = 0
+
+    def emit(rep_a: str, rep_b: str, primary_ks: str, aggregator_ks: list[str]) -> int:
+        if rep_a == rep_b:  # same cluster -> self-loop, skip
+            return 0
+        edge = _same_as_edge(rep_a, rep_b, primary_ks, aggregator_ks)
+        keyed_file.write(f"{create_edge_key(edge)}{_EDGE_SORT_SEP}{json.dumps(edge)}\n")
+        return 1
+
+    # (1) each source's equiv lists (the source asserts node_id ~ each of its members)
+    for source_name in config.sources_to_use:
+        nodes_file, _ = config.all_harmonized_paths_resolved[source_name]
+        for node in stream_nodes_from_jsonl(nodes_file):
+            node_id = node.get(NODE_ID)
+            rep_a = node_map.get(node_id)
+            if rep_a is None:
+                continue
+            provided = node.get(NODE_PROVIDED_BY) or [source_name]
+            primary_ks, aggregator_ks = provided[0], list(provided[1:])
+            for member in node.get(NODE_EQUIVALENT_IDS) or []:
+                rep_b = node_map.get(member)
+                if rep_b is not None:
+                    written += emit(rep_a, rep_b, primary_ks, aggregator_ks)
+
+    # (2) the SRI Node Normalizer's cliques (primary KS = the normalizer)
+    nodenorm = NodeNormClient(config.er_nodenorm_cache_path)
+    try:
+        for canonical, members in nodenorm.iter_cliques():
+            rep_a = node_map.get(canonical)
+            if rep_a is None:
+                continue
+            for member in members:
+                rep_b = node_map.get(member)
+                if rep_b is not None:
+                    written += emit(rep_a, rep_b, SRI_NN_INFORES, [])
+    finally:
+        nodenorm.close()
+    logging.info("Wrote %d cross-cluster same_as equivalence edges", written)
 
 
 def _sort_file_by_key(input_path: Path, output_path: Path, temp_dir: Path):
@@ -161,16 +262,6 @@ def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
     for property_name, value in new_edge.items():
         if property_name not in EdgeModel.key_properties() | {EDGE_KNOWLEDGE_LEVEL, EDGE_AGENT_TYPE}:
             merge_property_into_existing(new_edge, existing_edge, property_name)
-
-
-def resolve_to_canonical(edge: dict, node_map: dict[str, str]):
-    subj_id = edge[EDGE_SUBJECT]
-    obj_id = edge[EDGE_OBJECT]
-    if subj_id in node_map and obj_id in node_map:
-        edge[EDGE_SUBJECT] = node_map[subj_id]
-        edge[EDGE_OBJECT] = node_map[obj_id]
-    else:
-        logging.warning(f"Skipping orphan edge: Edge between {subj_id} and {obj_id} is missing node mappings")
 
 
 def merge_two_lists(list_a: list, list_b: list) -> list[Any]:
