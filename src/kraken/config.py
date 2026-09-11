@@ -2,13 +2,35 @@
 Configuration models for KRAKEN build system
 """
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Self
 
+import yaml
 from pydantic import BaseModel, Field, model_validator
 
 from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.general import to_list
+
+BUILD_CONFIG_PATH = Path(f"{PROJECT_ROOT}/config/build_config.yaml")
+
+
+@lru_cache(maxsize=1)
+def _configured_source_ids() -> dict[str, str]:
+    """Map of build_config source name -> its configured ``source_id``, read once from build_config.yaml."""
+    with open(BUILD_CONFIG_PATH) as f:
+        config_dict = yaml.safe_load(f)
+    return {name: source["source_id"] for name, source in config_dict.get("sources", {}).items()}
+
+
+def get_source_id(source_name: str) -> str:
+    """The ``source_id`` (infores or bare id) configured for a build_config source, so code that needs to
+    name another source (e.g. a harmonizer's primary_ks_exclusions) reads the id from build_config -- the
+    single source of truth -- rather than restating the string."""
+    ids = _configured_source_ids()
+    if source_name not in ids:
+        raise KeyError(f"No source named {source_name!r} in {BUILD_CONFIG_PATH} (have: {sorted(ids)})")
+    return ids[source_name]
 
 
 class HarmonizationConfig(BaseModel):
@@ -64,6 +86,10 @@ class PostProcessingConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
+    # The identifier recorded as this source's provenance (``provided_by`` / edge knowledge source): a
+    # registered Biolink infores CURIE where one exists (e.g. "infores:rtx-kg2"), otherwise a bare id we
+    # coin (e.g. "translator-kg-open"). Single source of truth for the source's identity.
+    source_id: str
     version: str | None = None  # version/release of the source that was ingested (e.g. "2.10.2", "june2025")
     input_file: str | None = None
     nodes_input: str | None = None

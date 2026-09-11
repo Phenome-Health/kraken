@@ -1,16 +1,16 @@
-kraken_version: 2.1.0
+kraken_version: 2.1.1
 biolink_version: 4.2.5
 log_level: INFO
 steps:
-  harmonize: True
+  harmonize: False
   integrate: True
-  postprocess: True
+  postprocess: False
 options:
   metagraph_creation: True
   validate_output: True
   validation_only: False
   include_sources: []
-  exclude_sources: ["clingen", "molepro"]
+  exclude_sources: ["clingen"]
 
 # Base directory path to use for all input/output files (should be absolute path)
 # Set to null to use kraken project root as base path
@@ -34,67 +34,94 @@ post_processing:
 
 sources:
   kg2:
+    source_id: "infores:rtx-kg2"
     version: "2.10.2"
     nodes_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-nodes.jsonl"
     edges_input: "input_data/kg2/kg2.10.2/kg2c-2.10.2-v1.0-edges.jsonl"
 
   robokop:
+    source_id: "infores:robokop-kg"
     version: "june2025"
     nodes_input: "input_data/robokop/june2025/nodes.jsonl"
     edges_input: "input_data/robokop/june2025/edges.jsonl"
 
   translator-kg-open:
+    source_id: "translator-kg-open"  # no registered infores; bare id we coin
     version: "2026_07_19"
     nodes_input: "input_data/translator-kg-open/2026_07_19/nodes.jsonl"
     edges_input: "input_data/translator-kg-open/2026_07_19/edges.jsonl"
 
   ncbigene:
+    source_id: "infores:ncbi-gene"
     version: "accessed_2026-08-31"
     input_file: "input_data/ncbigene"
 
+  ctkg:
+    source_id: "infores:multiomics-clinicaltrials"
+    version: "4.1.7"
+    nodes_input: "input_data/ctkg/clinical_trials_kg_nodes.jsonl"
+    edges_input: "input_data/ctkg/clinical_trials_kg_edges.jsonl"
+
+  dakg:
+    source_id: "infores:multiomics-drugapprovals"
+    version: "0.5.7"
+    nodes_input: "input_data/dakg/drug_approvals_kg_nodes_current.jsonl"
+    edges_input: "input_data/dakg/drug_approvals_kg_edges_current.jsonl"
+
   microbiome-kg:
+    source_id: "infores:multiomics-microbiome"
     version: "2.1.0"
     nodes_input: "input_data/microbiome-kg/Microbiome_KG_nodes_v2.1.0.tsv"
     edges_input: "input_data/microbiome-kg/Microbiome_KG_edges_p2.1.0.tsv"
 
   multiomics-kg:
+    source_id: "infores:multiomics-multiomics"
     version: "2.1.0"
     nodes_input: "input_data/multiomics-kg/Multiomics_KG_nodes_v2.1.0.tsv"
     edges_input: "input_data/multiomics-kg/Multiomics_KG_edges_p2.1.0.tsv"
 
   umls:
+    source_id: "infores:umls-metathesaurus"
     version: "2025AA"
     input_file: "input_data/umls/LOINC_PART_UMLS.tsv"
 
   lipidmaps:
+    source_id: "lipidmaps"  # no registered infores; bare id we coin
     version: "accessed_2026-08-07"
     input_file: "input_data/lipidmaps/structures.sdf"
 
   refmet:
+    source_id: "infores:refmet"
     version: "accessed_2026-08-07"
     input_file: "input_data/refmet/refmet.csv"
 
   loinc:
+    source_id: "infores:loinc"
     version: "2.82"
     input_file: "input_data/loinc/Loinc_2.82"
 
   cdes:
+    source_id: "nih-cde"  # no registered infores; bare id we coin
     version: "accessed_2026-07-29"
     input_file: "input_data/cdes/SearchExport.json"
 
   pgs-catalog:
+    source_id: "pgs-catalog"  # no registered infores; bare id we coin
     version: "2026-07-29"
     input_file: "input_data/pgs-catalog/pgs_all_metadata.xlsx"
 
   bio-bmi:
+    source_id: "biological-bmi"  # a paper (Watanabe et al. 2023), not a registered DB; bare id we coin
     version: "2023"  # Watanabe et al. Nat Med 2023 (doi:10.1038/s41591-023-02248-0)
     input_file: "input_data/bio-bmi"
 
   bio-age:
+    source_id: "biological-age"  # a paper (Earls et al. 2019), not a registered DB; bare id we coin
     version: "2019"  # Earls et al. J Gerontol A 2019 (doi:10.1093/gerona/glz220)
     input_file: "input_data/bio-age"
 
 
   clingen:
+    source_id: "infores:clingen"
     version: null  # TODO: fill in ClinGen release/download date
     input_file: "input_data/clingen/acmg_actionability.json"

@@ -11,7 +11,6 @@ import jsonlines
 
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.harmonizers.helpers.ncbigene_taxon_allowlist import TAXON_ALLOWLIST
-from kraken.utils.constants import NCBIGENE_INFORES
 from kraken.utils.general import is_empty
 from kraken.utils.kg_io import fix_repeated_prefix, save_to_jsonl
 from kraken.utils.taxonomy import TaxonNormalizer
@@ -170,8 +169,6 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
     include_biological_regions=True), and fully uncharacterized genes (unless drop_uncharacterized_genes=False)
     -- see the constants and flags above for why.
     """
-
-    source_infores = NCBIGENE_INFORES
 
     # Restrict the ingest to the curated organisms in ncbigene_taxon_allowlist.py (~2.4M genes; measure a
     # build's coverage with scripts/audit_ncbigene_taxon_allowlist.py). Set False to ingest EVERY taxon in the

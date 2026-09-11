@@ -7,14 +7,11 @@ from rdkit import Chem
 
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import LIPIDMAPS_ID
 from kraken.utils.kg_io import save_to_jsonl
 
 
 class LipidMapsHarmonizer(BaseHarmonizer):
     """Harmonizer for LIPID MAPS SDF files"""
-
-    source_infores = LIPIDMAPS_ID
 
     attribute_props = {"CATEGORY", "MAIN_CLASS", "SUB_CLASS", "CLASS_LEVEL4", "INCHI"}
     equiv_id_props = {

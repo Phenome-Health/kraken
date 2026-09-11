@@ -7,7 +7,7 @@ from typing import Any
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.harmonizers.helpers.cde_concept_blocklist import CONCEPT_BLOCKLIST
-from kraken.utils.constants import KNOWLEDGE_ASSERTION, MANUAL_AGENT, NIH_CDE_SOURCE_ID
+from kraken.utils.constants import KNOWLEDGE_ASSERTION, MANUAL_AGENT
 from kraken.utils.general import clean_text
 from kraken.utils.kg_io import save_to_jsonl
 
@@ -117,7 +117,6 @@ class CDEHarmonizer(BaseHarmonizer):
     """
 
     # Not a registered infores; used verbatim as the source id per project decision.
-    source_infores = NIH_CDE_SOURCE_ID
 
     def __init__(self, biolink_client: BiolinkClient):
         super().__init__(biolink_client)

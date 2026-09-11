@@ -18,6 +18,8 @@ from kraken.harmonizers.bio_age import BioAgeHarmonizer
 from kraken.harmonizers.bio_bmi import BioBMIHarmonizer
 from kraken.harmonizers.cdes import CDEHarmonizer
 from kraken.harmonizers.clingen import ClinGenHarmonizer
+from kraken.harmonizers.ctkg import CTKGHarmonizer
+from kraken.harmonizers.dakg import DAKGHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
 from kraken.harmonizers.loinc import LoincHarmonizer
@@ -44,6 +46,8 @@ class KrakenBuildOrchestrator:
     HARMONIZERS = {
         "kg2": KG2Harmonizer,
         "robokop": RobokopHarmonizer,
+        "ctkg": CTKGHarmonizer,
+        "dakg": DAKGHarmonizer,
         "microbiome-kg": MicrobiomeKGHarmonizer,
         "ncbigene": NCBIGeneHarmonizer,
         "multiomics-kg": MultiomicsKGHarmonizer,
@@ -180,8 +184,8 @@ class KrakenBuildOrchestrator:
         # Create output directory if it doesn't exist
         nodes_output.parent.mkdir(parents=True, exist_ok=True)
 
-        # Instantiate our harmonizer
-        harmonizer = self.HARMONIZERS[source_name](self.biolink_client)
+        # Instantiate our harmonizer (its provenance id comes from build_config: sources.<name>.source_id)
+        harmonizer = self.HARMONIZERS[source_name](self.biolink_client, source_id=source_config.source_id)
 
         if not self.config.options.validation_only:
             # Unzip input files as needed
@@ -226,7 +230,6 @@ class KrakenBuildOrchestrator:
             )
 
         if not self.config.options.validation_only:
-
             if self.config.create_metagraphs:
                 generate_metagraph_for_source(
                     nodes_path=self.config.integrated_nodes_path,
@@ -243,7 +246,6 @@ class KrakenBuildOrchestrator:
         logging.info("------------------------------ POST-PROCESSING -----------------------------------------------")
 
         if self.config.post_processing:
-
             if self.config.post_processing.test_export:
                 logging.info("Generating test files for this kraken build..")
                 test_export_config = self.config.post_processing.test_export

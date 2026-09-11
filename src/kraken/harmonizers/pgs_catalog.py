@@ -13,7 +13,7 @@ import requests
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.harmonizers.helpers.pgs_gene_annotator import ENSEMBL_GTF_URL, GeneAnnotator
-from kraken.utils.constants import DATA_ANALYSIS_PIPELINE, PGS_CATALOG_SOURCE_ID, STATISTICAL_ASSOCIATION
+from kraken.utils.constants import DATA_ANALYSIS_PIPELINE, STATISTICAL_ASSOCIATION
 from kraken.utils.kg_io import save_to_jsonl
 
 # --- v1 selection knobs ---
@@ -78,8 +78,6 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
     All node/edge Biolink types are placeholders -- see the module-level ``*_CATEGORY`` / ``*_PREDICATE``
     constants (pending a types review); each is a single swappable constant.
     """
-
-    source_infores = PGS_CATALOG_SOURCE_ID
 
     def __init__(self, biolink_client: BiolinkClient):
         super().__init__(biolink_client)

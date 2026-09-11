@@ -6,7 +6,6 @@ from pathlib import Path
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.utils.constants import (
-    BIO_AGE_SOURCE_ID,
     DATA_ANALYSIS_PIPELINE,
     STATISTICAL_ASSOCIATION,
 )
@@ -53,8 +52,6 @@ class BioAgeHarmonizer(BaseHarmonizer):
 
     Node/edge Biolink types are single swappable module-level constants -- see above.
     """
-
-    source_infores = BIO_AGE_SOURCE_ID
 
     def __init__(self, biolink_client: BiolinkClient):
         super().__init__(biolink_client)

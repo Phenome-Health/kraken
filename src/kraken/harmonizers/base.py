@@ -1,5 +1,5 @@
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -61,9 +61,8 @@ TRAPI_SOURCE_ROLES = {"primary_knowledge_source", "aggregator_knowledge_source",
 class BaseHarmonizer(ABC):
     """Base class for harmonizing knowledge graph sources into KRAKEN format"""
 
-    @property
-    @abstractmethod
-    def source_infores(self) -> str: ...
+    # ``source_infores`` is set per-instance in __init__ from the build_config ``source_id`` (the single
+    # source of truth for a source's identity), so it is no longer a class attribute defined per subclass.
 
     @property
     def source_name(self) -> str:
@@ -117,7 +116,10 @@ class BaseHarmonizer(ABC):
     category_overrides: dict[str, str] = dict()
     agent_type_overrides: dict[str, dict[str, str]] = dict()  # Organized by primary KS
 
-    # Primary knowledge sources to skip (these edges will NOT be included)
+    # Primary knowledge sources to skip (these edges will NOT be included), given by infores id. For a source
+    # we ingest directly, read its id from build_config via config.get_source_id (the single source of truth)
+    # rather than hardcoding the string; a source with no build_config entry (e.g. "infores:ubergraph") is
+    # written out literally.
     primary_ks_exclusions: set = set()
 
     # Drop edges asserting a negation (negated=true). KRAKEN has no way to represent negation, so ingesting
@@ -128,7 +130,8 @@ class BaseHarmonizer(ABC):
     # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
     exclude_from_list_parsing: set[str] = set()
 
-    def __init__(self, biolink_client: BiolinkClient):
+    def __init__(self, biolink_client: BiolinkClient, source_id: str):
+        self.source_infores = source_id  # from build_config; the source's provenance id (infores or bare id)
         self.biolink = biolink_client
         # Set up biomapper2's normalizer, so we can normalize curies as needed
         self.normalizer = Normalizer(biolink_version=self.biolink.version)
@@ -467,8 +470,7 @@ class BaseHarmonizer(ABC):
     ) -> dict[str, Any]:
         if not (curie and categories and provided_by):
             raise ValueError(
-                f"Node is missing required field(s): curie={curie}, "
-                f"categories={categories}, provided_by={provided_by}"
+                f"Node is missing required field(s): curie={curie}, categories={categories}, provided_by={provided_by}"
             )
         if attributes is None:
             attributes = {}

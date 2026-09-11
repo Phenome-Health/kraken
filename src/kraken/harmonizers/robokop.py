@@ -1,9 +1,7 @@
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import ROBOKOP_INFORES
 
 
 class RobokopHarmonizer(BaseHarmonizer):
-    source_infores = ROBOKOP_INFORES
     is_aggregator = True
 
     # Node property config

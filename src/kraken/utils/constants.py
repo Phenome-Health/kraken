@@ -11,25 +11,12 @@ ROOT_PREDICATE = "biolink:related_to"
 BIOLINK_PREFIX = "biolink"
 INFORES_PREFIX = "infores"
 
-KG2_INFORES: str = f"{INFORES_PREFIX}:rtx-kg2"
-ROBOKOP_INFORES: str = f"{INFORES_PREFIX}:robokop-kg"
-MICROBIOME_KG_INFORES: str = f"{INFORES_PREFIX}:multiomics-microbiome"
-MULTIOMICS_KG_INFORES: str = f"{INFORES_PREFIX}:multiomics-multiomics"
-UMLS_MTH_INFORES: str = f"{INFORES_PREFIX}:umls-metathesaurus"
-REFMET_INFORES: str = f"{INFORES_PREFIX}:refmet"
-CLINGEN_INFORES = f"{INFORES_PREFIX}:clingen"
+# Every KRAKEN source's own identity (the id recorded as provenance / provided_by) lives in build_config.yaml
+# under `sources.<name>.source_id` -- that is the single source of truth, and cross-source references derive
+# from it (e.g. primary-KS exclusions resolve build_config keys to source_ids in the orchestrator). The only
+# infores constant kept here is for a source we do NOT directly ingest, so it has no build_config entry:
+#   * HMDB_INFORES -- the unreliable-publications set below.
 HMDB_INFORES: str = f"{INFORES_PREFIX}:hmdb"
-LOINC_INFORES: str = f"{INFORES_PREFIX}:loinc"
-NCBIGENE_INFORES: str = f"{INFORES_PREFIX}:ncbi-gene"
-
-
-# Some sources do not (yet) have registered infores curies; use bare source IDs for those
-NIH_CDE_SOURCE_ID: str = "nih-cde"
-TRANSLATOR_SOURCE_ID: str = "translator-kg-open"
-LIPIDMAPS_ID: str = "lipidmaps"
-BIOLOGICAL_BMI_SOURCE_ID: str = "biological-bmi"  # multiomic BMI models (Watanabe et al. 2023; a paper, not a DB)
-BIO_AGE_SOURCE_ID: str = "biological-age"  # multiomic biological-age models (Earls et al. 2019; a paper, not a DB)
-PGS_CATALOG_SOURCE_ID: str = "pgs-catalog"
 
 # Primary knowledge sources whose edge publication lists are unreliable, so we drop publications from their
 # edges during harmonization. (HMDB copies a disease's entire reference list onto every metabolite it links to

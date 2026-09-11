@@ -10,7 +10,7 @@ from pathlib import Path
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.harmonizers.helpers.name_overrides import ORIGINAL_NAME_ATTRIBUTE
-from kraken.utils.constants import KNOWLEDGE_ASSERTION, LOINC_INFORES, MANUAL_AGENT
+from kraken.utils.constants import KNOWLEDGE_ASSERTION, MANUAL_AGENT
 from kraken.utils.kg_io import save_to_jsonl
 
 # LOINC terminology ingest: one node per LOINC identifier, with a display name + name synonyms. Everything
@@ -229,8 +229,6 @@ class LoincHarmonizer(BaseHarmonizer):
     otherwise-orphan Parts a route into the graph), and the narrower/wider/relatedto ones become edges, as do
     the concepts an answer code refers to. LOINC's internal hierarchy is NOT ingested.
     """
-
-    source_infores = LOINC_INFORES
 
     def __init__(self, biolink_client: BiolinkClient):
         super().__init__(biolink_client)

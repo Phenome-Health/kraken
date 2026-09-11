@@ -13,7 +13,7 @@ exactly one un-canonicalization implementation.
 
 from __future__ import annotations
 
-from kraken.utils.constants import EDGE_ATTRIBUTES, EDGE_OBJECT, EDGE_SUBJECT, KG2_INFORES
+from kraken.utils.constants import EDGE_ATTRIBUTES, EDGE_OBJECT, EDGE_SUBJECT
 
 # Sources whose stored endpoints are Babel-canonicalized (so match/edge remapping must
 # recover the ORIGINAL endpoints). KG2 keeps its originals in ``kg2pre_ids`` (one merged
@@ -31,12 +31,16 @@ ORIGINAL_OBJECT_ATTR = "original_object"
 
 
 def _kg2_pre_id_pairs(edge: dict) -> list[tuple[str, str]]:
-    attrs = (edge.get(EDGE_ATTRIBUTES) or {}).get(KG2_INFORES) or {}
+    # kg2pre_ids lives in KG2's per-source attribute dict; find it regardless of the infores key it's under
+    # (that key is KG2's build_config source_id, the single source of truth -- not restated here).
     pairs: list[tuple[str, str]] = []
-    for raw in attrs.get(KG2_PRE_IDS_ATTR) or []:
-        parts = raw.split(_KG2_ID_SEP)
-        if len(parts) >= 6 and parts[0] not in ("", "None") and parts[5] not in ("", "None"):
-            pairs.append((parts[0], parts[5]))
+    for attrs in (edge.get(EDGE_ATTRIBUTES) or {}).values():
+        if not isinstance(attrs, dict):
+            continue
+        for raw in attrs.get(KG2_PRE_IDS_ATTR) or []:
+            parts = raw.split(_KG2_ID_SEP)
+            if len(parts) >= 6 and parts[0] not in ("", "None") and parts[5] not in ("", "None"):
+                pairs.append((parts[0], parts[5]))
     return pairs
 
 

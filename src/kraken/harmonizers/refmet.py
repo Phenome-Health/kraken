@@ -5,14 +5,11 @@ from typing import Any
 
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import REFMET_INFORES
 from kraken.utils.kg_io import load_csv_to_dict_list, save_to_jsonl
 
 
 class RefMetHarmonizer(BaseHarmonizer):
     """Harmonizer for RefMet CSV files"""
-
-    source_infores = REFMET_INFORES
 
     attribute_props = {"super_class", "main_class", "sub_class"}
     equiv_id_props = {"pubchem_cid", "chebi_id", "hmdb_id", "lipidmaps_id", "kegg_id", "inchi_key"}

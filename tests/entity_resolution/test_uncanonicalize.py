@@ -1,7 +1,11 @@
 """Tests for aggregator edge un-canonicalization (shared by match evidence + edge remap)."""
 
 from kraken.entity_resolution.uncanonicalize import original_endpoints
-from kraken.utils.constants import EDGE_ATTRIBUTES, EDGE_OBJECT, EDGE_SUBJECT, KG2_INFORES
+from kraken.utils.constants import EDGE_ATTRIBUTES, EDGE_OBJECT, EDGE_SUBJECT
+
+# KG2's per-source attribute key is its build_config source_id; the value used here is just a realistic
+# stand-in, since un-canonicalization now finds kg2pre_ids regardless of which infores key it sits under.
+KG2_INFORES = "infores:rtx-kg2"
 
 
 def test_native_source_uses_own_endpoints():

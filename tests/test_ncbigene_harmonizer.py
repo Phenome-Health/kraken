@@ -53,6 +53,7 @@ def harmonizer() -> NCBIGeneHarmonizer:
     """A harmonizer allocated without __init__ (which would hit the network), with just the counters the
     methods under test touch."""
     instance = object.__new__(NCBIGeneHarmonizer)
+    instance.source_infores = "infores:ncbi-gene"  # normally set by __init__ from build_config's source_id
     instance.normalizer = _StubNormalizer()
     instance.unrecognized_dbxref_prefixes = defaultdict(int)
     instance.invalid_dbxref_ids = defaultdict(int)

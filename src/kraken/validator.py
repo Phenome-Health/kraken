@@ -120,6 +120,11 @@ class KrakenValidator:
         required_props = [p for p in NodeModel.all_properties().values() if p.required]
         all_props = {p.name for p in NodeModel.all_properties().values()}
         merged_node_count = 0
+        # For a single source, overlapping equivalent-ID sets are only warned about (some sources legitimately
+        # carry them), so we tally them across the file and log one summary after the loop.
+        equiv_overlap_count = 0
+        equiv_overlap_prefixes: set[str] = set()
+        equiv_overlap_examples: list[list[str]] = []
 
         for node in stream_nodes_from_jsonl(nodes_path):
             # Record this node ID for use during edge validation
@@ -165,21 +170,23 @@ class KrakenValidator:
                         node,
                     )
 
-            # Equivalent ID set must be disjoint from other nodes' equivalent ID sets
-            # TODO: Temporarily only runs this check for kg2/kraken - (need way to handle overlaps in sources)
-            if source_infores == "infores:rtx-kg2" or integrated:
-                equiv_ids = set(node.get(NodeModel.equivalent_ids.name))
-                if equiv_ids:
-                    overlapping_ids = equiv_ids.intersection(self.all_equiv_ids)
-                    if overlapping_ids:
-                        # Try to grab the prefixes of the IDs that are overlapping
-                        prefixes = set()
-                        for overlapper in overlapping_ids:
-                            try:
-                                prefix = split_curie(overlapper)[0]
-                                prefixes.add(prefix)
-                            except Exception:
-                                pass
+            # Equivalent ID set must be disjoint from other nodes' equivalent ID sets (within this file). For
+            # integrated files this is a hard invariant (entity resolution must yield disjoint sets, else edges
+            # attach to the wrong node); for a single source it's only a warning, since some sources legitimately
+            # carry overlapping equivalent-ID sets (resolved later during integration).
+            equiv_ids = set(node.get(NodeModel.equivalent_ids.name) or [])
+            if equiv_ids:
+                overlapping_ids = equiv_ids.intersection(self.all_equiv_ids)
+                if overlapping_ids:
+                    # Try to grab the prefixes of the IDs that are overlapping
+                    prefixes = set()
+                    for overlapper in overlapping_ids:
+                        try:
+                            prefix = split_curie(overlapper)[0]
+                            prefixes.add(prefix)
+                        except Exception:
+                            pass
+                    if integrated:
                         self._add_error(
                             "overlapping_equiv_ids",
                             f"Node's equivalent ID set overlaps with other node(s). "
@@ -187,7 +194,12 @@ class KrakenValidator:
                             node,
                             subtype=f"{sorted(prefixes)}",
                         )
-                    self.all_equiv_ids |= equiv_ids
+                    else:
+                        equiv_overlap_count += 1
+                        equiv_overlap_prefixes |= prefixes
+                        if len(equiv_overlap_examples) < 3:
+                            equiv_overlap_examples.append(sorted(overlapping_ids))
+                self.all_equiv_ids |= equiv_ids
 
             # Source provenance check (if source_infores provided)
             if source_infores and NodeModel.provided_by.name in node:
@@ -223,6 +235,14 @@ class KrakenValidator:
                     # Print out the first few merged nodes
                     if merged_node_count < 3:
                         logging.info(f"Merged node example: {node}")
+
+        # For a single source, surface any overlapping equivalent-ID sets as a warning (not a build failure)
+        if not integrated and equiv_overlap_count:
+            logging.warning(
+                f"{equiv_overlap_count} node(s) have an equivalent-ID set overlapping another node's in this "
+                f"source (prefixes: {sorted(equiv_overlap_prefixes)}). Not an error for a single source -- "
+                f"integration resolves these -- but flagging it. Examples: {equiv_overlap_examples}"
+            )
 
         # Ensure there are some merged nodes if these are integrated kraken files
         if integrated:
