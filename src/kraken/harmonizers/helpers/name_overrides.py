@@ -50,6 +50,10 @@ NAME_OVERRIDES: dict[tuple[str, str], NameOverride] = {
     ("REACT:", "biolink:Pathway"): NameOverride("pathway", ("pathway",)),  # 20,955
     ("KEGG:", "biolink:Pathway"): NameOverride("pathway", ("pathway",)),  # the issue's example, KEGG:05012
     ("GO:", "biolink:Pathway"): NameOverride("pathway", ("pathway",)),  # 1,163
+    # PANTHER pathways named after the disease/process they describe, indistinguishable from the real
+    # disease node otherwise (e.g. PANTHER.PATHWAY:P00049 "Parkinson disease"). Distinct prefix from
+    # PANTHER.FAMILY below (which is a GeneFamily rule).
+    ("PANTHER.PATHWAY:", "biolink:Pathway"): NameOverride("pathway", ("pathway",)),
     # --- Gene families named identically to one of their members ---
     # The largest source of confusion by volume: 18,918 PANTHER families share a name with a real gene or
     # protein node ("carbonic anhydrase", "caspase", "monoamine oxidase").

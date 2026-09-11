@@ -58,6 +58,14 @@ def test_the_issues_own_examples_are_fixed():
         == "Parkinson's disease [answer]"
     )
     assert apply_name_override("RHEA:31979", ["biolink:MolecularActivity"], "Creatininase") == "Creatininase reaction"
+    # PANTHER pathways were missed initially (only PANTHER.FAMILY was mapped): a Pathway node named after
+    # the disease it describes must be suffixed, not left identical to the real disease node.
+    assert (
+        apply_name_override("PANTHER.PATHWAY:P00049", ["biolink:Pathway"], "Parkinson disease")
+        == "Parkinson disease pathway"
+    )
+    # ...but PANTHER.FAMILY (a GeneFamily) must not accidentally match the new Pathway rule.
+    assert apply_name_override("PANTHER.FAMILY:PTHR1", ["biolink:GeneFamily"], "caspase") == "caspase family"
 
 
 def test_overrides_are_idempotent():
