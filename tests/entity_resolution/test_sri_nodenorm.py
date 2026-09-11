@@ -2,7 +2,7 @@
 
 import requests
 
-from kraken.entity_resolution.sri_nodenorm import NodeNormClient, NormInfo, infer_category
+from kraken.entity_resolution.sri_nodenorm import NodeNormClient, NormInfo, infer_category, infer_taxon
 
 
 class _FakeResponse:
@@ -77,20 +77,27 @@ def test_infer_category():
     assert infer_category("WEIRD:1") is None
 
 
-def test_inference_is_backup_when_nn_unrecognized(tmp_path):
-    # NN returns nothing -> prefix inference supplies the category as a BACKUP,
-    # but the API was still consulted first (inference never pre-empts it).
+def test_resolve_does_not_backfill_category_or_taxon_for_unrecognized(tmp_path):
+    # A prefix guess (category OR taxon) must NEVER pre-empt a source-derived value, so
+    # resolve() itself does NOT backfill either for an NN-unrecognized id -- it returns
+    # empty facts. The CALLER (build.py) applies infer_category()/infer_taxon() only AFTER
+    # source values.
     session = _FakeSession({})
     client = NodeNormClient(tmp_path / "c.sqlite", session=session)
     out = client.resolve(["HGNC:2707", "NCBITaxon:9606"])
-    assert out["HGNC:2707"].categories == ("biolink:Gene",)
-    assert out["NCBITaxon:9606"].categories == ("biolink:OrganismTaxon",)
-    assert session.calls == 1  # one batch queried; inference only filled the gap
+    assert out["HGNC:2707"].categories == ()  # no category backup in resolve()
+    assert out["HGNC:2707"].taxa == ()  # no taxon backup in resolve() either
+    assert out["NCBITaxon:9606"].categories == ()
+    assert session.calls == 1  # the API was still consulted first
+    # The guesses remain available for the caller to use as a last resort:
+    assert infer_category("HGNC:2707") == "biolink:Gene"
+    assert infer_taxon("HGNC:2707") == "NCBITaxon:9606"
     client.close()
 
 
-def test_nn_category_overrides_inference(tmp_path):
-    # Even for an inferable prefix (HGNC->Gene), the normalizer's answer wins.
+def test_nn_answer_is_returned_verbatim_without_prefix_backup(tmp_path):
+    # The normalizer's own answer is returned as-is; resolve() adds no prefix backup, so a
+    # taxon NN omitted is left empty here (the caller backfills it after source).
     payload = {
         "HGNC:2707": {
             "equivalent_identifiers": [{"identifier": "HGNC:2707", "label": "ACE", "type": ["biolink:Protein"]}]
@@ -99,11 +106,7 @@ def test_nn_category_overrides_inference(tmp_path):
     session = _FakeSession(payload)
     client = NodeNormClient(tmp_path / "c.sqlite", session=session)
     out = client.resolve(["HGNC:2707"])
-    # NN category (Protein) wins over inference (Gene); taxon backfilled from the
-    # HGNC prefix (human) since the normalizer returned no taxa for it.
-    assert out["HGNC:2707"] == NormInfo(
-        label="ACE", categories=("biolink:Protein",), taxa=("NCBITaxon:9606",)
-    )
+    assert out["HGNC:2707"] == NormInfo(label="ACE", categories=("biolink:Protein",), taxa=())
     client.close()
 
 
@@ -185,10 +188,13 @@ def test_harvest_dedups_clique_mates_and_exposes_cliques(tmp_path):
     client.close()
 
 
-def test_taxon_prefix_backup_for_unrecognized_id(tmp_path):
-    # NN doesn't recognize the id -> taxon backfilled from the single-species prefix.
+def test_taxon_prefix_backup_is_the_callers_job_not_resolves(tmp_path):
+    # resolve() does NOT backfill taxon: an NN-unrecognized id comes back untaxoned, and
+    # the single-species prefix guess is exposed via infer_taxon() for the caller to apply
+    # AFTER the source taxon (see build.py mg_taxon / node-taxon finalization).
     session = _FakeSession({})  # nothing recognized
     client = NodeNormClient(tmp_path / "c.sqlite", session=session)
     out = client.resolve(["MGI:98834"])  # MGI == mouse by construction
-    assert out["MGI:98834"].taxa == ("NCBITaxon:10090",)
+    assert out["MGI:98834"].taxa == ()  # resolve() adds no taxon backup
+    assert infer_taxon("MGI:98834") == "NCBITaxon:10090"  # the guess is available to the caller
     client.close()

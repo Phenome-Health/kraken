@@ -51,7 +51,7 @@ from kraken.entity_resolution.guardrails import (
 from kraken.entity_resolution.match_graph import clique_evidence, match_predicate_evidence
 from kraken.entity_resolution.materialize import PrefixRanking, materialize_cluster
 from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, normalize_name
-from kraken.entity_resolution.sri_nodenorm import NodeNormClient
+from kraken.entity_resolution.sri_nodenorm import NodeNormClient, infer_category, infer_taxon
 from kraken.entity_resolution.uncanonicalize import (
     CANONICALIZED_AGGREGATOR_SOURCES,
 )
@@ -405,7 +405,10 @@ def _stage3_cluster(
     #      in their equivalency list — the full inherited set, but ONLY if it resolves
     #      to a single family; cross-family disagreement (different aggregators typing
     #      it differently) is ambiguous and falls through;
-    #   3. else NamedThing (a guardrail wildcard).
+    #   3. else the prefix->category backup (infer_category) — a LAST-resort guess that
+    #      must never pre-empt a real source category, so it runs AFTER inheritance, not
+    #      inside the normalizer client;
+    #   4. else NamedThing (a guardrail wildcard).
     # This keeps the branch guardrail from going inert on the huge fraction of ids
     # that only ever appear as equiv-list members, without re-importing Babel's
     # mis-typing (multi-family nodes never propagate in stage 1).
@@ -417,24 +420,32 @@ def _stage3_cluster(
     bare_names: dict[str, str] = {}
     for curie in all_curies:
         norm = resolved.get(curie)
-        cats = tuple(norm.categories) if norm and norm.categories else ()
+        cats = tuple(norm.categories) if norm and norm.categories else ()  # 1. normalizer (source of truth)
         if not cats:
-            inherited = inherited_cats.get(curie)
+            inherited = inherited_cats.get(curie)  # 2. inherited from single-family source equiv-lists
             if inherited:
                 branches = families.branches(tuple(inherited))
                 if branches is not ALL_FAMILIES and len(branches) == 1:
                     cats = tuple(sorted(inherited))  # single-family inherited category
         if not cats:
-            cats = ("biolink:NamedThing",)  # untyped/ambiguous -> NamedThing (a guardrail wildcard)
+            inferred = infer_category(curie)  # 3. prefix backup -- LAST resort, never before source inheritance
+            if inferred:
+                cats = (inferred,)
+        if not cats:
+            cats = ("biolink:NamedThing",)  # 4. untyped/ambiguous -> NamedThing (a guardrail wildcard)
         mg_categories[curie] = cats
-        # Taxon: the normalizer is the source of truth (its answer already includes
-        # the single-species prefix backup); fall back to the harmonized node's
-        # taxon, else untaxoned (a guardrail wildcard).
+        # Taxon precedence (mirrors category): 1. normalizer (source of truth);
+        # 2. the harmonized node's (source) taxon; 3. the single-species prefix backup
+        # -- LAST, never before source; else untaxoned (a guardrail wildcard).
         taxa = norm.taxa if norm else ()
         if taxa:
             mg_taxon[curie] = taxa[0]
         elif curie in node_taxon:
             mg_taxon[curie] = node_taxon[curie]
+        else:
+            inferred_taxon = infer_taxon(curie)
+            if inferred_taxon:
+                mg_taxon[curie] = inferred_taxon
         if norm and norm.label and curie not in node_ids:
             bare_names[curie] = norm.label
 
@@ -552,7 +563,7 @@ def _stage4_materialize(
         cats = mg_categories.get(curie)  # computed in stage 3 for match-graph ids
         if cats:
             return sorted(cats)
-        info = nodenorm.get(curie)  # isolated id: NN cache -> inherited -> NamedThing
+        info = nodenorm.get(curie)  # isolated id: NN -> inherited -> prefix backup -> NamedThing
         if info and info.categories:
             return sorted(info.categories)
         inherited = inherited_cats.get(curie)
@@ -560,6 +571,9 @@ def _stage4_materialize(
             branches = families.branches(tuple(inherited))
             if branches is not ALL_FAMILIES and len(branches) == 1:
                 return sorted(inherited)
+        inferred = infer_category(curie)  # prefix backup only after source inheritance (see mg_categories)
+        if inferred:
+            return [inferred]
         return ["biolink:NamedThing"]
 
     # Inverse of curie_to_cluster: the canonical node's equivalent_ids must be its
@@ -582,11 +596,15 @@ def _stage4_materialize(
                     # id's single intrinsic category, so the merged node's categories
                     # are the union of its members' true types, not conflation leftovers.
                     node[NODE_CATEGORIES] = sorted(mg_categories.get(node_id, ()))
-                    # Prefer the NN taxon for this exact id (retain NN's answer); keep the
-                    # source taxon already on the dict when NN has none.
+                    # Taxon: NN wins; else keep the source taxon already on the dict; else
+                    # the single-species prefix backup (last resort, never before source).
                     nn_taxon = taxon_of(node_id)
                     if nn_taxon:
                         node[NODE_TAXON] = nn_taxon
+                    elif not node.get(NODE_TAXON):
+                        inferred_taxon = infer_taxon(node_id)
+                        if inferred_taxon:
+                            node[NODE_TAXON] = inferred_taxon
                     cid = curie_to_cluster.get(node_id)
                     key = f"c{cid}" if cid is not None else f"s:{node_id}"
                     writer.write([key, node])
@@ -608,6 +626,10 @@ def _stage4_materialize(
                     synthetic[NODE_NAME] = info.label
                 if info and info.taxa:
                     synthetic[NODE_TAXON] = info.taxa[0]
+                else:
+                    inferred_taxon = infer_taxon(curie)  # bare id: no source taxon; prefix backup last
+                    if inferred_taxon:
+                        synthetic[NODE_TAXON] = inferred_taxon
                 writer.write([key, synthetic])
         _external_sort(keyed, keyed_sorted, ["-k1,1"], temp_dir)
 

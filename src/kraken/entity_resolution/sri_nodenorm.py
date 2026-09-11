@@ -51,12 +51,17 @@ PREFIX_CATEGORY: dict[str, str] = {
     "KEGG.COMPOUND": "biolink:SmallMolecule",
     "HMDB": "biolink:SmallMolecule",
     "INCHIKEY": "biolink:ChemicalEntity",
-    "DRUGBANK": "biolink:Drug",
     "MONDO": "biolink:Disease",
-    "HP": "biolink:PhenotypicFeature",
+    # HP terms are usually phenotypes but sometimes diseases, so back off to the shared parent.
+    "HP": "biolink:DiseaseOrPhenotypicFeature",
     "UBERON": "biolink:AnatomicalEntity",
     "CL": "biolink:Cell",
-    "REACT": "biolink:Pathway",
+    # NOTE: DRUGBANK is intentionally NOT here — it spans small molecules AND biologics/
+    # protein drugs, so no single category is safe (and this last-resort backup is rarely hit).
+    # NOTE: REACT is intentionally NOT here. Reactome R-HSA ids are ambiguous
+    # (pathways, reactions, AND physical entities like modified-protein states), so a
+    # blanket REACT->Pathway guess mis-types many nodes (e.g. Reactome TP53 PTM-forms
+    # that KG2 lists as gene equivalents). Same reason ENSEMBL / bare GO / KEGG are omitted.
 }
 
 # Prefixes the normalizer cannot resolve (structural strings, not identifiers):
@@ -251,11 +256,13 @@ class NodeNormClient:
 
     # ---- public ----
 
-    def resolve(self, curies: Iterable[str], *, use_inference: bool = True) -> dict[str, NormInfo]:
-        """Return ``{curie: NormInfo}``. The normalizer is the source of truth for
-        categories AND taxa; prefix inference is only a **backup** for ids it
-        doesn't recognize (or leaves untyped/untaxoned) — never overriding a real
-        answer. Non-queryable prefixes (SMILES etc.) skip the API.
+    def resolve(self, curies: Iterable[str]) -> dict[str, NormInfo]:
+        """Return ``{curie: NormInfo}`` holding ONLY the normalizer's own facts (categories,
+        taxa, label, clique). Prefix backups are NOT applied here: a category/taxon prefix
+        guess is a last resort that must never pre-empt a source-derived value, so the
+        CALLER (entity_resolution/build.py) applies ``infer_category`` / ``infer_taxon``
+        only AFTER source values. Non-queryable prefixes (SMILES etc.) skip the API and
+        resolve to empty facts.
 
         HARVEST + DEDUP: one query returns a CURIE's whole clique, so every
         clique-mate's facts are cached too. A queued id already filled in by an
@@ -275,8 +282,9 @@ class NodeNormClient:
                 cached_hits += 1
             elif curie.split(":", 1)[0] in NON_QUERYABLE_PREFIXES:
                 # SMILES/INCHI are raw structure strings the normalizer cannot resolve
-                # (verified) -- skip the API and go straight to inference.
-                info = self._backup(curie) if use_inference else NormInfo(None, ())
+                # (verified) -- skip the API; they resolve to empty facts (any prefix backup
+                # is applied by the caller, after source values).
+                info = NormInfo(None, ())
                 result[curie] = info
                 self._cache_put(curie, info, resolved=False)
                 non_queryable += 1
@@ -301,15 +309,16 @@ class NodeNormClient:
             harvested = self._fetch_batch(pending)
             if harvested is None:
                 failed_batches += 1
-                for c in pending:  # transient failure: backup for this run, do NOT cache
-                    result[c] = self._backup(c) if use_inference else NormInfo(None, ())
+                for c in pending:  # transient failure this run: empty facts, do NOT cache
+                    result[c] = NormInfo(None, ())
             else:
                 # cache EVERY harvested member (clique-mates included) so future
-                # queued ids in the same clique become cache hits (the dedup).
+                # queued ids in the same clique become cache hits (the dedup). We store
+                # NN's own facts only -- prefix backups are the caller's last resort.
                 for member, info in harvested.items():
-                    self._cache_put(member, self._apply_backups(member, info) if use_inference else info, resolved=True)
+                    self._cache_put(member, info, resolved=True)
                 for c in pending:  # a queried id NN didn't return -> unrecognized
-                    result[c] = self._cache_get(c) or self._record_unrecognized(c, use_inference)
+                    result[c] = self._cache_get(c) or self._record_unrecognized(c)
             done += len(pending)
             if fetched_batches % self.progress_every == 0:
                 self._db.commit()
@@ -364,25 +373,14 @@ class NodeNormClient:
         if members:
             yield current, members
 
-    def _apply_backups(self, curie: str, info: NormInfo) -> NormInfo:
-        """Fill category/taxon gaps in a normalizer answer from prefix backups
-        (never overriding a value the normalizer supplied)."""
-        categories = info.categories
-        if not categories:
-            inferred = infer_category(curie)
-            categories = (inferred,) if inferred else ()
-        taxa = info.taxa
-        if not taxa:
-            inferred_taxon = infer_taxon(curie)
-            taxa = (inferred_taxon,) if inferred_taxon else ()
-        return NormInfo(label=info.label, categories=categories, taxa=taxa, canonical=info.canonical)
+    def _record_unrecognized(self, curie: str) -> NormInfo:
+        """Cache + return empty facts for an id the normalizer couldn't resolve.
 
-    def _backup(self, curie: str) -> NormInfo:
-        """Backup facts (category + taxon) for an id with no normalizer answer."""
-        return self._apply_backups(curie, NormInfo(label=None, categories=()))
-
-    def _record_unrecognized(self, curie: str, use_inference: bool) -> NormInfo:
-        info = self._backup(curie) if use_inference else NormInfo(None, ())
+        NO prefix backup is applied here. Category/taxon prefix guesses are a LAST resort
+        that must never pre-empt a source-derived value, so they are applied by the CALLER
+        (entity_resolution/build.py) only AFTER source values — via ``infer_category`` /
+        ``infer_taxon``. This keeps the normalizer client a pure record of what NN knows."""
+        info = NormInfo(None, ())
         self._cache_put(curie, info, resolved=False)
         return info
 
