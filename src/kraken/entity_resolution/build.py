@@ -29,6 +29,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -106,7 +107,7 @@ def _stage1_write_evidence_and_facts(
       multi-family nodes are deliberately skipped so their mis-typing doesn't spread.
     * per-CURIE harmonized taxon, the set of harmonized node primary ids, and
       ``seeds`` (every curie seen -- node ids + equiv members -- to resolve through
-      the normalizer, whose cliques are the equivalence backbone; see stage 1c).
+      the normalizer, whose cliques are the equivalence backbone; see stage 1b).
 
     Category strings are interned so the facts dict stays compact (there are only
     ~150 distinct Biolink categories).
@@ -140,7 +141,7 @@ def _stage1_write_evidence_and_facts(
                     # canonicalized aggregators are LOW (sub-tau, corroboration only) and
                     # share the "sri_nn_derived" source group so their Babel echo counts
                     # once. The clean, current cross-ontology backbone comes from the
-                    # normalizer's cliques (stage 1c); aggregator lists just corroborate.
+                    # normalizer's cliques (stage 1b); aggregator lists just corroborate.
                     for a, b, group, weight in clique_evidence(equiv_ids, source, weights):
                         ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
                     cats = node.get(NODE_CATEGORIES) or []
@@ -157,7 +158,7 @@ def _stage1_write_evidence_and_facts(
                     # its own id (attributable). A CANONICALIZED aggregator node's name
                     # is the clique's PREFERRED label -- not reliably the canonical id's
                     # own name -- so we do NOT emit it; those ids are named per-id by
-                    # their NN label instead (stage 1c).
+                    # their NN label instead (stage 1b).
                     if source not in CANONICALIZED_AGGREGATOR_SOURCES:
                         name_norm = normalize_name(node.get(NODE_NAME))
                         if not is_droppable(name_norm, min_length=weights.min_name_length, stoplist=DEFAULT_STOPLIST):
@@ -186,7 +187,7 @@ def _stage1_write_evidence_and_facts(
     return inherited_cats, node_taxon, node_ids, seeds, source_provided_by
 
 
-def _stage1c_normalizer_evidence_and_names(
+def _stage1b_normalizer_evidence_and_names(
     nodenorm: NodeNormClient,
     seeds: set[str],
     evidence_path: Path,
@@ -264,7 +265,7 @@ def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
         ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
 
 
-def _stage1b_append_name_similarity(names_path: Path, evidence_path: Path, weights: ERWeights, temp_dir: Path) -> None:
+def _stage1c_append_name_similarity(names_path: Path, evidence_path: Path, weights: ERWeights, temp_dir: Path) -> None:
     """Group CURIEs by normalized name (external sort) and append name-similarity
     clique evidence for each group within the size cap. Bounded memory: one name
     group at a time."""
@@ -414,7 +415,7 @@ def _stage3_cluster(
     # mis-typing (multi-family nodes never propagate in stage 1).
     all_curies = [uniques[i] for i in range(num_nodes)]
     logging.info("entity_resolution: resolving %d match-graph node categories/taxa (cached)", len(all_curies))
-    resolved = nodenorm.resolve(all_curies)  # cache hits after stage 1c; no new API calls
+    resolved = nodenorm.resolve(all_curies)  # cache hits after stage 1b; no new API calls
     mg_categories: dict[str, tuple[str, ...]] = {}
     mg_taxon: dict[str, str] = {}
     bare_names: dict[str, str] = {}
@@ -683,6 +684,13 @@ def _stage4_materialize(
 # --------------------------------------------------------------------------------------
 
 
+def _stage_banner(msg: str) -> None:
+    """Log a prominent, greppable banner so the numbered ER stages stand out in the very
+    long build log (otherwise they're lost among hundreds of thousands of INFO lines)."""
+    logging.info("#" * 100)
+    logging.info("###  %s", msg)
+
+
 def resolve_entities(config, biolink) -> dict[str, str]:
     """Run entity resolution end to end (out of core) and write the canonical nodes
     file. Returns ``node_id -> representative_curie`` for edge resolution."""
@@ -703,19 +711,35 @@ def resolve_entities(config, biolink) -> dict[str, str]:
     config.er_nodenorm_cache_path.parent.mkdir(parents=True, exist_ok=True)
     nodenorm = NodeNormClient(config.er_nodenorm_cache_path)
     try:
-        logging.info("entity_resolution: streaming evidence + facts...")
+        t = time.perf_counter()
+        _stage_banner("ER STAGE 1 -- streaming harmonized nodes/edges -> match evidence, names, guardrail facts")
         inherited_cats, node_taxon, node_ids, seeds, source_provided_by = _stage1_write_evidence_and_facts(
             config, weights, families, evidence_path, names_path, source_bits
         )
-        # 1c (normalizer cliques + per-id NN name rows) BEFORE 1b, so name-similarity
+        _stage_banner(
+            f"ER STAGE 1 DONE ({time.perf_counter() - t:.1f}s) -- {len(node_ids)} harmonized node ids, "
+            f"{len(seeds)} total ids (incl. equiv-list members)"
+        )
+
+        # 1b (normalizer cliques + per-id NN name rows) runs before 1c so name-similarity
         # groups over EVERY id's individual name, not just harmonized primary names.
-        _stage1c_normalizer_evidence_and_names(nodenorm, seeds, evidence_path, names_path, weights)
-        _stage1b_append_name_similarity(names_path, evidence_path, weights, temp_dir)
+        t = time.perf_counter()
+        _stage_banner("ER STAGE 1b -- fetching Node Normalizer cliques + per-id names (the equivalence backbone)")
+        _stage1b_normalizer_evidence_and_names(nodenorm, seeds, evidence_path, names_path, weights)
+        _stage_banner(f"ER STAGE 1b DONE ({time.perf_counter() - t:.1f}s)")
 
-        logging.info("entity_resolution: accumulating pairs...")
-        _stage2_accumulate_pairs(evidence_path, pairs_path, weights, temp_dir)
+        t = time.perf_counter()
+        _stage_banner("ER STAGE 1c -- adding name-similarity match evidence")
+        _stage1c_append_name_similarity(names_path, evidence_path, weights, temp_dir)
+        _stage_banner(f"ER STAGE 1c DONE ({time.perf_counter() - t:.1f}s)")
 
-        logging.info("entity_resolution: clustering...")
+        t = time.perf_counter()
+        _stage_banner("ER STAGE 2 -- accumulating + tau-filtering weighted match pairs")
+        n_pairs = _stage2_accumulate_pairs(evidence_path, pairs_path, weights, temp_dir)
+        _stage_banner(f"ER STAGE 2 DONE ({time.perf_counter() - t:.1f}s) -- {n_pairs} pairs above tau")
+
+        t = time.perf_counter()
+        _stage_banner("ER STAGE 3 -- clustering (connected components -> label propagation -> guardrails)")
         curie_to_cluster, histogram, _bare_names, mg_categories = _stage3_cluster(
             pairs_path,
             weights,
@@ -727,9 +751,14 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             nodenorm,
             DEFAULT_SEED,
         )
+        _stage_banner(
+            f"ER STAGE 3 DONE ({time.perf_counter() - t:.1f}s) -- "
+            f"{len(curie_to_cluster)} ids -> {len(set(curie_to_cluster.values()))} clusters"
+        )
         _log_histogram(histogram)
 
-        logging.info("entity_resolution: materializing canonical nodes...")
+        t = time.perf_counter()
+        _stage_banner(f"ER STAGE 4 -- materializing canonical nodes -> {config.integrated_nodes_path}")
         node_id_to_rep = _stage4_materialize(
             config,
             curie_to_cluster,
@@ -744,6 +773,10 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             families,
             biolink,
             temp_dir,
+        )
+        _stage_banner(
+            f"ER STAGE 4 DONE ({time.perf_counter() - t:.1f}s) -- "
+            f"{len(node_id_to_rep)} node ids -> {len(set(node_id_to_rep.values()))} canonical nodes"
         )
     finally:
         nodenorm.close()
