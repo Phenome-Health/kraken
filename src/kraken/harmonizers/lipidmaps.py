@@ -5,7 +5,6 @@ from typing import Any
 
 from rdkit import Chem
 
-from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.utils.kg_io import save_to_jsonl
 
@@ -25,9 +24,6 @@ class LipidMapsHarmonizer(BaseHarmonizer):
         "PLANTFA_ID",
         "SMILES",
     }
-
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
 
     def harmonize(
         self,

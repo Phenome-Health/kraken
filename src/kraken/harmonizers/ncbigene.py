@@ -192,8 +192,8 @@ class NCBIGeneHarmonizer(BaseHarmonizer):
     # (they still get the full name as a synonym either way).
     use_full_name_as_description_fallback: bool = True
 
-    def __init__(self, biolink_client):
-        super().__init__(biolink_client)
+    def __init__(self, biolink_client, source_id: str):
+        super().__init__(biolink_client, source_id)
         self.unrecognized_dbxref_prefixes: dict[str, int] = defaultdict(int)
         self.invalid_dbxref_ids: dict[str, int] = defaultdict(int)
         self.skipped_placeholders = 0

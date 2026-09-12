@@ -10,7 +10,6 @@ from typing import Any
 import requests
 from bs4 import BeautifulSoup
 
-from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import NodeModel
 from kraken.utils.constants import KNOWLEDGE_ASSERTION, MANUAL_AGENT
@@ -27,9 +26,6 @@ class ClinGenHarmonizer(BaseHarmonizer):
     Processes gene-disease and variant-disease associations from the
     ACMG Clinical Genome Resource (ClinGen) Actionability Working Group.
     """
-
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
 
     def harmonize(
         self,

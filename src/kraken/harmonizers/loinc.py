@@ -230,8 +230,8 @@ class LoincHarmonizer(BaseHarmonizer):
     the concepts an answer code refers to. LOINC's internal hierarchy is NOT ingested.
     """
 
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
+    def __init__(self, biolink_client: BiolinkClient, source_id: str):
+        super().__init__(biolink_client, source_id)
         self._curie_cache: dict[str, str | None] = {}  # LOINC local id -> canonical curie (or None)
         self._n_unmapped = 0
         self._n_qualified = 0

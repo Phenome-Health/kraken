@@ -79,8 +79,8 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
     constants (pending a types review); each is a single swappable constant.
     """
 
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
+    def __init__(self, biolink_client: BiolinkClient, source_id: str):
+        super().__init__(biolink_client, source_id)
         self._curie_cache: dict[tuple[str, str], list[str]] = {}  # (vocab, local id) -> normalized curie(s)
 
     def harmonize(

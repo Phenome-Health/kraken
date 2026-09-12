@@ -53,8 +53,8 @@ class BioAgeHarmonizer(BaseHarmonizer):
     Node/edge Biolink types are single swappable module-level constants -- see above.
     """
 
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
+    def __init__(self, biolink_client: BiolinkClient, source_id: str):
+        super().__init__(biolink_client, source_id)
         self._curie_cache: dict[str, str | None] = {}  # raw curie -> normalized curie (or None)
 
     def harmonize(
