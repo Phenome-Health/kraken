@@ -2,7 +2,7 @@ kraken_version: 2.1.1
 biolink_version: 4.2.5
 log_level: INFO
 steps:
-  harmonize: False
+  harmonize: True
   integrate: True
   postprocess: False
 options:
