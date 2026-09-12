@@ -81,7 +81,7 @@ wheels = [
 [[package]]
 name = "biomapper2"
 version = "0.1.0"
-source = { git = "https://github.com/Phenome-Health/biomapper2.git?rev=nextkraken#f02cd90907e27a0bf94b829f00146e54d9dad0f0" }
+source = { git = "https://github.com/Phenome-Health/biomapper2.git?rev=nextkraken#57ef3b9a53436a0c74262f9314212f96717a13f6" }
 dependencies = [
     { name = "adjusttext" },
     { name = "bmt" },
