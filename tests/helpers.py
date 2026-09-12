@@ -59,5 +59,4 @@ def stub_normalization(harmonizer):
     harmonizer.prefixes_with_invalid_ids = defaultdict(int)
     harmonizer.unrecognized_vocab_prefixes = {}
     harmonizer.invalid_id_prefixes = {}
-    harmonizer.invalid_curies = set()
     return harmonizer

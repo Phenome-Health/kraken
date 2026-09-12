@@ -1,10 +1,26 @@
 # refmet.py
 import logging
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.constants import NODE_ATTRIBUTES, NODE_EQUIVALENT_IDS, NODE_NAME
 from kraken.utils.kg_io import load_csv_to_dict_list, save_to_jsonl
+
+# A cross-reference that more than this many RefMet entries share names a CLASS, not a compound. RefMet maps
+# individual lipid species to the KEGG entry for their whole class -- 843 glucosylceramide species all carry
+# KEGG.COMPOUND:C01190 ("Glucosylceramide"), 704 phosphatidylcholines carry C00157 -- and listing that as an
+# equivalent id asserts every one of those species IS the class. In 2.1.1 that fused them: one node named
+# "GlcCer 18:1;O2/13:0" ended up holding 1,262 ids. Against the 2026-08 release, "more than 5" strips exactly
+# the 31 class-level KEGG ids and nothing else: 97.5% of RefMet's KEGG ids map to one entry, and no other
+# prefix is ever shared by more than 5 (those small overlaps are RefMet duplicates and stereo variants, left
+# for entity resolution to sort out).
+MAX_ENTRIES_PER_XREF = 5
+# Where a stripped class-level xref is kept instead, so the class membership isn't lost -- only the claim that
+# the species is equivalent to it.
+CLASS_XREFS_ATTRIBUTE = "class_level_xrefs"
+MAX_CLASS_XREF_EXAMPLES = 5
 
 
 class RefMetHarmonizer(BaseHarmonizer):
@@ -34,11 +50,45 @@ class RefMetHarmonizer(BaseHarmonizer):
             if node:
                 nodes[node["id"]] = node
 
+        self._strip_class_level_xrefs(nodes)
+
         logging.info(f"Saving {len(nodes)} RefMet nodes")
         save_to_jsonl(nodes.values(), nodes_output, mode="w")
         save_to_jsonl([], edges_output, mode="w")  # Empty edges file
 
         logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, 0 edges")
+
+    def _strip_class_level_xrefs(self, nodes: dict[str, dict[str, Any]]) -> None:
+        """Move any xref shared by more than MAX_ENTRIES_PER_XREF entries out of equivalent_ids, in place.
+
+        Counted over the normalized curies, after every row is harmonized, so differently spelled source
+        values for the same id count together. The stripped ids are kept in an attribute (see
+        CLASS_XREFS_ATTRIBUTE). A node's own RefMet id is never touched.
+        """
+        holders: dict[str, list[str]] = defaultdict(list)
+        for node_id, node in nodes.items():
+            for equiv_id in node[NODE_EQUIVALENT_IDS]:
+                if equiv_id != node_id:
+                    holders[equiv_id].append(node_id)
+        class_xrefs = {xref: held_by for xref, held_by in holders.items() if len(held_by) > MAX_ENTRIES_PER_XREF}
+        if not class_xrefs:
+            return
+
+        for xref, held_by in class_xrefs.items():
+            for node_id in held_by:
+                node = nodes[node_id]
+                node[NODE_EQUIVALENT_IDS] = [e for e in node[NODE_EQUIVALENT_IDS] if e != xref]
+                attributes = node.setdefault(NODE_ATTRIBUTES, {}).setdefault(self.source_infores, {})
+                attributes.setdefault(CLASS_XREFS_ATTRIBUTE, []).append(xref)
+
+        affected = len({node_id for held_by in class_xrefs.values() for node_id in held_by})
+        ranked = sorted(class_xrefs.items(), key=lambda kv: -len(kv[1]))
+        examples = [f"{xref} (x{len(held_by)}, e.g. {nodes[held_by[0]].get(NODE_NAME)!r})" for xref, held_by in ranked]
+        logging.info(
+            f"Stripped {len(class_xrefs)} class-level xrefs from the equivalent_ids of {affected} RefMet entries "
+            f"(each was shared by more than {MAX_ENTRIES_PER_XREF} entries, so names a class, not a compound; kept "
+            f"in the '{CLASS_XREFS_ATTRIBUTE}' attribute). Largest: {examples[:MAX_CLASS_XREF_EXAMPLES]}"
+        )
 
     def _harmonize_row(self, row: dict[str, Any]) -> dict[str, Any] | None:
         # Transform the 'canonical' ID into standard curie form

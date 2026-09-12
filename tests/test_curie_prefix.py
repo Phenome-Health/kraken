@@ -54,7 +54,6 @@ def _harmonizer(curies=None, known_vocabs=None) -> BaseHarmonizer:
     instance.prefixes_with_invalid_ids = defaultdict(int)
     instance.unrecognized_vocab_prefixes = {}
     instance.invalid_id_prefixes = {}
-    instance.invalid_curies = set()
     return instance
 
 

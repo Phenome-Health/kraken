@@ -17,8 +17,13 @@ Guardrails implemented:
 Repair strategy for a violating cluster: an optional injected ``splitter`` may
 try to split it better; otherwise (or if it can't) fall back to a deterministic
 greedy valid partition that respects edge connectivity (repairs but cannot
-discover). The one-id repair is capped: forcing k clusters for k ids is fine at 2
-but absurd at 6, so beyond the cap we log and leave the cluster intact.
+discover). A one-id violation is always repaired, however many ids are involved:
+k ids of a one-entity-per-id prefix in one cluster means k entities were merged,
+so k clusters is the right answer, and a large k is the strongest sign of it --
+not a reason to stop. Large repairs are logged, because they point at an upstream
+conflation worth finding. (This used to be capped at 3, leaving bigger violations
+intact; that shipped the worst conflations unrepaired, e.g. a single 2.1.1 cluster
+holding 247 RefMet and 247 LIPID MAPS ids.)
 
 Two documented blind spots (log, don't solve): a node violating a rule *by
 itself* (evaluated cross-node only), and protein vs. cleavage products (Biolink
@@ -42,7 +47,9 @@ Splitter = Callable[[list[str]], list[list[str]]]
 #     (verified prefixes; NOT "REFMET"/"LIPIDMAPS").
 #   * MONDO — curated one-id-per-disease authority. Watch the histogram:
 #     obsoleted-and-replaced MONDO terms can legitimately co-occur, so this can
-#     cause false splits; the capped repair keeps it bounded.
+#     cause false splits. (2.1.1 had exactly one cluster with >1 MONDO id.) If the
+#     histogram shows false splits, demote MONDO to a candidate prefix rather than
+#     weakening the repair for RM/LM, which have no legitimate co-occurrence.
 DEFAULT_ENFORCED_PREFIXES: frozenset[str] = frozenset({"RM", "LM", "MONDO"})
 
 # Candidate one-id-per-cluster prefixes: watched (instrumented) but NOT enforced.
@@ -77,9 +84,9 @@ class NodeInfo:
 class GuardrailConfig:
     enforced_prefixes: frozenset[str] = DEFAULT_ENFORCED_PREFIXES
     candidate_prefixes: frozenset[str] = DEFAULT_CANDIDATE_PREFIXES
-    # Cap the one-id repair: don't force more than this many sub-clusters to
-    # satisfy a one-id rule (log oversized instead).
-    one_id_repair_cap: int = 3
+    # A one-id repair involving more ids of one prefix than this is logged (it is
+    # still carried out) -- a large one points at an upstream conflation.
+    one_id_repair_log_threshold: int = 3
     # Log clusters at or above this size (no hard maximum — no defensible one).
     oversized_cluster_log_threshold: int = 100
 
@@ -199,18 +206,17 @@ def enforce_cluster(
     if not violations:
         return [members]
 
-    # Guard against the one-id repair blowing up (plan: cap the repair).
-    if violations == ["one_id"]:
+    # Surface large one-id repairs: they mean many distinct entities were merged upstream.
+    if "one_id" in violations:
         n_ids = _max_offending_id_count(members, config.enforced_prefixes)
-        if n_ids > config.one_id_repair_cap:
+        if n_ids > config.one_id_repair_log_threshold:
             logging.warning(
-                "one_id violation with %d ids of a single prefix exceeds repair cap %d; "
-                "leaving cluster intact and logging (members=%s...)",
+                "one_id violation with %d ids of a single prefix; splitting the cluster (%d members) -- "
+                "a repair this large usually means an upstream conflation (members=%s...)",
                 n_ids,
-                config.one_id_repair_cap,
+                len(members),
                 members[:6],
             )
-            return [members]
 
     sub: list[list[str]] | None = None
     if splitter is not None:

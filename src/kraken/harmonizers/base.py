@@ -156,7 +156,6 @@ class BaseHarmonizer(ABC):
         self.normalizer = Normalizer(biolink_version=self.biolink.version)
         self.unrecognized_vocabs = set()
         self.prefixes_with_invalid_ids = defaultdict(int)
-        self.invalid_curies = set()
         self.normalized_id_map = dict()
         # Curies biomapper2 could NOT fully normalize, for the end-of-run report (see
         # log_normalization_report): prefix -> {"count": distinct curies, "examples": [...]}
@@ -257,11 +256,6 @@ class BaseHarmonizer(ABC):
                 f"source conflates distinct entities under a single id. Examples: {self.multi_taxon_examples}. "
                 f"Untaxoned nodes are wildcards for taxon-based merge guards, so entity resolution can still "
                 f"pick up the right taxon from a source that knows it."
-            )
-        if self.invalid_curies:
-            logging.warning(
-                f"A total of {len(self.invalid_curies)} nodes had IDs that are not curies (left them as they are). "
-                f"First 50 are: {list(self.invalid_curies)[:10]}"
             )
 
         return count
@@ -783,8 +777,6 @@ class BaseHarmonizer(ABC):
             else:
                 self.prefixes_with_invalid_ids[prefix] += 1
                 self._record_unnormalized(self.invalid_id_prefixes, prefix, curie)
-            if invalid_id_dict:
-                self.invalid_curies.add(curie)
 
         self.normalized_id_map[curie] = final_curie  # Cache our mapping
         return final_curie

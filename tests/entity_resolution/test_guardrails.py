@@ -120,11 +120,27 @@ def test_splitter_used_when_it_reduces():
         assert not cluster_violations(part, info, cfg)
 
 
-def test_one_id_repair_cap_leaves_intact():
-    cfg = GuardrailConfig(enforced_prefixes=frozenset({"HGNC"}), one_id_repair_cap=3)
+def test_large_one_id_violation_is_repaired_and_logged(caplog):
+    """k ids of a one-entity-per-id prefix means k merged entities, however large k is.
+
+    This used to be capped: past 3 ids the cluster was left intact, which shipped the worst conflations
+    (a 2.1.1 cluster with 247 RefMet ids) unrepaired. Large repairs are now carried out, and logged."""
+    cfg = GuardrailConfig(enforced_prefixes=frozenset({"HGNC"}), one_id_repair_log_threshold=3)
     info = {f"HGNC:{i}": _ni(f"HGNC:{i}", ("biolink:Gene",)) for i in range(6)}
-    parts = enforce_cluster(list(info), info, cfg)  # 6 HGNC ids > cap 3 -> intact + logged
-    assert len(parts) == 1
+    with caplog.at_level("WARNING"):
+        parts = enforce_cluster(list(info), info, cfg)
+    assert len(parts) == 6
+    assert all(not cluster_violations(part, info, cfg) for part in parts)
+    assert "one_id violation with 6 ids" in caplog.text
+
+
+def test_small_one_id_repair_is_not_logged(caplog):
+    cfg = GuardrailConfig(enforced_prefixes=frozenset({"HGNC"}), one_id_repair_log_threshold=3)
+    info = {f"HGNC:{i}": _ni(f"HGNC:{i}", ("biolink:Gene",)) for i in range(2)}
+    with caplog.at_level("WARNING"):
+        parts = enforce_cluster(list(info), info, cfg)
+    assert len(parts) == 2
+    assert "one_id violation" not in caplog.text
 
 
 def test_histogram():
