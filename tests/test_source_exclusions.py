@@ -10,6 +10,8 @@ import pytest
 
 from kraken.config import KrakenConfig
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.utils.constants import KRAKEN_SOURCE_ID
+from tests.helpers import stub_normalization
 
 
 class _Harmonizer(BaseHarmonizer):
@@ -154,3 +156,54 @@ def test_only_sources_in_this_build_count():
 def test_flag_defaults_off():
     config = _config(kg2=False)
     assert config.sources["kg2"].drop_from_other_sources is False
+
+
+# ------------------------------------------------------------------ KRAKEN as aggregator of direct ingests
+
+
+class _DirectSource(BaseHarmonizer):
+    is_aggregator = False
+
+
+class _AggregatorSource(BaseHarmonizer):
+    is_aggregator = True
+
+
+def _edge_from(cls, aggregator_ks=None):
+    h = stub_normalization(object.__new__(cls))
+    h.source_infores = "infores:test"
+    h.predicate_overrides = {}
+    return h.create_edge(
+        subject_id="A:1",
+        object_id="B:2",
+        predicate="biolink:related_to",
+        primary_ks="infores:test",
+        knowledge_level="knowledge_assertion",
+        agent_type="manual_agent",
+        aggregator_ks=aggregator_ks,
+    )
+
+
+def test_direct_source_edges_name_kraken_as_aggregator():
+    """Otherwise an edge we ingested straight from a source can't be told apart from kg2's copy of it."""
+    assert _edge_from(_DirectSource)["aggregator_knowledge_source"] == [KRAKEN_SOURCE_ID]
+
+
+def test_kraken_is_appended_last_to_an_existing_chain():
+    """A direct source whose own records name an upstream aggregator (dakg: FAERS -> drugapprovals)
+    keeps that chain, with KRAKEN as the final hop."""
+    edge = _edge_from(_DirectSource, aggregator_ks=["infores:multiomics-drugapprovals"])
+    assert edge["aggregator_knowledge_source"] == ["infores:multiomics-drugapprovals", KRAKEN_SOURCE_ID]
+
+
+def test_kraken_is_not_duplicated():
+    edge = _edge_from(_DirectSource, aggregator_ks=[KRAKEN_SOURCE_ID])
+    assert edge["aggregator_knowledge_source"] == [KRAKEN_SOURCE_ID]
+
+
+def test_aggregator_source_edges_do_not_get_kraken():
+    """kg2/ROBOKOP/Translator record themselves; leaving KRAKEN off is what distinguishes their copies."""
+    assert _edge_from(_AggregatorSource, aggregator_ks=["infores:rtx-kg2"])["aggregator_knowledge_source"] == [
+        "infores:rtx-kg2"
+    ]
+    assert "aggregator_knowledge_source" not in _edge_from(_AggregatorSource)

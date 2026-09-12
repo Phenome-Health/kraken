@@ -8,6 +8,7 @@ from pathlib import Path
 
 from kraken.biolink_client import BiolinkClient
 from kraken.schema import EdgeModel, NodeModel, PropertyDef
+from kraken.utils.constants import KRAKEN_SOURCE_ID
 from kraken.utils.kg_io import split_curie, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
@@ -355,9 +356,11 @@ class KrakenValidator:
                         subtype=f"{agent_type} (source: {primary_ks})",
                     )
 
-            # Record whether this is a merged edge from multiple aggregators
+            # Record whether this is a merged edge from multiple aggregators. KRAKEN's own id is left out of
+            # the count: it marks every directly ingested edge, so counting it would make a single chain like
+            # [multiomics-drugapprovals, kraken] look merged, and the no_merged_edges guard below pass trivially.
             if EdgeModel.aggregator_ks.name in edge:
-                if len(edge[EdgeModel.aggregator_ks.name]) > 1:
+                if len([a for a in edge[EdgeModel.aggregator_ks.name] if a != KRAKEN_SOURCE_ID]) > 1:
                     merged_edge_count += 1
                     # Print out the first few merged edges
                     if merged_edge_count < 3:

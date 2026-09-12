@@ -23,6 +23,7 @@ from kraken.utils.constants import (
     EDGE_SUBJECT,
     EDGE_SUPPORTING_SOURCES,
     INFORES_PREFIX,
+    KRAKEN_SOURCE_ID,
     NODE_ATTRIBUTES,
     NODE_CATEGORIES,
     NODE_CHEMICAL_FORMULA,
@@ -720,8 +721,15 @@ class BaseHarmonizer(ABC):
 
         if supporting_sources:
             edge[EDGE_SUPPORTING_SOURCES] = supporting_sources
+        # For a source we ingest directly (not an aggregator itself), KRAKEN is the aggregator that brought
+        # the edge in -- recorded last, as the final hop of the retrieval chain. This is what tells a
+        # directly ingested edge apart from the same edge re-published by kg2 or ROBOKOP, including after
+        # the two merge. Aggregator sources already record themselves in their own place in the chain.
+        aggregator_ks = to_list(aggregator_ks)
+        if not self.is_aggregator:
+            aggregator_ks = list(dict.fromkeys(aggregator_ks + [KRAKEN_SOURCE_ID]))
         if aggregator_ks:
-            edge[EDGE_AGGREGATOR_KS] = to_list(aggregator_ks)  # Convert to list so these will merge
+            edge[EDGE_AGGREGATOR_KS] = aggregator_ks  # A list, so these will merge
         if publications:
             edge[EDGE_PUBLICATIONS] = to_list(publications)
         if publications_info:

@@ -31,6 +31,12 @@ MANUAL_AGENT = "manual_agent"
 KNOWLEDGE_ASSERTION = "knowledge_assertion"
 # Infores for equivalence asserted by the SRI Node Normalizer (Babel).
 SRI_NN_INFORES = "infores:sri-node-normalizer"
+# KRAKEN's own provenance id, recorded as the aggregator_knowledge_source on every edge from a source we
+# ingest DIRECTLY (see BaseHarmonizer.create_edge). Without it, an edge we took straight from NCBI Gene is
+# indistinguishable from the same edge as kg2 or ROBOKOP re-published it -- and once the two merge, the
+# direct ingest leaves no trace. KRAKEN has no registered infores (checked against the live registry), so
+# this follows the convention for unregistered ids: bare, like "translator-kg-open" or "pgs-catalog".
+KRAKEN_SOURCE_ID = "kraken"
 SAME_AS_PREDICATE = "biolink:same_as"
 # Biolink KLAT values. For edges that report direct, dataset-specific statistical results (e.g. a feature's
 # association with an outcome in a model's cohort), statistical_association pairs with data_analysis_pipeline.
