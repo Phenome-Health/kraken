@@ -49,12 +49,13 @@ from kraken.entity_resolution.guardrails import (
     ids_per_cluster_histogram,
     log_oversized_clusters,
 )
-from kraken.entity_resolution.match_graph import clique_evidence, match_predicate_evidence
+from kraken.entity_resolution.match_graph import alias_evidence, clique_evidence, match_predicate_evidence
 from kraken.entity_resolution.materialize import PrefixRanking, materialize_cluster
 from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, normalize_name
 from kraken.entity_resolution.sri_nodenorm import NodeNormClient, infer_category, infer_taxon
 from kraken.entity_resolution.uncanonicalize import (
     CANONICALIZED_AGGREGATOR_SOURCES,
+    original_alias_pairs,
 )
 from kraken.entity_resolution.uncanonicalize import (
     original_endpoints as _original_endpoints,
@@ -62,6 +63,7 @@ from kraken.entity_resolution.uncanonicalize import (
 from kraken.entity_resolution.weights import NAME_SIMILARITY_GROUP, ERWeights
 from kraken.utils.constants import (
     EDGE_PREDICATE,
+    EDGE_PRIMARY_KS,
     NODE_CATEGORIES,
     NODE_EQUIVALENT_IDS,
     NODE_ID,
@@ -122,6 +124,35 @@ def _stage1_write_evidence_and_facts(
     # per-source infores provided_by (so a retained bare id can carry real provenance).
     source_provided_by: dict[str, set[str]] = defaultdict(set)
 
+    def record_aliases(edge: dict, source: str, bit: int, ev) -> None:
+        """Treat the ids a canonicalized aggregator STARTED from as first-class ids.
+
+        An aggregator edge stores "I resolved X to Y" (see ``original_alias_pairs``), so X is seeded
+        exactly like an equiv-list member -- it gets normalizer name/category/taxon, real
+        provenance, and a node of its own if it never merges -- and the X/Y pairing is written as
+        equivalency evidence weighted exactly like a two-id list from that aggregator
+        (``ERWeights.alias_weight``). That is merge strength, so X joins Y's cluster on its own, and
+        it is ``sri_nn_derived``-grouped so it counts once alongside a matching NN clique; the
+        guardrail prune still applies.
+
+        Without this an edge whose original endpoint exists nowhere in the node set is simply lost:
+        robokop's 18.5M gtex edges are stored on ``CAID:`` nodes but originate at ``HGVS:`` ids, and
+        every translator edge originates at an ``ENSEMBL:``/``MGI:``/``EMAPA:`` id.
+        """
+        for original, canonical in original_alias_pairs(edge, source):
+            seeds[original] = seeds.get(original, 0) | bit
+            ev_alias = alias_evidence(original, canonical, source, weights)
+            if ev_alias is not None:
+                a, b, group, weight = ev_alias
+                ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+            # The original inherits the canonical id's categories the same way an equiv-list member
+            # does (the node pass below). Without it, an id from a vocabulary the normalizer doesn't
+            # know (HGVS, CAID) would fall through to NamedThing -- a guardrail wildcard -- so the
+            # branch guardrail would go inert on exactly the ids this is introducing.
+            canonical_cats = inherited_cats.get(canonical)
+            if canonical_cats:
+                inherited_cats.setdefault(original, set()).update(canonical_cats)
+
     with open(evidence_path, "w") as ev, open(names_path, "w") as nm:
         for source, (nodes_path, edges_path) in sorted(config.all_harmonized_paths_resolved.items()):
             bit = 1 << source_bits[source]
@@ -137,11 +168,13 @@ def _stage1_write_evidence_and_facts(
                     for equiv_id in equiv_ids:
                         seeds[equiv_id] = seeds.get(equiv_id, 0) | bit
                     # Equivalency-clique evidence from EVERY source, weighted per source:
-                    # native curated lists are strong (>=tau, merge on their own); the
-                    # canonicalized aggregators are LOW (sub-tau, corroboration only) and
-                    # share the "sri_nn_derived" source group so their Babel echo counts
-                    # once. The clean, current cross-ontology backbone comes from the
-                    # normalizer's cliques (stage 1b); aggregator lists just corroborate.
+                    # native curated lists are strong (>=tau, merge on their own). The
+                    # canonicalized aggregators are SIZE-AWARE -- a small list merges on its
+                    # own, a mid-size one only corroborates, a large one contributes nothing
+                    # (see ERWeights.max_merge_list_size) -- and share the "sri_nn_derived"
+                    # source group so their Babel echo counts once. The clean, current
+                    # cross-ontology backbone comes from the normalizer's cliques (stage 1b);
+                    # aggregator lists recover the mappings it doesn't know.
                     for a, b, group, weight in clique_evidence(equiv_ids, source, weights):
                         ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
                     cats = node.get(NODE_CATEGORIES) or []
@@ -169,18 +202,28 @@ def _stage1_write_evidence_and_facts(
             # needs its close_match down-weighted where subclass edges co-occur, so it
             # gets a dedicated two-phase writer.
             if Path(edges_path).exists():
+                # Alias harvesting runs over EVERY edge (not just the match-predicate ones), since
+                # any edge can be the only place an original id appears.
+                is_canonicalized = source in CANONICALIZED_AGGREGATOR_SOURCES
                 if source == "kg2":
-                    _write_kg2_match_evidence(Path(edges_path), weights, ev)
+                    _write_kg2_match_evidence(
+                        Path(edges_path), weights, ev, lambda edge: record_aliases(edge, "kg2", bit, ev)
+                    )
                 else:
                     for edge in stream_edges_from_jsonl(Path(edges_path)):
+                        if is_canonicalized:
+                            record_aliases(edge, source, bit, ev)
                         predicate = edge.get(EDGE_PREDICATE, "")
                         if weights.predicate_weight(predicate) is None:
                             continue  # not a usable match predicate; skip before un-canon work
                         endpoints = _original_endpoints(edge, source)
                         if endpoints is None:
                             continue  # canonicalized aggregator without a known un-canonicalizer
+                        primary_ks = _primary_ks(edge)
                         for subject, object_ in endpoints:
-                            ev_edge = match_predicate_evidence(subject, object_, predicate, source, weights)
+                            ev_edge = match_predicate_evidence(
+                                subject, object_, predicate, source, weights, primary_ks=primary_ks
+                            )
                             if ev_edge is not None:
                                 a, b, group, weight = ev_edge
                                 ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
@@ -223,6 +266,14 @@ def _stage1b_normalizer_evidence_and_names(
     )
 
 
+def _primary_ks(edge: dict) -> str | None:
+    """An edge's primary knowledge source, as a single id (harmonized edges may carry a list)."""
+    primary_ks = edge.get(EDGE_PRIMARY_KS)
+    if isinstance(primary_ks, list):
+        return primary_ks[0] if primary_ks else None
+    return primary_ks or None
+
+
 # subclass_of / superclass_of between the same pair signals the co-occurring close_match
 # is a mislabeled hierarchical relation, not equivalence, so we down-weight it.
 SUBCLASS_PREDICATES: frozenset[str] = frozenset({"biolink:subclass_of", "biolink:superclass_of"})
@@ -234,17 +285,22 @@ def _subclass_penalized_weight(base_weight: float, hierarchical_count: int, deca
     return base_weight * (decay**hierarchical_count)
 
 
-def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
+def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev, record_aliases) -> None:
     """Emit KG2 match-predicate evidence on un-canonicalized endpoints, down-weighting
     each close_match by how many subclass/superclass edges the same original pair has.
 
     Two-phase over KG2's edges (option (a)): first count hierarchical edges per original
     pair and buffer the match pairs (bounded by KG2's edge count, not the whole graph),
     then emit each with its penalty applied.
+
+    KG2's originals are harvested here rather than in the caller's loop because this is already
+    KG2's single streaming pass over its edges -- and they must be harvested from EVERY edge, which
+    is why ``record_aliases`` runs before the match-predicate filter below.
     """
     hierarchical_counts: dict[tuple[str, str], int] = defaultdict(int)
-    match_pairs: list[tuple[str, str, str]] = []  # (a, b, predicate), a <= b
+    match_pairs: list[tuple[str, str, str, str | None]] = []  # (a, b, predicate, primary_ks), a <= b
     for edge in stream_edges_from_jsonl(edges_path):
+        record_aliases(edge)
         predicate = edge.get(EDGE_PREDICATE, "")
         is_hierarchical = predicate in SUBCLASS_PREDICATES
         if not is_hierarchical and weights.predicate_weight(predicate) is None:
@@ -256,12 +312,13 @@ def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
             if is_hierarchical:
                 hierarchical_counts[(a, b)] += 1
             else:
-                match_pairs.append((a, b, predicate))
+                match_pairs.append((a, b, predicate, _primary_ks(edge)))
 
-    group = weights.source_group("kg2")
-    for a, b, predicate in match_pairs:
+    for a, b, predicate, primary_ks in match_pairs:
         base = weights.predicate_weight(predicate)
         weight = _subclass_penalized_weight(base, hierarchical_counts.get((a, b), 0), weights.subclass_penalty_decay)
+        # Per-primary-KS group, so parallel close_matches on this pair from different KSes sum.
+        group = weights.predicate_group("kg2", primary_ks)
         ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
 
 

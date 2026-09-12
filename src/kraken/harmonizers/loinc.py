@@ -230,8 +230,8 @@ class LoincHarmonizer(BaseHarmonizer):
     the concepts an answer code refers to. LOINC's internal hierarchy is NOT ingested.
     """
 
-    def __init__(self, biolink_client: BiolinkClient, source_id: str):
-        super().__init__(biolink_client, source_id)
+    def __init__(self, biolink_client: BiolinkClient, source_id: str, **kwargs):
+        super().__init__(biolink_client, source_id, **kwargs)
         self._curie_cache: dict[str, str | None] = {}  # LOINC local id -> canonical curie (or None)
         self._n_unmapped = 0
         self._n_qualified = 0
@@ -505,7 +505,9 @@ class LoincHarmonizer(BaseHarmonizer):
         stays correct if it ever changes. Returns None (and counts it) if biomapper2 can't validate the id."""
         if local in self._curie_cache:
             return self._curie_cache[local]
-        resolved, _, _ = self.normalizer.get_curies({LOINC_PREFIX: local}, stop_on_invalid_id=False, log_warnings=False)
+        resolved, _, _ = self.normalizer.get_curies(
+            {LOINC_PREFIX: local}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+        )
         curie = next(iter(resolved), None)
         if not curie:
             self._n_unmapped += 1

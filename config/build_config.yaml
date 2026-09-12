@@ -61,12 +61,16 @@ sources:
     version: "4.1.7"
     nodes_input: "input_data/ctkg/clinical_trials_kg_nodes.jsonl"
     edges_input: "input_data/ctkg/clinical_trials_kg_edges.jsonl"
+    # We ingest it directly, so every other source drops its second-hand copies (kg2 and
+    # translator-kg-open both carry them). Covers aggregator as well as primary provenance.
+    drop_from_other_sources: true
 
   dakg:
     source_id: "infores:multiomics-drugapprovals"
     version: "0.5.7"
     nodes_input: "input_data/dakg/drug_approvals_kg_nodes_current.jsonl"
     edges_input: "input_data/dakg/drug_approvals_kg_edges_current.jsonl"
+    drop_from_other_sources: true
 
   microbiome-kg:
     source_id: "infores:multiomics-microbiome"

@@ -1,4 +1,3 @@
-from kraken.config import get_source_id
 from kraken.harmonizers.base import BaseHarmonizer
 
 
@@ -23,5 +22,3 @@ class TranslatorKGOpenHarmonizer(BaseHarmonizer):
     # involved_in doesn't exist in biolink v4.2.5 (or the more recent v4.4.4)
     predicate_overrides = {"biolink:involved_in": "biolink:actively_involved_in"}
 
-    # Skip since we directly ingest CT/DAKG now; note that this misses some edges where DAKG isn't primary, but agg
-    primary_ks_exclusions = {get_source_id("ctkg"), get_source_id("dakg")}

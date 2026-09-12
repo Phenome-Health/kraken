@@ -11,6 +11,7 @@ from kraken.harmonizers import base
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import NodeModel
 from kraken.utils.constants import NODE_TAXON
+from tests.helpers import stub_normalization
 
 
 class _StubBiolink:
@@ -32,7 +33,7 @@ def harmonizer() -> BaseHarmonizer:
     instance.biolink = _StubBiolink()
     instance.multi_taxon_node_count = 0
     instance.multi_taxon_examples = []
-    return instance
+    return stub_normalization(instance)
 
 
 def _node(harmonizer, taxon, curie="NCBIGene:1"):

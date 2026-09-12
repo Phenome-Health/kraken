@@ -2,6 +2,7 @@
 
 import io
 import tarfile
+from collections import defaultdict
 
 from kraken.utils.taxonomy import TaxonNormalizer
 
@@ -33,3 +34,30 @@ def write_test_taxdump(directory, nodes, names) -> "object":
 def build_test_taxonomy(directory, nodes, names) -> TaxonNormalizer:
     """A TaxonNormalizer over a minimal taxdump written into `directory`."""
     return TaxonNormalizer(write_test_taxdump(directory, nodes, names))
+
+
+class PassthroughNormalizer:
+    """A biomapper2 Normalizer stand-in that hands every curie back unchanged.
+
+    ``BaseHarmonizer.normalize_curie`` now runs over EVERY curie, so any test that allocates a
+    harmonizer via ``object.__new__`` (to skip __init__, which builds a Biolink toolkit and a real
+    Normalizer -- both reach the network) needs one of these. Tests that are actually about
+    normalization should use the real thing instead.
+    """
+
+    def get_curies(self, local_ids_dict, **_kwargs):
+        ((vocab, local_id),) = local_ids_dict.items()
+        prefix = vocab if isinstance(vocab, str) else vocab[0]
+        return {f"{prefix}:{local_id}": ""}, {}, set()
+
+
+def stub_normalization(harmonizer):
+    """Give a bare (``object.__new__``) harmonizer the state normalize_curie needs. Returns it."""
+    harmonizer.normalizer = PassthroughNormalizer()
+    harmonizer.normalized_id_map = {}
+    harmonizer.unrecognized_vocabs = set()
+    harmonizer.prefixes_with_invalid_ids = defaultdict(int)
+    harmonizer.unrecognized_vocab_prefixes = {}
+    harmonizer.invalid_id_prefixes = {}
+    harmonizer.invalid_curies = set()
+    return harmonizer

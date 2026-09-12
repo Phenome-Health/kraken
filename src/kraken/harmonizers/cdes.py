@@ -118,8 +118,8 @@ class CDEHarmonizer(BaseHarmonizer):
 
     # Not a registered infores; used verbatim as the source id per project decision.
 
-    def __init__(self, biolink_client: BiolinkClient, source_id: str):
-        super().__init__(biolink_client, source_id)
+    def __init__(self, biolink_client: BiolinkClient, source_id: str, **kwargs):
+        super().__init__(biolink_client, source_id, **kwargs)
         self._stub_nodes: dict[str, dict] = {}  # curie -> minimal node (deduped across CDEs)
         self._curie_cache: dict[tuple, list[str]] = {}  # (vocab, code) -> resolved curie(s)
 

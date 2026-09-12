@@ -1,5 +1,7 @@
 """Tests for match-graph construction, accumulation, and source-group de-correlation."""
 
+import pytest
+
 from kraken.entity_resolution.match_graph import (
     accumulate,
     clique_evidence,
@@ -79,3 +81,98 @@ def test_name_similarity_own_group():
     # name evidence in its own group doesn't sum against equivalency of same pair
     combined = accumulate(list(clique_evidence(["A:1", "B:1"], "kg2", w)) + ev, w)
     assert combined[("A:1", "B:1")] == w.equivalency_weight("kg2") + w.name_similarity_weight
+
+
+# --------------------------------------------------------------------------------------
+# Size-aware equivalency weights
+# --------------------------------------------------------------------------------------
+
+
+def test_aggregator_weight_steps_down_with_list_size():
+    """kg2: merge-strength up to 24 ids, corroboration-only to 60, nothing beyond."""
+    w = ERWeights()
+    assert w.equivalency_weight("kg2", 2) >= w.tau
+    assert w.equivalency_weight("kg2", 24) >= w.tau
+    assert 0 < w.equivalency_weight("kg2", 25) < w.tau
+    assert 0 < w.equivalency_weight("kg2", 60) < w.tau
+    assert w.equivalency_weight("kg2", 61) == 0
+
+
+def test_robokop_merges_larger_lists_than_kg2():
+    """robokop's lists degrade more gracefully (87% vs kg2's 73% at 21-30), so its threshold is higher."""
+    w = ERWeights()
+    assert w.equivalency_weight("robokop", 30) >= w.tau
+    assert w.equivalency_weight("kg2", 30) < w.tau
+    assert w.equivalency_weight("robokop", 31) < w.tau
+
+
+@pytest.mark.parametrize("source", ["nn", "ncbigene", "umls", "refmet"])
+def test_sources_not_listed_as_size_aware_keep_a_flat_weight(source):
+    """The size curve was measured on aggregators only. The normalizer's cliques in particular are
+    clean and legitimately large (gene/protein ~30-40); capping them would break up the backbone."""
+    w = ERWeights()
+    assert w.equivalency_weight(source, 2) == w.equivalency_weight(source, 40) == w.equivalency_weight(source, 500)
+
+
+def test_alias_is_weighted_as_a_two_id_list():
+    """An alias is the same kind of claim as a list entry, so the two can never drift apart."""
+    w = ERWeights()
+    for source in ["kg2", "robokop", "translator-kg-open", "microbiome-kg", "multiomics-kg"]:
+        assert w.alias_weight(source) == w.equivalency_weight(source, 2)
+        assert w.alias_weight(source) >= w.tau
+
+
+def test_corroborate_weight_must_stay_below_tau():
+    """Otherwise mid-size lists would merge on their own, defeating the size-awareness."""
+    with pytest.raises(ValueError, match="corroborate_weight"):
+        ERWeights(corroborate_weight=0.3, tau=0.3)
+
+
+def test_list_too_large_to_carry_weight_emits_no_evidence():
+    """Not a pile of zero-weight edges -- nothing at all (its ids are still seeded as nodes elsewhere)."""
+    w = ERWeights()
+    ids = [f"C:{i}" for i in range(61)]
+    assert list(clique_evidence(ids, "kg2", w)) == []
+    assert list(clique_evidence(ids[:60], "kg2", w))  # one fewer still corroborates
+
+
+def test_every_clique_edge_carries_the_whole_list_size_weight():
+    """A 25-id kg2 list is judged as a 25-id list on every one of its edges, not per pair."""
+    w = ERWeights()
+    ev = list(clique_evidence([f"C:{i}" for i in range(25)], "kg2", w))
+    assert {wt for _a, _b, _g, wt in ev} == {w.equivalency_weight("kg2", 25)}
+
+
+# --------------------------------------------------------------------------------------
+# Parallel match predicates from different primary knowledge sources
+# --------------------------------------------------------------------------------------
+
+
+def test_parallel_close_matches_from_different_primary_kses_sum_to_a_merge():
+    """Three independent KSes each asserting close_match on one pair are three claims, not one."""
+    w = ERWeights()
+    ev = [
+        match_predicate_evidence("A:1", "B:1", "biolink:close_match", "kg2", w, primary_ks=ks)
+        for ks in ("infores:mesh", "infores:go", "infores:chv-umls")
+    ]
+    total = accumulate(ev, w)[("A:1", "B:1")]
+    assert total == pytest.approx(3 * w.close_match_weight)
+    assert total >= w.tau
+
+
+def test_parallel_close_matches_from_the_same_primary_ks_do_not_sum():
+    """Repeating the same KS's claim is not corroboration."""
+    w = ERWeights()
+    ev = [
+        match_predicate_evidence("A:1", "B:1", "biolink:close_match", "kg2", w, primary_ks="infores:mesh")
+        for _ in range(3)
+    ]
+    assert accumulate(ev, w)[("A:1", "B:1")] == w.close_match_weight
+
+
+def test_close_match_without_a_primary_ks_falls_back_to_the_source_group():
+    """Unattributed claims from one source must not count as independent of each other."""
+    w = ERWeights()
+    ev = [match_predicate_evidence("A:1", "B:1", "biolink:close_match", "kg2", w) for _ in range(3)]
+    assert accumulate(ev, w)[("A:1", "B:1")] == w.close_match_weight
+    assert ev[0][2] == w.source_group("kg2")

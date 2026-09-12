@@ -65,3 +65,61 @@ def test_kg2_falls_back_to_original_attribute_without_pre_ids():
         EDGE_ATTRIBUTES: {KG2_INFORES: {"original_subject": "UniProtKB:P04637", "original_object": "MONDO:1"}},
     }
     assert original_endpoints(edge, "kg2") == [("UniProtKB:P04637", "MONDO:1")]
+
+
+def test_original_alias_pairs_maps_each_original_to_its_stored_endpoint():
+    """An aggregator edge asserts 'I resolved X to Y' for each endpoint."""
+    from kraken.entity_resolution.uncanonicalize import original_alias_pairs
+
+    edge = {
+        "subject": "CAID:CA1",
+        "object": "NCBIGene:5",
+        "attributes": {"infores:robokop-kg": {"original_subject": "HGVS:NC_1:g.1A>G", "original_object": "ENSEMBL:E1"}},
+    }
+    assert original_alias_pairs(edge, "robokop") == [
+        ("HGVS:NC_1:g.1A>G", "CAID:CA1"),
+        ("ENSEMBL:E1", "NCBIGene:5"),
+    ]
+
+
+def test_original_alias_pairs_skips_originals_equal_to_the_stored_id():
+    """Nothing is asserted when the aggregator did not actually rewrite the endpoint."""
+    from kraken.entity_resolution.uncanonicalize import original_alias_pairs
+
+    edge = {
+        "subject": "CAID:CA1",
+        "object": "NCBIGene:5",
+        "attributes": {"infores:robokop-kg": {"original_subject": "CAID:CA1", "original_object": "ENSEMBL:E1"}},
+    }
+    assert original_alias_pairs(edge, "robokop") == [("ENSEMBL:E1", "NCBIGene:5")]
+
+
+def test_original_alias_pairs_covers_every_kg2_pre_id_pair():
+    """One merged KG2 edge can carry several originals; each contributes both aliases."""
+    from kraken.entity_resolution.uncanonicalize import original_alias_pairs
+
+    edge = {
+        "subject": "UNII:1",
+        "object": "PUBCHEM.COMPOUND:1",
+        "attributes": {
+            "infores:rtx-kg2": {
+                "kg2pre_ids": [
+                    "ATC:X---rel---None---None---None---UMLS:Y---src",
+                    "CHEBI:Z---rel---None---None---None---UMLS:Y---src",
+                ]
+            }
+        },
+    }
+    assert original_alias_pairs(edge, "kg2") == [
+        ("ATC:X", "UNII:1"),
+        ("UMLS:Y", "PUBCHEM.COMPOUND:1"),
+        ("CHEBI:Z", "UNII:1"),
+        ("UMLS:Y", "PUBCHEM.COMPOUND:1"),
+    ]
+
+
+def test_original_alias_pairs_requires_both_stored_endpoints():
+    from kraken.entity_resolution.uncanonicalize import original_alias_pairs
+
+    edge = {"subject": "CAID:CA1", "attributes": {"x": {"original_subject": "HGVS:1", "original_object": "E:1"}}}
+    assert original_alias_pairs(edge, "robokop") == []

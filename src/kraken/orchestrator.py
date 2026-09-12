@@ -184,8 +184,14 @@ class KrakenBuildOrchestrator:
         # Create output directory if it doesn't exist
         nodes_output.parent.mkdir(parents=True, exist_ok=True)
 
-        # Instantiate our harmonizer (its provenance id comes from build_config: sources.<name>.source_id)
-        harmonizer = self.HARMONIZERS[source_name](self.biolink_client, source_id=source_config.source_id)
+        # Instantiate our harmonizer (its provenance id comes from build_config: sources.<name>.source_id),
+        # telling it which other sources' edges to drop because we ingest those directly
+        # (build_config: sources.<other>.drop_from_other_sources).
+        harmonizer = self.HARMONIZERS[source_name](
+            self.biolink_client,
+            source_id=source_config.source_id,
+            auto_source_exclusions=self.config.auto_source_exclusions(source_name),
+        )
 
         if not self.config.options.validation_only:
             # Unzip input files as needed
@@ -198,6 +204,10 @@ class KrakenBuildOrchestrator:
                 nodes_input=source_config.nodes_input_resolved,
                 edges_input=source_config.edges_input_resolved,
             )
+            # Report the curies biomapper2 couldn't fully normalize. Driven from here, not from the
+            # harmonizer, because the single-file harmonizers override harmonize() -- so this is the
+            # one place that runs for every source.
+            harmonizer.log_normalization_report()
 
             if self.config.zip_inputs_after:
                 zip_files(self.config.all_source_input_paths_resolved[source_name])

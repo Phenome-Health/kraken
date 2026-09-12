@@ -79,8 +79,8 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
     constants (pending a types review); each is a single swappable constant.
     """
 
-    def __init__(self, biolink_client: BiolinkClient, source_id: str):
-        super().__init__(biolink_client, source_id)
+    def __init__(self, biolink_client: BiolinkClient, source_id: str, **kwargs):
+        super().__init__(biolink_client, source_id, **kwargs)
         self._curie_cache: dict[tuple[str, str], list[str]] = {}  # (vocab, local id) -> normalized curie(s)
 
     def harmonize(
@@ -469,7 +469,9 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
         key = (vocab, local_id)
         if key in self._curie_cache:
             return self._curie_cache[key]
-        resolved, _, _ = self.normalizer.get_curies({vocab: local_id}, stop_on_invalid_id=False, log_warnings=False)
+        resolved, _, _ = self.normalizer.get_curies(
+            {vocab: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+        )
         curies = list(resolved)
         if not curies:
             logging.warning(f"{self.source_name}: could not normalize id {vocab}:{local_id}; dropping it.")

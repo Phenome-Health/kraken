@@ -13,7 +13,13 @@ exactly one un-canonicalization implementation.
 
 from __future__ import annotations
 
-from kraken.utils.constants import EDGE_ATTRIBUTES, EDGE_OBJECT, EDGE_SUBJECT
+from kraken.utils.constants import (
+    EDGE_ATTRIBUTES,
+    EDGE_OBJECT,
+    EDGE_SUBJECT,
+    ORIGINAL_OBJECT_ATTR,
+    ORIGINAL_SUBJECT_ATTR,
+)
 
 # Sources whose stored endpoints are Babel-canonicalized (so match/edge remapping must
 # recover the ORIGINAL endpoints). KG2 keeps its originals in ``kg2pre_ids`` (one merged
@@ -25,9 +31,8 @@ CANONICALIZED_AGGREGATOR_SOURCES: frozenset[str] = frozenset(
 # KG2's per-edge original ids: "orig_subject---relation---q---q---q---orig_object---src".
 KG2_PRE_IDS_ATTR = "kg2pre_ids"
 _KG2_ID_SEP = "---"
-# The other aggregators keep the original endpoints as plain attributes.
-ORIGINAL_SUBJECT_ATTR = "original_subject"
-ORIGINAL_OBJECT_ATTR = "original_object"
+# (The other aggregators keep the original endpoints as plain attributes; those attribute names live
+# in utils.constants because the harmonizers write them and entity resolution reads them.)
 
 
 def _kg2_pre_id_pairs(edge: dict) -> list[tuple[str, str]]:
@@ -73,3 +78,32 @@ def original_endpoints(edge: dict, source: str) -> list[tuple[str, str]] | None:
             return pairs
     single = _attribute_original_pair(edge)  # robokop/translator/mokg/mbkg (and kg2 w/o pre_ids)
     return [single] if single else None
+
+
+def original_alias_pairs(edge: dict, source: str) -> list[tuple[str, str]]:
+    """The ``(original_id, canonical_id)`` identity assertions this edge makes.
+
+    When a canonicalizing aggregator stores an edge, it is recording "I resolved X to Y". That
+    pairing is an equivalence claim of exactly the same kind as the ``equivalent_ids`` list on its
+    nodes, so entity resolution consumes it the same way: as weighted, guardrail-checked match-graph
+    evidence at the source's own equivalency weight -- never an unconditional merge. Doing so is
+    what lets an edge keep its original endpoint as a real id instead of orphaning when that id
+    exists nowhere in the node set (robokop's gtex edges are stored on ``CAID:`` nodes but originate
+    at ``HGVS:`` ids; translator's originate at ``Ensembl:``/``MGI:``/``EMAPA:`` ids).
+
+    Returns [] for a native source (its endpoints are already its own ids), for an edge with no
+    recoverable originals, and for any pair where the original and the canonical id are the same.
+    """
+    if source not in CANONICALIZED_AGGREGATOR_SOURCES:
+        return []
+    stored_subject, stored_object = edge.get(EDGE_SUBJECT), edge.get(EDGE_OBJECT)
+    if not stored_subject or not stored_object:
+        return []
+    aliases: list[tuple[str, str]] = []
+    for original_subject, original_object in original_endpoints(edge, source) or []:
+        # One merged KG2 edge can carry several original pairs; each asserts that ITS originals
+        # resolved to this edge's stored endpoints, so every pair contributes both aliases.
+        for original, canonical in ((original_subject, stored_subject), (original_object, stored_object)):
+            if original and original != canonical:
+                aliases.append((original, canonical))
+    return aliases

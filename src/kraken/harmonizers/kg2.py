@@ -1,4 +1,3 @@
-from kraken.config import get_source_id
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.utils.constants import (
     OBJ_ASPECT_QUALIFIER,
@@ -28,5 +27,3 @@ class KG2Harmonizer(BaseHarmonizer):
     # KG2 uses an invalid predicate for NCIT 'regimen_has_accepted_use_for_disease' edges - remap those
     predicate_overrides = {"biolink:drug_regulatory_status_world_wide": "biolink:treats_or_applied_or_studied_to_treat"}
 
-    # Skip since we directly ingest CT/DAKG now; note that this misses some edges where DAKG isn't primary, but agg
-    primary_ks_exclusions = {get_source_id("ctkg"), get_source_id("dakg")}

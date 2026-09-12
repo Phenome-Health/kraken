@@ -75,3 +75,10 @@ EDGE_QUALIFIERS = EdgeModel.qualifiers.name
 EDGE_PUBLICATIONS = EdgeModel.publications.name
 EDGE_PUBLICATIONS_INFO = EdgeModel.publications_info.name
 EDGE_ATTRIBUTES = EdgeModel.attributes.name
+
+# A canonicalizing aggregator (robokop, translator-kg-open, the multiomics KGs) stores each edge on
+# its Babel-canonical endpoints and keeps the id it started from in these per-source attributes. Both
+# the harmonizers (which normalize the prefixes) and entity resolution (which treats the original ->
+# canonical pairing as equivalence evidence) read them, so the names live here rather than in either.
+ORIGINAL_SUBJECT_ATTR = "original_subject"
+ORIGINAL_OBJECT_ATTR = "original_object"

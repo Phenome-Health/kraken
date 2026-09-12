@@ -177,30 +177,65 @@ def test_nn_clique_merges_disease(tmp_path, monkeypatch):
     )
 
 
-def test_aggregator_equiv_list_alone_does_not_merge_but_ids_are_kept(tmp_path):
-    """Aggregators' equiv lists are sub-tau (corroboration only), so with no
-    normalizer clique the kg2 Parkinson clique does NOT merge -- BUT every id is
-    still kept as its own singleton (nothing a source provided is dropped)."""
+def test_small_aggregator_equiv_list_merges_on_its_own(tmp_path):
+    """A small aggregator list merges without any normalizer clique.
+
+    Aggregator lists are size-aware: small ones are reliable (~95%+ agreement with NN through 20
+    ids), so they carry a merge-strength weight. The kg2 Parkinson clique is 10 ids. (Aggregator
+    lists used to be a flat sub-tau weight, which left every such list inert -- this test asserted
+    the opposite until that was changed.)"""
     config = _aggregator_only_clique_config(tmp_path, PARKINSON)
     m = resolve_entities(config, biolink=None)  # autouse offline NN stub -> no cliques
-    # not merged: each id is its own representative
-    merged = [c for c in PARKINSON if m.get(c) == PARKINSON[0]]
-    assert merged == [PARKINSON[0]], f"aggregator list should not merge, but {merged} did"
-    # but retained: every id survives as a node (its own singleton)
-    for c in PARKINSON:
-        assert m.get(c) == c, f"{c} was dropped instead of kept as a singleton"
+    reps = {m.get(c) for c in PARKINSON}
+    assert None not in reps, "an id was dropped"
+    assert len(reps) == 1, f"a 10-id kg2 list should merge on its own, but split into {reps}"
+
+
+@pytest.mark.parametrize(
+    "size, merges",
+    [
+        (5, True),
+        (24, True),  # kg2's max_merge_list_size: still merges
+        (25, False),  # one over: corroborates only, below tau
+        (60, False),  # max_corroborate_list_size: still corroborates
+        (61, False),  # one over: carries no evidence at all
+    ],
+)
+def test_aggregator_equiv_list_merges_on_its_own_only_when_small(tmp_path, size, merges):
+    """kg2 merges a list on its own up to 24 ids and not beyond -- and a list that doesn't merge
+    still keeps every id, each as its own singleton (nothing a source provided is dropped).
+
+    DOID ids are used deliberately: MONDO is a one-id-per-cluster prefix, so a list of MONDO ids
+    would fail to merge because of that guardrail and pass this test for the wrong reason. Here
+    size is the only thing that varies."""
+    members = [f"DOID:{i}" for i in range(1, size + 1)]
+    config = _aggregator_only_clique_config(tmp_path, members)
+    m = resolve_entities(config, biolink=None)
+    assert all(m.get(c) is not None for c in members), "an id was dropped"
+    reps = {m.get(c) for c in members}
+    if merges:
+        assert len(reps) == 1, f"a {size}-id kg2 list should merge on its own, but split into {len(reps)}"
+    else:
+        for c in members:
+            assert m.get(c) == c, f"a {size}-id kg2 list should NOT merge on its own, but {c} did"
 
 
 def test_every_source_id_survives_as_singleton_with_provenance(tmp_path):
     """A bare equiv-list-only id that NN doesn't recognize and that never merges is
     kept as its own singleton node, carrying the referencing source's provenance and
-    a NamedThing fallback category (never silently dropped)."""
+    a category inherited from its referencing node (never silently dropped).
+
+    To get an id that genuinely never merges, the robokop list is made one id larger than
+    robokop's max_merge_list_size (30), so it only corroborates. (A two-id list used to serve,
+    back when aggregator lists were a flat sub-tau weight; a small list now merges on its own.)"""
     import jsonlines
 
+    padding = [f"WEIRDPAD:{i}" for i in range(29)]  # non-enforced prefix, so size alone decides
     node = {
         "id": "MONDO:9",
         "categories": ["biolink:Disease"],
-        "equivalent_ids": ["MONDO:9", "WEIRD:1"],  # WEIRD:1 is bare, unrecognized, won't merge
+        # 31 ids: past robokop's merge threshold, so WEIRD:1 (bare, unrecognized) won't merge
+        "equivalent_ids": ["MONDO:9", "WEIRD:1", *padding],
         "provided_by": ["infores:robokop-kg"],
     }
     integrated = tmp_path / "integrated"

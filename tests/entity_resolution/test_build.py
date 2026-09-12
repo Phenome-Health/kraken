@@ -65,7 +65,7 @@ def test_kg2_close_match_downweighted_by_subclass_count(tmp_path):
         wr.write_all(edges)
 
     out = io.StringIO()
-    _write_kg2_match_evidence(ef, w, out)
+    _write_kg2_match_evidence(ef, w, out, lambda _edge: None)  # alias harvesting tested separately
     lines = [ln for ln in out.getvalue().splitlines() if ln]
     assert len(lines) == 1
     a, b, _group, weight = lines[0].split("\t")
@@ -494,3 +494,117 @@ def test_build_isolated_node_becomes_singleton(tmp_path):
         nodes.extend(r)
     assert len(nodes) == 1
     assert nodes[0]["id"] == "RM:1"
+
+
+def _write_source_with_edges(tmp_path, source, nodes, edges):
+    """A harmonized source with both files written (``_write_source`` writes nodes only)."""
+    d = tmp_path / "harmonized" / source
+    d.mkdir(parents=True)
+    nodes_path, edges_path = d / "nodes.jsonl", d / "edges.jsonl"
+    with jsonlines.open(nodes_path, "w") as w:
+        w.write_all(nodes)
+    with jsonlines.open(edges_path, "w") as w:
+        w.write_all(edges)
+    return nodes_path, edges_path
+
+
+def test_aggregator_original_endpoints_become_resolvable_ids(tmp_path):
+    """An aggregator edge's ORIGINAL endpoint resolves even when it is in no node set.
+
+    This is robokop's gtex shape: the edge is stored on a ``CAID:`` variant node but originates at
+    an ``HGVS:`` expression that exists nowhere as a node and that the normalizer cannot resolve.
+    Edges are remapped by their originals, so before originals were treated as real ids every one
+    of these edges was dropped as an orphan (18.5M of them in the 2.1.1 build).
+    """
+    hgvs = "HGVS:NC_000021.9:g.25840043C>G"
+    nodes = [
+        {
+            "id": "CAID:CA15984545",
+            "categories": ["biolink:SequenceVariant"],
+            "provided_by": ["infores:robokop-kg"],
+            "equivalent_ids": ["CAID:CA15984545", "DBSNP:rs1827747"],
+            "name": "rs1827747",
+        },
+        {
+            "id": "NCBIGene:2551",
+            "categories": ["biolink:Gene"],
+            "provided_by": ["infores:robokop-kg"],
+            "equivalent_ids": ["NCBIGene:2551"],
+            "name": "GABPA",
+        },
+    ]
+    edges = [
+        {
+            "subject": "CAID:CA15984545",
+            "object": "NCBIGene:2551",
+            "predicate": "biolink:affects",
+            "primary_knowledge_source": "infores:gtex",
+            "attributes": {
+                "infores:robokop-kg": {"original_subject": hgvs, "original_object": "ENSEMBL:ENSG00000154727"}
+            },
+        }
+    ]
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"robokop": _write_source_with_edges(tmp_path, "robokop", nodes, edges)},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+        er_nodenorm_cache_path=tmp_path / "nodenorm.sqlite",
+    )
+    node_id_to_rep = resolve_entities(config, biolink=None)
+
+    # The original ids are resolvable -- so the edge can be remapped instead of orphaned...
+    assert hgvs in node_id_to_rep
+    assert "ENSEMBL:ENSG00000154727" in node_id_to_rep
+    # ...and they land on the node the aggregator said they were, not on duplicates of it.
+    assert node_id_to_rep[hgvs] == node_id_to_rep["CAID:CA15984545"]
+    assert node_id_to_rep["ENSEMBL:ENSG00000154727"] == node_id_to_rep["NCBIGene:2551"]
+
+    # The HGVS id inherits the variant's category rather than falling through to NamedThing
+    # (nothing else can type it: no node carries it and the normalizer doesn't know HGVS).
+    nodes_out = []
+    with jsonlines.open(config.integrated_nodes_path) as r:
+        nodes_out.extend(r)
+    variant = next(n for n in nodes_out if hgvs in n.get("equivalent_ids", []))
+    assert variant["categories"] == ["biolink:SequenceVariant"]
+
+
+def test_native_source_edges_contribute_no_aliases(tmp_path):
+    """A native source's endpoints are already its own ids, so no alias evidence is created."""
+    from kraken.entity_resolution.uncanonicalize import original_alias_pairs
+
+    edge = {"subject": "A:1", "object": "B:2", "predicate": "biolink:affects"}
+    assert original_alias_pairs(edge, "ncbigene") == []
+    # ...and an aggregator edge with no recorded originals contributes none either.
+    assert original_alias_pairs(edge, "robokop") == []
+
+
+def test_kg2_parallel_close_matches_from_different_kses_reach_tau_through_the_real_writer(tmp_path):
+    """The primary KS has to survive kg2's two-phase buffered writer, or parallel claims collapse."""
+    import io
+
+    from kraken.entity_resolution.build import _write_kg2_match_evidence
+    from kraken.entity_resolution.match_graph import accumulate
+    from kraken.entity_resolution.weights import ERWeights
+
+    w = ERWeights()
+
+    def edge(ks):
+        return {
+            "subject": "UNII:1",
+            "object": "PUBCHEM.COMPOUND:1",
+            "predicate": "biolink:close_match",
+            "primary_knowledge_source": ks,
+            "attributes": {"infores:rtx-kg2": {"kg2pre_ids": ["ATC:X---rel---None---None---None---UMLS:Y---src"]}},
+        }
+
+    ef = tmp_path / "kg2_edges.jsonl"
+    with jsonlines.open(ef, "w") as wr:
+        wr.write_all([edge("infores:mesh"), edge("infores:go"), edge("infores:chv-umls")])
+
+    out = io.StringIO()
+    _write_kg2_match_evidence(ef, w, out, lambda _edge: None)
+    rows = [ln.split("\t") for ln in out.getvalue().splitlines() if ln]
+    assert len({group for _a, _b, group, _wt in rows}) == 3, "each KS should land in its own group"
+    total = accumulate([(a, b, g, float(wt)) for a, b, g, wt in rows], w)[("ATC:X", "UMLS:Y")]
+    assert total >= w.tau, f"three independent KSes should reach tau, got {total}"

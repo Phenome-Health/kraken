@@ -25,7 +25,7 @@ def _configured_source_ids() -> dict[str, str]:
 
 def get_source_id(source_name: str) -> str:
     """The ``source_id`` (infores or bare id) configured for a build_config source, so code that needs to
-    name another source (e.g. a harmonizer's primary_ks_exclusions) reads the id from build_config -- the
+    name another source (e.g. a harmonizer's source_exclusions) reads the id from build_config -- the
     single source of truth -- rather than restating the string."""
     ids = _configured_source_ids()
     if source_name not in ids:
@@ -94,6 +94,13 @@ class SourceConfig(BaseModel):
     input_file: str | None = None
     nodes_input: str | None = None
     edges_input: str | None = None
+
+    # We ingest this source directly, so we do NOT want anyone else's second-hand copy of its edges:
+    # set this and EVERY other source drops the edges it carries that name this source as their
+    # primary OR aggregator knowledge source. Declaring it once, on the source itself, replaces
+    # hand-maintaining a source_exclusions set on each harmonizer that happens to re-publish it --
+    # which needed you to already know which other KGs carry it.
+    drop_from_other_sources: bool = False
 
     # Computed (set by KrakenConfig validator)
     input_file_resolved: Path | None = Field(default=None, init=False)
@@ -216,6 +223,20 @@ class KrakenConfig(BaseModel):
         source versions that went into it.
         """
         return {source: self.sources[source].version for source in sorted(self.sources_to_use)}
+
+    def auto_source_exclusions(self, source_name: str) -> set[str]:
+        """Source ids ``source_name`` must drop edges for, from the ``drop_from_other_sources`` flags.
+
+        Every OTHER in-use source that sets the flag contributes its ``source_id``; the source's own
+        id is never included, so a source is always free to publish its own edges. Only sources
+        actually in this build count -- dropping a source's second-hand copies while its direct
+        ingest is switched off would silently delete those edges from the graph entirely.
+        """
+        return {
+            self.sources[other].source_id
+            for other in self.sources_to_use
+            if other != source_name and self.sources[other].drop_from_other_sources
+        }
 
     @property
     def create_metagraphs(self) -> bool:

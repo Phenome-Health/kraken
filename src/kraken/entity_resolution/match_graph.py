@@ -43,12 +43,19 @@ def clique_evidence(
     Up to ``clique_cap`` ids -> full clique (robust: survives to the accumulated
     weight-vs-gamma threshold, all-or-nothing). Beyond the cap -> a star from the
     lexically smallest id (fragile on purpose; big "equivalent" lists are junk).
+
+    The weight depends on the list's SIZE for size-aware sources (see
+    ``ERWeights.max_merge_list_size``); a list large enough to carry no weight at all
+    emits nothing, rather than a pile of zero-weight edges. Its ids are still seeded as
+    nodes elsewhere -- only the equivalence claim is dropped.
     """
     ids = sorted({i for i in equivalent_ids if i})
     if len(ids) < 2:
         return
     group = weights.source_group(source)
-    weight = weights.equivalency_weight(source)
+    weight = weights.equivalency_weight(source, len(ids))
+    if weight <= 0:
+        return
     if len(ids) <= weights.clique_cap:
         n = len(ids)
         for i in range(n):
@@ -62,20 +69,43 @@ def clique_evidence(
             yield (a, b, group, weight)
 
 
+def alias_evidence(
+    original: str,
+    canonical: str,
+    source: str,
+    weights: ERWeights,
+) -> Evidence | None:
+    """Evidence for one ``original -> canonical`` alias asserted by a canonicalized aggregator edge.
+
+    Weighted exactly like a two-id equivalency list from the same source (``ERWeights.alias_weight``)
+    -- it is the same kind of claim -- and kept in that source's normal group, so an aggregator
+    echoing what the NN clique already says still counts once (max within ``sri_nn_derived``).
+    """
+    if not original or not canonical or original == canonical:
+        return None
+    a, b = _ordered(original, canonical)
+    return (a, b, weights.source_group(source), weights.alias_weight(source))
+
+
 def match_predicate_evidence(
     subject: str,
     object_: str,
     predicate: str,
     source: str,
     weights: ERWeights,
+    primary_ks: str | None = None,
 ) -> Evidence | None:
     """Evidence for one source match-predicate edge, or None if it must not
-    contribute (hierarchical / non-match predicate / self-loop)."""
+    contribute (hierarchical / non-match predicate / self-loop).
+
+    Grouped per (source, primary knowledge source), so parallel assertions of the same
+    pair from different primary KSes sum instead of collapsing to their max (see
+    ``ERWeights.predicate_group``)."""
     weight = weights.predicate_weight(predicate)
     if weight is None or not subject or not object_ or subject == object_:
         return None
     a, b = _ordered(subject, object_)
-    return (a, b, weights.source_group(source), weight)
+    return (a, b, weights.predicate_group(source, primary_ks), weight)
 
 
 def name_similarity_evidence(
