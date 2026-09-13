@@ -55,6 +55,7 @@ from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, no
 from kraken.entity_resolution.sri_nodenorm import NodeNormClient, infer_category, infer_taxon
 from kraken.entity_resolution.uncanonicalize import (
     CANONICALIZED_AGGREGATOR_SOURCES,
+    is_coarser_than_canonical,
     original_alias_pairs,
 )
 from kraken.entity_resolution.uncanonicalize import (
@@ -141,10 +142,6 @@ def _stage1_write_evidence_and_facts(
         """
         for original, canonical in original_alias_pairs(edge, source):
             seeds[original] = seeds.get(original, 0) | bit
-            ev_alias = alias_evidence(original, canonical, source, weights)
-            if ev_alias is not None:
-                a, b, group, weight = ev_alias
-                ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
             # The original inherits the canonical id's categories the same way an equiv-list member
             # does (the node pass below). Without it, an id from a vocabulary the normalizer doesn't
             # know (HGVS, CAID) would fall through to NamedThing -- a guardrail wildcard -- so the
@@ -152,6 +149,14 @@ def _stage1_write_evidence_and_facts(
             canonical_cats = inherited_cats.get(canonical)
             if canonical_cats:
                 inherited_cats.setdefault(original, set()).update(canonical_cats)
+            if is_coarser_than_canonical(original, canonical):
+                # e.g. a bare rsid (position) stored on one CAID (allele): seeded and typed above so the edge
+                # can remap onto the position it was asserted about, but never merged into that one allele.
+                continue
+            ev_alias = alias_evidence(original, canonical, source, weights)
+            if ev_alias is not None:
+                a, b, group, weight = ev_alias
+                ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
 
     with open(evidence_path, "w") as ev, open(names_path, "w") as nm:
         for source, (nodes_path, edges_path) in sorted(config.all_harmonized_paths_resolved.items()):

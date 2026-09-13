@@ -50,7 +50,10 @@ Splitter = Callable[[list[str]], list[list[str]]]
 #     cause false splits. (2.1.1 had exactly one cluster with >1 MONDO id.) If the
 #     histogram shows false splits, demote MONDO to a candidate prefix rather than
 #     weakening the repair for RM/LM, which have no legitimate co-occurrence.
-DEFAULT_ENFORCED_PREFIXES: frozenset[str] = frozenset({"RM", "LM", "MONDO"})
+#   * CAID — ClinGen Allele Registry: one canonical allele per id, so two in a cluster
+#     means two alleles were merged (e.g. by a shared rsid, which names the position
+#     they sit at rather than either allele).
+DEFAULT_ENFORCED_PREFIXES: frozenset[str] = frozenset({"RM", "LM", "MONDO", "CAID"})
 
 # Candidate one-id-per-cluster prefixes: watched (instrumented) but NOT enforced.
 # HGNC only — it is a curated one-id-per-human-gene nomenclature, so >1 usually

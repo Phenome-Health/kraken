@@ -13,6 +13,8 @@ exactly one un-canonicalization implementation.
 
 from __future__ import annotations
 
+import re
+
 from kraken.utils.constants import (
     EDGE_ATTRIBUTES,
     EDGE_OBJECT,
@@ -23,11 +25,16 @@ from kraken.utils.constants import (
 
 # Sources whose stored endpoints are Babel-canonicalized (so match/edge remapping must
 # recover the ORIGINAL endpoints). KG2 keeps its originals in ``kg2pre_ids`` (one merged
-# edge can carry several); the other four store a single ``original_subject`` /
+# edge can carry several); the other two store a single ``original_subject`` /
 # ``original_object`` in their per-source attribute dict.
-CANONICALIZED_AGGREGATOR_SOURCES: frozenset[str] = frozenset(
-    {"kg2", "robokop", "translator-kg-open", "microbiome-kg", "multiomics-kg"}
-)
+#
+# The multiomics KGs (microbiome-kg, multiomics-kg) are deliberately NOT here, although they carry
+# original_subject/original_object too. Theirs are not ids at all but the raw text of the paper tables they
+# were built from ("schizophrenia", "Stool_sarcosine", "TAP1:Q03518:OID31289:v1") -- not one of their ~1.6M
+# originals is a curie -- and their stored subject/object is their own curation of that text onto an id. So
+# the stored endpoints are the authority. Listing them here remapped every edge onto a text label that never
+# became a node: 2.1.1 kept 20 of multiomics-kg's 701,514 edges and 19 of microbiome-kg's 112,118.
+CANONICALIZED_AGGREGATOR_SOURCES: frozenset[str] = frozenset({"kg2", "robokop", "translator-kg-open"})
 # KG2's per-edge original ids: "orig_subject---relation---q---q---q---orig_object---src".
 KG2_PRE_IDS_ATTR = "kg2pre_ids"
 _KG2_ID_SEP = "---"
@@ -107,3 +114,21 @@ def original_alias_pairs(edge: dict, source: str) -> list[tuple[str, str]]:
             if original and original != canonical:
                 aliases.append((original, canonical))
     return aliases
+
+
+# An original endpoint can name a COARSER entity than the node the aggregator canonicalized it to. The case that
+# occurs: GWAS Catalog reports some associations against a bare dbSNP rsid -- a POSITION -- and ROBOKOP stores the
+# edge on one ClinGen allele (CAID) at it. Taking that pairing as an alias would merge the position into that one
+# allele (the same conflation ROBOKOP's own rsid equivalences caused; see harmonizers/robokop.py). An rsid WITH its
+# allele ("DBSNP:rs142570322-T") names the allele, so it is not a mismatch and still aliases.
+_POSITION_LEVEL_ORIGINAL = re.compile(r"DBSNP:rs\d+")
+_ALLELE_LEVEL_PREFIX = "CAID:"
+
+
+def is_coarser_than_canonical(original: str, canonical: str) -> bool:
+    """True when ``original`` names a coarser entity than ``canonical`` (a bare rsid position vs. a CAID allele).
+
+    Such a pair must not be used as equivalence evidence. The original is still a real id -- the edge should
+    remap onto it, at the granularity the source actually asserted -- so callers keep seeding it.
+    """
+    return bool(_POSITION_LEVEL_ORIGINAL.fullmatch(original)) and canonical.startswith(_ALLELE_LEVEL_PREFIX)

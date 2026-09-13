@@ -20,6 +20,7 @@ from kraken.utils.constants import ORIGINAL_OBJECT_ATTR, ORIGINAL_SUBJECT_ATTR
 
 class _Harmonizer(BaseHarmonizer):
     source_infores = "infores:test"
+    is_aggregator = True  # only an aggregator's originals are ids (see _normalize_original_endpoints)
 
 
 class _StubNormalizer:
@@ -136,3 +137,14 @@ def test_missing_or_non_string_originals_are_ignored():
     attributes = {ORIGINAL_SUBJECT_ATTR: None, "other": "x"}
     h._normalize_original_endpoints(attributes)
     assert attributes == {ORIGINAL_SUBJECT_ATTR: None, "other": "x"}
+
+
+def test_a_non_aggregators_originals_are_left_as_written():
+    """The multiomics KGs put the raw table text they mapped from in these attributes ("schizophrenia",
+    "TAP1:Q03518:OID31289:v1"). That text is not a curie, so it must not be normalized as one."""
+    h = _harmonizer({("TAP1", "Q03518:OID31289:v1"): "SHOULD:NOT_HAPPEN"})
+    h.is_aggregator = False
+    attributes = {ORIGINAL_SUBJECT_ATTR: "TAP1:Q03518:OID31289:v1", ORIGINAL_OBJECT_ATTR: "schizophrenia"}
+    h._normalize_original_endpoints(attributes)
+    assert attributes == {ORIGINAL_SUBJECT_ATTR: "TAP1:Q03518:OID31289:v1", ORIGINAL_OBJECT_ATTR: "schizophrenia"}
+    assert not h.unrecognized_vocab_prefixes  # and nothing lands in the normalization report

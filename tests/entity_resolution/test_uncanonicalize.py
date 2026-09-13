@@ -123,3 +123,31 @@ def test_original_alias_pairs_requires_both_stored_endpoints():
 
     edge = {"subject": "CAID:CA1", "attributes": {"x": {"original_subject": "HGVS:1", "original_object": "E:1"}}}
     assert original_alias_pairs(edge, "robokop") == []
+
+
+def test_bare_rsid_is_coarser_than_a_caid_allele():
+    """A bare rsid names a position; stored on one CAID it must not be merged into that allele."""
+    from kraken.entity_resolution.uncanonicalize import is_coarser_than_canonical
+
+    assert is_coarser_than_canonical("DBSNP:rs2149351", "CAID:CA13019169")
+    # an rsid WITH its allele names the allele, so it may alias
+    assert not is_coarser_than_canonical("DBSNP:rs142570322-T", "CAID:CA2361641066")
+    # and nothing else is affected
+    assert not is_coarser_than_canonical("HGVS:NC_000021.9:g.25840043C>G", "CAID:CA15984545")
+    assert not is_coarser_than_canonical("DBSNP:rs2149351", "NCBIGene:1")
+
+
+def test_multiomics_kg_stored_endpoints_are_the_authority():
+    """Their originals are table text, not ids: remapping onto them orphaned ~813k edges in 2.1.1."""
+    from kraken.entity_resolution.uncanonicalize import original_alias_pairs, original_endpoints
+
+    edge = {
+        "subject": "UniProtKB:Q03518",
+        "object": "MONDO:0005052",
+        "attributes": {
+            "infores:multiomics-multiomics": {"original_subject": "TAP1:Q03518:OID31289:v1", "original_object": "x"}
+        },
+    }
+    for source in ("multiomics-kg", "microbiome-kg"):
+        assert original_endpoints(edge, source) == [("UniProtKB:Q03518", "MONDO:0005052")]
+        assert original_alias_pairs(edge, source) == []

@@ -55,8 +55,20 @@ def test_one_id_guardrail():
 
 
 def test_default_enforced_prefixes():
-    # RefMet=RM, LIPID MAPS=LM (verified in harmonized data) plus MONDO.
-    assert DEFAULT_ENFORCED_PREFIXES == frozenset({"RM", "LM", "MONDO"})
+    # RefMet=RM, LIPID MAPS=LM (verified in harmonized data), MONDO, and ClinGen alleles (CAID).
+    assert DEFAULT_ENFORCED_PREFIXES == frozenset({"RM", "LM", "MONDO", "CAID"})
+
+
+def test_two_alleles_are_never_one_cluster():
+    """A CAID is one allele. Two in a cluster means distinct alleles were merged -- e.g. through a shared
+    rsid, which names the position they sit at, not either allele."""
+    cfg = GuardrailConfig()
+    info = {
+        c: _ni(c, ("biolink:SequenceVariant",))
+        for c in ("CAID:CA675382683", "CAID:CA1961200538", "CAID:CA220112499", "DBSNP:rs7944541")
+    }
+    parts = enforce_cluster(list(info), info, cfg)
+    assert all(sum(m.startswith("CAID:") for m in part) <= 1 for part in parts)
 
 
 def test_default_config_enforces_one_refmet_lipidmaps_mondo():

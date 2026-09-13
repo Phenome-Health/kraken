@@ -90,8 +90,6 @@ class ERWeights(BaseModel):
             "kg2": 0.5,
             "robokop": 0.5,
             "translator-kg-open": 0.5,
-            "microbiome-kg": 0.5,
-            "multiomics-kg": 0.5,
         }
     )
     default_equivalency_weight: float = 0.4
@@ -114,9 +112,8 @@ class ERWeights(BaseModel):
     # kg2's lists hold ~95% through 20 and fall to 73% across 21-30; it merges up to 24, reaching a
     # little into that band (the measurement doesn't resolve where within it the drop begins). robokop's
     # degrade more gracefully (87% at 21-30) and its lists never exceed 46, so it merges up to 30.
-    # The three KGs we haven't measured get the conservative 20; note translator-kg-open and the
-    # multiomics KGs emit no equivalent_ids lists (their equivalent_ids_prop is ""), so for them this
-    # only governs aliases.
+    # translator-kg-open, unmeasured, gets the conservative 20; it emits no equivalent_ids lists (its
+    # equivalent_ids_prop is ""), so for it this only governs aliases.
     #
     # ONLY the sources listed here are size-aware. Everything else keeps its flat weight at any list
     # size -- deliberately, since the curve above was measured on aggregators and says nothing about
@@ -127,8 +124,6 @@ class ERWeights(BaseModel):
             "kg2": 24,
             "robokop": 30,
             "translator-kg-open": 20,
-            "microbiome-kg": 20,
-            "multiomics-kg": 20,
         }
     )
     # Mid-size lists (37-87% agreement) are too unreliable to merge on but real enough to
@@ -189,7 +184,7 @@ class ERWeights(BaseModel):
             # Babel assertion (live NN clique + the aggregators' baked-in lists) counts
             # once (max), not summed. "nn" is the live NN cliques; the rest are the
             # aggregators' stored lists.
-            "sri_nn_derived": ["nn", "kg2", "robokop", "translator-kg-open", "microbiome-kg", "multiomics-kg"],
+            "sri_nn_derived": ["nn", "kg2", "robokop", "translator-kg-open"],
         }
     )
 

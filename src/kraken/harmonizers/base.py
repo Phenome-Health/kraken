@@ -57,6 +57,8 @@ MAX_MULTI_TAXON_EXAMPLES = 5
 # How many example curies to keep per prefix biomapper2 couldn't normalize (see
 # log_normalization_report) -- enough to recognize the id format when adding it to biomapper2.
 MAX_UNNORMALIZED_EXAMPLES = 3
+# How many prefixes log_normalization_report lists individually per failure kind before summarizing the rest.
+MAX_REPORTED_PREFIXES = 20
 
 # TRAPI-style edge provenance: an edge carrying this field lists its knowledge sources as objects of
 # {resource_id, resource_role}, which we parse instead of the flat primary_ks/supporting_sources props.
@@ -476,6 +478,11 @@ class BaseHarmonizer(ABC):
         curie. Translator, for one, writes ``Ensembl:ENSG00000099864`` while the node set uses
         ``ENSEMBL:``; left alone those are two different ids and the edge finds no node.
         """
+        # Only an aggregator's originals are ids it canonicalized away from. A source that isn't one (the
+        # multiomics KGs) uses these attributes for the raw text it mapped from -- normalizing that as a
+        # curie produced thousands of bogus one-curie "vocabularies" in the normalization report.
+        if not self.is_aggregator:
+            return
         for attr in (ORIGINAL_SUBJECT_ATTR, ORIGINAL_OBJECT_ATTR):
             value = attributes.get(attr)
             if isinstance(value, str) and value:
@@ -524,8 +531,21 @@ class BaseHarmonizer(ABC):
                 f"{self.source_name}: biomapper2 {headline} {total} distinct curies across "
                 f"{len(tally)} prefix{'' if len(tally) == 1 else 'es'} (kept as-is, NOT dropped). {remedy}:"
             )
-            for prefix, entry in sorted(tally.items(), key=lambda kv: -kv[1]["count"]):
+            ranked = sorted(tally.items(), key=lambda kv: -kv[1]["count"])
+            for prefix, entry in ranked[:MAX_REPORTED_PREFIXES]:
                 logging.warning(f"    {prefix!r}: {entry['count']} distinct curies, e.g. {entry['examples']}")
+            # A long tail is usually not many vocabularies but ids that aren't curies at all -- free-text
+            # labels whose text before the first colon masquerades as a prefix (multiomics-kg's Olink assay
+            # names, "TAP1:Q03518:OID31289:v1", produced ~5,400 one-curie "prefixes"). Summarize it.
+            rest = ranked[MAX_REPORTED_PREFIXES:]
+            if rest:
+                rest_curies = sum(entry["count"] for _prefix, entry in rest)
+                examples = [entry["examples"][0] for _prefix, entry in rest[:MAX_UNNORMALIZED_EXAMPLES]]
+                logging.warning(
+                    f"    ...and {len(rest)} more prefixes covering {rest_curies} distinct curies"
+                    f"{' (mostly one curie each -- likely not curies at all)' if rest_curies <= 2 * len(rest) else ''}"
+                    f", e.g. {examples}"
+                )
 
     def _stream_nodes(self, input_path: Path | str):
         suffix = Path(input_path).suffix.lower()

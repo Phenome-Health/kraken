@@ -117,7 +117,7 @@ def test_sources_not_listed_as_size_aware_keep_a_flat_weight(source):
 def test_alias_is_weighted_as_a_two_id_list():
     """An alias is the same kind of claim as a list entry, so the two can never drift apart."""
     w = ERWeights()
-    for source in ["kg2", "robokop", "translator-kg-open", "microbiome-kg", "multiomics-kg"]:
+    for source in ["kg2", "robokop", "translator-kg-open"]:
         assert w.alias_weight(source) == w.equivalency_weight(source, 2)
         assert w.alias_weight(source) >= w.tau
 
