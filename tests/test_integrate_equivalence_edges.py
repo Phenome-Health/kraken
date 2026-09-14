@@ -76,3 +76,109 @@ def test_nn_clique_equivalence_edge_uses_normalizer_primary_ks(tmp_path):
     assert len(edges) == 1
     assert (edges[0]["subject"], edges[0]["object"]) == ("DOID:2", "MONDO:1")  # sorted
     assert edges[0]["primary_knowledge_source"] == "infores:sri-node-normalizer"
+
+
+def _write_kg2(tmp_path, edges):
+    src = tmp_path / "h" / "kg2"
+    src.mkdir(parents=True)
+    (src / "nodes.jsonl").write_text("")
+    edges_file = src / "edges.jsonl"
+    with jsonlines.open(edges_file, "w") as w:
+        w.write_all(edges)
+    return SimpleNamespace(
+        sources_to_use=["kg2"],
+        all_harmonized_paths_resolved={"kg2": (src / "nodes.jsonl", edges_file)},
+        er_nodenorm_cache_path=tmp_path / "nn.sqlite",
+    )
+
+
+def _kg2_edge(subject, obj, pre_ids):
+    return {
+        "subject": subject,
+        "predicate": "biolink:subclass_of",
+        "object": obj,
+        "primary_knowledge_source": "infores:umls-metathesaurus",
+        "knowledge_level": "knowledge_assertion",
+        "agent_type": "manual_agent",
+        "attributes": {"infores:rtx-kg2": {"kg2pre_ids": pre_ids}},
+    }
+
+
+def _remapped(tmp_path, config, node_map):
+    from kraken.integrate import _write_keyed_edges
+
+    out = tmp_path / "keyed.tsv"
+    _write_keyed_edges(node_map, config, out)
+    return [
+        (e["subject"], e["predicate"], e["object"])
+        for e in _edges_from_keyed(out)
+        if e["predicate"] != "biolink:same_as"
+    ]
+
+
+def test_kg2_originals_listed_backwards_are_re_oriented_by_cluster(tmp_path):
+    """KG2 stores CHEBI:5781 subclass_of MESH:D015065 but carries both the forward assertion (RN: C0020268 ->
+    C0000163) and its inverse (RB: C0000163 -> C0020268). The originals' clusters say which end is which."""
+    edge = _kg2_edge(
+        "CHEBI:5781",
+        "MESH:D015065",
+        [
+            "UMLS:C0020268---UMLS:RN---None---None---None---UMLS:C0000163---src",  # listed in the stored direction
+            "UMLS:C0000163---UMLS:RB---None---None---None---UMLS:C0020268---src",  # listed BACKWARDS
+        ],
+    )
+    node_map = {
+        "CHEBI:5781": "CHILD",
+        "UMLS:C0020268": "CHILD",
+        "MESH:D015065": "PARENT",
+        "UMLS:C0000163": "PARENT",
+    }
+    triples = _remapped(tmp_path, _write_kg2(tmp_path, [edge]), node_map)
+    assert triples == [("CHILD", "biolink:subclass_of", "PARENT")] * 2  # both come out child -> parent
+
+
+def test_undetermined_orientation_follows_how_the_same_relation_oriented(tmp_path):
+    """When neither original shares a cluster with a stored endpoint, the relation decides: RB pairs were seen
+    to run backwards elsewhere, so this one is reversed too."""
+    decided = _kg2_edge("CHEBI:1", "MESH:1", ["UMLS:P---UMLS:RB---None---None---None---UMLS:C---src"])
+    undetermined = _kg2_edge("CHEBI:2", "MESH:2", ["UMLS:P2---UMLS:RB---None---None---None---UMLS:C2---src"])
+    node_map = {
+        "CHEBI:1": "C",
+        "UMLS:C": "C",
+        "MESH:1": "P",
+        "UMLS:P": "P",  # decided: RB runs backwards
+        "CHEBI:2": "X",
+        "MESH:2": "Y",
+        "UMLS:C2": "C2",
+        "UMLS:P2": "P2",  # originals in clusters of their own
+    }
+    triples = _remapped(tmp_path, _write_kg2(tmp_path, [decided, undetermined]), node_map)
+    assert ("C2", "biolink:subclass_of", "P2") in triples
+    assert ("P2", "biolink:subclass_of", "C2") not in triples
+
+
+def test_non_kg2_originals_are_never_re_oriented(tmp_path):
+    """ROBOKOP's original_subject/original_object match its own fields, so even when an original is clustered
+    with the other end, the edge keeps the recorded direction."""
+    src = tmp_path / "h" / "robokop"
+    src.mkdir(parents=True)
+    (src / "nodes.jsonl").write_text("")
+    edge = {
+        "subject": "CAID:CA1",
+        "predicate": "biolink:affects",
+        "object": "NCBIGene:5",
+        "primary_knowledge_source": "infores:gtex",
+        "knowledge_level": "knowledge_assertion",
+        "agent_type": "manual_agent",
+        "attributes": {"infores:robokop-kg": {"original_subject": "HGVS:x", "original_object": "ENSEMBL:y"}},
+    }
+    with jsonlines.open(src / "edges.jsonl", "w") as w:
+        w.write_all([edge])
+    config = SimpleNamespace(
+        sources_to_use=["robokop"],
+        all_harmonized_paths_resolved={"robokop": (src / "nodes.jsonl", src / "edges.jsonl")},
+        er_nodenorm_cache_path=tmp_path / "nn.sqlite",
+    )
+    # the originals landed crosswise (as a conflation elsewhere could make them)
+    node_map = {"CAID:CA1": "V", "NCBIGene:5": "G", "HGVS:x": "G", "ENSEMBL:y": "V"}
+    assert _remapped(tmp_path, config, node_map) == [("G", "biolink:affects", "V")]  # recorded order, not flipped

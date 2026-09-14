@@ -35,11 +35,38 @@ from kraken.utils.constants import (
 # the stored endpoints are the authority. Listing them here remapped every edge onto a text label that never
 # became a node: 2.1.1 kept 20 of multiomics-kg's 701,514 edges and 19 of microbiome-kg's 112,118.
 CANONICALIZED_AGGREGATOR_SOURCES: frozenset[str] = frozenset({"kg2", "robokop", "translator-kg-open"})
+
+# The subset whose recorded originals are also used as match-graph ids (aliases). kg2 is deliberately NOT here: all
+# of kg2's equivalence is already in its equivalent_ids lists (only 168 of 312,596 sampled kg2 original ids are
+# missing from them), and its originals are not reliably paired with the stored endpoints -- 12% of kg2 original
+# pairs are SWAPPED relative to the stored edge (kg2 re-orients edges when it normalizes a relation), so pairing
+# them positionally produced false aliases such as 80 DrugBank drugs "aliased" to one PathWhiz pathway. ROBOKOP's
+# and Translator's originals are real ids nothing else supplies (HGVS -> CAID, Ensembl -> NCBIGene), 1:1 with the
+# stored endpoint.
+ALIAS_EVIDENCE_SOURCES: frozenset[str] = frozenset({"robokop", "translator-kg-open"})
 # KG2's per-edge original ids: "orig_subject---relation---q---q---q---orig_object---src".
 KG2_PRE_IDS_ATTR = "kg2pre_ids"
 _KG2_ID_SEP = "---"
 # (The other aggregators keep the original endpoints as plain attributes; those attribute names live
 # in utils.constants because the harmonizers write them and entity resolution reads them.)
+
+
+def kg2_pre_id_triples(edge: dict) -> list[tuple[str, str, str]]:
+    """KG2's per-edge originals as (original_subject, original_relation, original_object).
+
+    The relation matters for orientation: KG2 re-orients an edge when it normalizes an inverse relation
+    (UMLS:RB "broader", NCIT:inverse_isa, HMDB:in_pathway, ...), so ~12% of original pairs run opposite to the
+    stored edge -- and which relation it was decides that, with no exceptions in the data.
+    """
+    triples: list[tuple[str, str, str]] = []
+    for attrs in (edge.get(EDGE_ATTRIBUTES) or {}).values():
+        if not isinstance(attrs, dict):
+            continue
+        for raw in attrs.get(KG2_PRE_IDS_ATTR) or []:
+            parts = raw.split(_KG2_ID_SEP)
+            if len(parts) >= 6 and parts[0] not in ("", "None") and parts[5] not in ("", "None"):
+                triples.append((parts[0], parts[1], parts[5]))
+    return triples
 
 
 def _kg2_pre_id_pairs(edge: dict) -> list[tuple[str, str]]:
@@ -98,18 +125,17 @@ def original_alias_pairs(edge: dict, source: str) -> list[tuple[str, str]]:
     exists nowhere in the node set (robokop's gtex edges are stored on ``CAID:`` nodes but originate
     at ``HGVS:`` ids; translator's originate at ``Ensembl:``/``MGI:``/``EMAPA:`` ids).
 
-    Returns [] for a native source (its endpoints are already its own ids), for an edge with no
-    recoverable originals, and for any pair where the original and the canonical id are the same.
+    Returns [] for a native source (its endpoints are already its own ids), for kg2 (see
+    ALIAS_EVIDENCE_SOURCES), for an edge with no recoverable originals, and for any pair where the original
+    and the canonical id are the same.
     """
-    if source not in CANONICALIZED_AGGREGATOR_SOURCES:
+    if source not in ALIAS_EVIDENCE_SOURCES:
         return []
     stored_subject, stored_object = edge.get(EDGE_SUBJECT), edge.get(EDGE_OBJECT)
     if not stored_subject or not stored_object:
         return []
     aliases: list[tuple[str, str]] = []
     for original_subject, original_object in original_endpoints(edge, source) or []:
-        # One merged KG2 edge can carry several original pairs; each asserts that ITS originals
-        # resolved to this edge's stored endpoints, so every pair contributes both aliases.
         for original, canonical in ((original_subject, stored_subject), (original_object, stored_object)):
             if original and original != canonical:
                 aliases.append((original, canonical))

@@ -30,7 +30,7 @@ import os
 import subprocess
 import sys
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import jsonlines
@@ -54,6 +54,7 @@ from kraken.entity_resolution.materialize import PrefixRanking, materialize_clus
 from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, normalize_name
 from kraken.entity_resolution.sri_nodenorm import NodeNormClient, infer_category, infer_taxon
 from kraken.entity_resolution.uncanonicalize import (
+    ALIAS_EVIDENCE_SOURCES,
     CANONICALIZED_AGGREGATOR_SOURCES,
     is_coarser_than_canonical,
     original_alias_pairs,
@@ -75,6 +76,17 @@ from kraken.utils.constants import (
 from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 SEP = "\t"
+
+# Set in an id's ``seeds`` mask when it was seeded ONLY by an alias (not by any node or equivalency list), so the
+# edge pass can tell "already in the graph" from "introduced by an earlier alias". Far above any source's bit.
+ALIAS_SEED_BIT = 1 << 62
+
+
+def _evidence_row(a: str, b: str, group: str, weight: float, *, kind: str) -> str:
+    """One evidence line. ``kind`` (e.g. "equiv:kg2", "alias:robokop", "nn", "name_sim") is not used to weigh
+    anything -- ``group`` does that -- but survives to the oversized-cluster diagnostics, which is the only way to
+    tell a normalizer clique from an aggregator list once both are in the sri_nn_derived group."""
+    return f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}{SEP}{kind}\n"
 
 
 def _external_sort(input_path: Path, output_path: Path, key_args: list[str], temp_dir: Path) -> None:
@@ -126,24 +138,30 @@ def _stage1_write_evidence_and_facts(
     source_provided_by: dict[str, set[str]] = defaultdict(set)
 
     def record_aliases(edge: dict, source: str, bit: int, ev) -> None:
-        """Treat the ids a canonicalized aggregator STARTED from as first-class ids.
+        """Attach the ids an aggregator STARTED from that exist nowhere else in the graph.
 
-        An aggregator edge stores "I resolved X to Y" (see ``original_alias_pairs``), so X is seeded
-        exactly like an equiv-list member -- it gets normalizer name/category/taxon, real
-        provenance, and a node of its own if it never merges -- and the X/Y pairing is written as
-        equivalency evidence weighted exactly like a two-id list from that aggregator
-        (``ERWeights.alias_weight``). That is merge strength, so X joins Y's cluster on its own, and
-        it is ``sri_nn_derived``-grouped so it counts once alongside a matching NN clique; the
-        guardrail prune still applies.
+        An aggregator edge stores "I resolved X to Y" (see ``original_alias_pairs``). When X appears in NO
+        source's nodes or equivalency lists, that pairing is the only thing that can place it, so X is seeded
+        like an equiv-list member (normalizer name/category/taxon, real provenance, a node of its own if it
+        never merges) and the X/Y pairing is written as evidence weighted like a two-id list from that
+        aggregator -- merge strength, so X joins Y's cluster. This is how robokop's gtex edges, which originate
+        at ``HGVS:`` ids no node carries, reach their ``CAID:`` variants.
 
-        Without this an edge whose original endpoint exists nowhere in the node set is simply lost:
-        robokop's 18.5M gtex edges are stored on ``CAID:`` nodes but originate at ``HGVS:`` ids, and
-        every translator edge originates at an ``ENSEMBL:``/``MGI:``/``EMAPA:`` id.
+        When X IS already in the graph, the alias is skipped entirely: some source's list or a normalizer
+        clique already places X, and an alias could only repeat that or override it. Every bad merge aliases
+        caused came from that case -- thousands of ids fanning into one canonical, or originals paired with
+        the wrong endpoint -- because only there can an alias join two entities that already exist.
+
+        "Already in the graph" is decided after EVERY source's nodes have been read (the node pass runs to
+        completion before any edges), so it doesn't depend on the order sources are processed in.
         """
         for original, canonical in original_alias_pairs(edge, source):
-            seeds[original] = seeds.get(original, 0) | bit
+            mask = seeds.get(original, 0)
+            if mask and not mask & ALIAS_SEED_BIT:
+                continue  # already placed by some source's nodes or lists
+            seeds[original] = mask | bit | ALIAS_SEED_BIT
             # The original inherits the canonical id's categories the same way an equiv-list member
-            # does (the node pass below). Without it, an id from a vocabulary the normalizer doesn't
+            # does (the node pass). Without it, an id from a vocabulary the normalizer doesn't
             # know (HGVS, CAID) would fall through to NamedThing -- a guardrail wildcard -- so the
             # branch guardrail would go inert on exactly the ids this is introducing.
             canonical_cats = inherited_cats.get(canonical)
@@ -155,11 +173,12 @@ def _stage1_write_evidence_and_facts(
                 continue
             ev_alias = alias_evidence(original, canonical, source, weights)
             if ev_alias is not None:
-                a, b, group, weight = ev_alias
-                ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+                ev.write(_evidence_row(*ev_alias, kind=f"alias:{source}"))
 
+    sources = sorted(config.all_harmonized_paths_resolved.items())
     with open(evidence_path, "w") as ev, open(names_path, "w") as nm:
-        for source, (nodes_path, edges_path) in sorted(config.all_harmonized_paths_resolved.items()):
+        # Pass 1: every source's NODES (ids, equivalency lists, categories, taxa, names).
+        for source, (nodes_path, _edges_path) in sources:
             bit = 1 << source_bits[source]
             if Path(nodes_path).exists():
                 for node in stream_nodes_from_jsonl(Path(nodes_path)):
@@ -174,14 +193,14 @@ def _stage1_write_evidence_and_facts(
                         seeds[equiv_id] = seeds.get(equiv_id, 0) | bit
                     # Equivalency-clique evidence from EVERY source, weighted per source:
                     # native curated lists are strong (>=tau, merge on their own). The
-                    # canonicalized aggregators are SIZE-AWARE -- a small list merges on its
-                    # own, a mid-size one only corroborates, a large one contributes nothing
-                    # (see ERWeights.max_merge_list_size) -- and share the "sri_nn_derived"
+                    # canonicalized aggregators are PREFIX-CAPPED -- ids of a prefix a list holds
+                    # in bulk get only a weak link to the listing node, the rest merge (see
+                    # ERWeights.max_ids_per_prefix) -- and share the "sri_nn_derived"
                     # source group so their Babel echo counts once. The clean, current
                     # cross-ontology backbone comes from the normalizer's cliques (stage 1b);
                     # aggregator lists recover the mappings it doesn't know.
-                    for a, b, group, weight in clique_evidence(equiv_ids, source, weights):
-                        ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+                    for evidence in clique_evidence(equiv_ids, source, weights, head=node_id):
+                        ev.write(_evidence_row(*evidence, kind=f"equiv:{source}"))
                     cats = node.get(NODE_CATEGORIES) or []
                     branches = families.branches(cats) if cats else ALL_FAMILIES
                     if cats and branches is not ALL_FAMILIES and len(branches) == 1:
@@ -201,37 +220,37 @@ def _stage1_write_evidence_and_facts(
                         name_norm = normalize_name(node.get(NODE_NAME))
                         if not is_droppable(name_norm, min_length=weights.min_name_length, stoplist=DEFAULT_STOPLIST):
                             nm.write(f"{name_norm}{SEP}{node_id}\n")
-            # Match-predicate (close/exact/same_as) edges are match-graph evidence, but
-            # only on their ORIGINAL endpoints (see _original_endpoints): a Babel-
-            # canonicalized endpoint would just re-import Babel's clustering. KG2 also
-            # needs its close_match down-weighted where subclass edges co-occur, so it
-            # gets a dedicated two-phase writer.
-            if Path(edges_path).exists():
-                # Alias harvesting runs over EVERY edge (not just the match-predicate ones), since
-                # any edge can be the only place an original id appears.
-                is_canonicalized = source in CANONICALIZED_AGGREGATOR_SOURCES
-                if source == "kg2":
-                    _write_kg2_match_evidence(
-                        Path(edges_path), weights, ev, lambda edge: record_aliases(edge, "kg2", bit, ev)
+
+        # Pass 2: every source's EDGES -- aliases (which need pass 1 complete) and match predicates.
+        # Match-predicate (close/exact/same_as) edges are match-graph evidence, but
+        # only on their ORIGINAL endpoints (see _original_endpoints): a Babel-
+        # canonicalized endpoint would just re-import Babel's clustering. KG2 also
+        # needs its close_match down-weighted where subclass edges co-occur, so it
+        # gets a dedicated two-phase writer.
+        for source, (_nodes_path, edges_path) in sources:
+            bit = 1 << source_bits[source]
+            if not Path(edges_path).exists():
+                continue
+            if source == "kg2":
+                _write_kg2_match_evidence(Path(edges_path), weights, ev)
+                continue
+            takes_aliases = source in ALIAS_EVIDENCE_SOURCES
+            for edge in stream_edges_from_jsonl(Path(edges_path)):
+                if takes_aliases:
+                    record_aliases(edge, source, bit, ev)
+                predicate = edge.get(EDGE_PREDICATE, "")
+                if weights.predicate_weight(predicate) is None:
+                    continue  # not a usable match predicate; skip before un-canon work
+                endpoints = _original_endpoints(edge, source)
+                if endpoints is None:
+                    continue  # canonicalized aggregator without a known un-canonicalizer
+                primary_ks = _primary_ks(edge)
+                for subject, object_ in endpoints:
+                    ev_edge = match_predicate_evidence(
+                        subject, object_, predicate, source, weights, primary_ks=primary_ks
                     )
-                else:
-                    for edge in stream_edges_from_jsonl(Path(edges_path)):
-                        if is_canonicalized:
-                            record_aliases(edge, source, bit, ev)
-                        predicate = edge.get(EDGE_PREDICATE, "")
-                        if weights.predicate_weight(predicate) is None:
-                            continue  # not a usable match predicate; skip before un-canon work
-                        endpoints = _original_endpoints(edge, source)
-                        if endpoints is None:
-                            continue  # canonicalized aggregator without a known un-canonicalizer
-                        primary_ks = _primary_ks(edge)
-                        for subject, object_ in endpoints:
-                            ev_edge = match_predicate_evidence(
-                                subject, object_, predicate, source, weights, primary_ks=primary_ks
-                            )
-                            if ev_edge is not None:
-                                a, b, group, weight = ev_edge
-                                ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+                    if ev_edge is not None:
+                        ev.write(_evidence_row(*ev_edge, kind=f"match:{source}"))
     return inherited_cats, node_taxon, node_ids, seeds, source_provided_by
 
 
@@ -256,8 +275,8 @@ def _stage1b_normalizer_evidence_and_names(
     n_cliques = 0
     with open(evidence_path, "a") as ev:
         for _canonical, members in nodenorm.iter_cliques():
-            for a, b, group, weight in clique_evidence(members, "nn", weights):
-                ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+            for evidence in clique_evidence(members, "nn", weights):
+                ev.write(_evidence_row(*evidence, kind="nn"))
             n_cliques += 1
     n_names = 0
     with open(names_path, "a") as nm:
@@ -290,7 +309,7 @@ def _subclass_penalized_weight(base_weight: float, hierarchical_count: int, deca
     return base_weight * (decay**hierarchical_count)
 
 
-def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev, record_aliases) -> None:
+def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
     """Emit KG2 match-predicate evidence on un-canonicalized endpoints, down-weighting
     each close_match by how many subclass/superclass edges the same original pair has.
 
@@ -298,14 +317,11 @@ def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev, record_a
     pair and buffer the match pairs (bounded by KG2's edge count, not the whole graph),
     then emit each with its penalty applied.
 
-    KG2's originals are harvested here rather than in the caller's loop because this is already
-    KG2's single streaming pass over its edges -- and they must be harvested from EVERY edge, which
-    is why ``record_aliases`` runs before the match-predicate filter below.
+    KG2's originals contribute no alias evidence (see uncanonicalize.ALIAS_EVIDENCE_SOURCES).
     """
     hierarchical_counts: dict[tuple[str, str], int] = defaultdict(int)
     match_pairs: list[tuple[str, str, str, str | None]] = []  # (a, b, predicate, primary_ks), a <= b
     for edge in stream_edges_from_jsonl(edges_path):
-        record_aliases(edge)
         predicate = edge.get(EDGE_PREDICATE, "")
         is_hierarchical = predicate in SUBCLASS_PREDICATES
         if not is_hierarchical and weights.predicate_weight(predicate) is None:
@@ -324,7 +340,7 @@ def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev, record_a
         weight = _subclass_penalized_weight(base, hierarchical_counts.get((a, b), 0), weights.subclass_penalty_decay)
         # Per-primary-KS group, so parallel close_matches on this pair from different KSes sum.
         group = weights.predicate_group("kg2", primary_ks)
-        ev.write(f"{a}{SEP}{b}{SEP}{group}{SEP}{weight}\n")
+        ev.write(_evidence_row(a, b, group, weight, kind="match:kg2"))
 
 
 def _stage1c_append_name_similarity(names_path: Path, evidence_path: Path, weights: ERWeights, temp_dir: Path) -> None:
@@ -348,7 +364,7 @@ def _stage1c_append_name_similarity(names_path: Path, evidence_path: Path, weigh
                         a, b = unique_ids[i], unique_ids[j]
                         if a > b:
                             a, b = b, a
-                        ev.write(f"{a}{SEP}{b}{SEP}{NAME_SIMILARITY_GROUP}{SEP}{w}\n")
+                        ev.write(_evidence_row(a, b, NAME_SIMILARITY_GROUP, w, kind="name_sim"))
 
             for line in fin:
                 name, _, curie = line.rstrip("\n").partition(SEP)
@@ -389,7 +405,7 @@ def _stage2_accumulate_pairs(evidence_path: Path, pairs_path: Path, weights: ERW
                 return 0
 
             for line in fin:
-                a, b, group, weight_s = line.rstrip("\n").split(SEP)
+                a, b, group, weight_s = line.rstrip("\n").split(SEP)[:4]  # 5th column (evidence kind) is diagnostic
                 weight = float(weight_s)
                 if a != cur_a or b != cur_b:
                     n_pairs += flush()
@@ -753,6 +769,68 @@ def _stage_banner(msg: str) -> None:
     logging.info("###  %s", msg)
 
 
+# Every cluster at least this large gets a breakdown of the evidence that built it, written to
+# ``<integrated debug dir>/oversized_clusters.jsonl``. 2.1.1's largest was 1,455 members, so a healthy build writes a
+# handful; a regression (the 56,515-member clusters of the first size-aware build) shows what caused it.
+OVERSIZED_EVIDENCE_REPORT_MIN_SIZE = 1000
+OVERSIZED_REPORT_FILENAME = "oversized_clusters.jsonl"
+OVERSIZED_REPORT_SAMPLE_IDS = 25
+
+
+def _report_oversized_cluster_evidence(
+    evidence_path: Path, curie_to_cluster: dict[str, int], report_path: Path
+) -> None:
+    """Write, for every cluster of OVERSIZED_EVIDENCE_REPORT_MIN_SIZE+ members, how many evidence rows of each kind link
+    members INSIDE it, plus its id-prefix mix and a sample of ids -- one JSON line per cluster, largest first.
+
+    One pass over the evidence file, and only when such a cluster exists. The kind column (``equiv:<source>``,
+    ``alias:<source>``, ``match:<source>``, ``nn``, ``name_sim``) is what separates a normalizer clique from an
+    aggregator list; the de-correlation group alone can't.
+    """
+    sizes = Counter(curie_to_cluster.values())
+    ranked = [cid for cid, n in sizes.most_common() if n >= OVERSIZED_EVIDENCE_REPORT_MIN_SIZE]
+    if not ranked:
+        return
+    wanted = set(ranked)
+    kinds: dict[int, Counter] = {cid: Counter() for cid in ranked}
+    prefixes: dict[int, Counter] = {cid: Counter() for cid in ranked}
+    samples: dict[int, list[str]] = defaultdict(list)
+    for curie, cid in curie_to_cluster.items():
+        if cid in wanted:
+            prefixes[cid][curie.split(":", 1)[0]] += 1
+            if len(samples[cid]) < OVERSIZED_REPORT_SAMPLE_IDS:
+                samples[cid].append(curie)
+    with open(evidence_path) as evidence:
+        for line in evidence:
+            a, b, _group, _weight, kind = line.rstrip("\n").split(SEP)
+            cid = curie_to_cluster.get(a)
+            if cid in wanted and curie_to_cluster.get(b) == cid:
+                kinds[cid][kind] += 1
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with jsonlines.open(report_path, "w") as report:
+        for cid in ranked:
+            report.write(
+                {
+                    "members": sizes[cid],
+                    "evidence_rows_inside_by_kind": dict(kinds[cid].most_common()),
+                    "id_prefixes": dict(prefixes[cid].most_common()),
+                    "sample_ids": sorted(samples[cid]),
+                }
+            )
+    logging.warning(
+        "entity_resolution: %d cluster(s) have %d+ members (largest %d); evidence breakdown written to %s",
+        len(ranked),
+        OVERSIZED_EVIDENCE_REPORT_MIN_SIZE,
+        sizes[ranked[0]],
+        report_path,
+    )
+
+
+def _debug_dir(config) -> Path:
+    """Where diagnostics go: the build's integrated debug dir (falls back to the integrated dir for ad-hoc configs)."""
+    return Path(getattr(config, "integrated_debug_dir", None) or config.integrated_dir)
+
+
 def resolve_entities(config, biolink) -> dict[str, str]:
     """Run entity resolution end to end (out of core) and write the canonical nodes
     file. Returns ``node_id -> representative_curie`` for edge resolution."""
@@ -818,6 +896,9 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             f"{len(curie_to_cluster)} ids -> {len(set(curie_to_cluster.values()))} clusters"
         )
         _log_histogram(histogram)
+        _report_oversized_cluster_evidence(
+            evidence_path, curie_to_cluster, _debug_dir(config) / OVERSIZED_REPORT_FILENAME
+        )
 
         t = time.perf_counter()
         _stage_banner(f"ER STAGE 4 -- materializing canonical nodes -> {config.integrated_nodes_path}")

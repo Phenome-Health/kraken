@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import subprocess
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,10 @@ from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
 from kraken.entity_resolution.build import resolve_entities
 from kraken.entity_resolution.sri_nodenorm import NodeNormClient
-from kraken.entity_resolution.uncanonicalize import original_endpoints
+from kraken.entity_resolution.uncanonicalize import (
+    kg2_pre_id_triples,
+    original_endpoints,
+)
 from kraken.schema import EdgeModel
 from kraken.utils.constants import (
     EDGE_AGENT_TYPE,
@@ -33,7 +37,6 @@ from kraken.utils.constants import (
     EDGE_PRIMARY_KS,
     EDGE_SUBJECT,
     KNOWLEDGE_ASSERTION,
-    NODE_ATTRIBUTES,
     NODE_EQUIVALENT_IDS,
     NODE_ID,
     NODE_PROVIDED_BY,
@@ -100,31 +103,111 @@ def _write_keyed_edges(node_map: dict[str, str], config: KrakenConfig, keyed_edg
     aggregator stores Babel-canonical endpoints, but our clustering diverges from Babel, so mapping a
     canonical endpoint would attach the edge to the wrong node. One stored edge can carry several
     original subject/object pairs (e.g. kg2), so it fans out into several edges. Sources we can't
-    un-canonicalize fall back to their stored endpoints."""
+    un-canonicalize fall back to their stored endpoints.
+
+    KG2's originals are NOT assumed to be listed in the stored edge's direction -- KG2 re-orients edges when it
+    normalizes an inverse relation, so ~12% of its original pairs run backwards (see ``_orient``). Other sources'
+    originals are taken in the order they're recorded."""
     orphaned = self_loops = 0
-    with open(keyed_edges_path, "w") as keyed_file:
-        for source_name in config.sources_to_use:
-            logging.info(f"Writing keyed edges from {source_name}..")
-            _, edges_file = config.all_harmonized_paths_resolved[source_name]
-            for edge in stream_edges_from_jsonl(edges_file):
-                pairs = original_endpoints(edge, source_name)
-                if pairs is None:  # canonicalized aggregator we can't un-canon -> stored endpoints
-                    pairs = [(edge.get(EDGE_SUBJECT), edge.get(EDGE_OBJECT))]
-                for subj_id, obj_id in pairs:
-                    rep_subj, rep_obj = node_map.get(subj_id), node_map.get(obj_id)
-                    if rep_subj is None or rep_obj is None:
-                        orphaned += 1  # an endpoint that never became a node -> skip this edge
-                        continue
-                    if rep_subj == rep_obj:
-                        self_loops += 1  # endpoints merged into one node -> self-loop, drop
-                        continue
-                    resolved = {**edge, EDGE_SUBJECT: rep_subj, EDGE_OBJECT: rep_obj}
-                    keyed_file.write(f"{create_edge_key(resolved)}{_EDGE_SORT_SEP}{json.dumps(resolved)}\n")
-        _write_equivalence_edges(node_map, config, keyed_file)
+    orientation = Counter()
+    votes: dict[tuple[str, str], Counter] = defaultdict(Counter)  # (predicate, original relation) -> orientations
+    spool_path = keyed_edges_path.with_suffix(".undetermined.tmp")
+
+    def write(edge: dict, rep_subj: str, rep_obj: str) -> None:
+        nonlocal self_loops
+        if rep_subj == rep_obj:
+            self_loops += 1  # endpoints merged into one node -> self-loop, drop
+            return
+        resolved = {**edge, EDGE_SUBJECT: rep_subj, EDGE_OBJECT: rep_obj}
+        keyed_file.write(f"{create_edge_key(resolved)}{_EDGE_SORT_SEP}{json.dumps(resolved)}\n")
+
+    try:
+        with open(keyed_edges_path, "w") as keyed_file, open(spool_path, "w") as spool:
+            for source_name in config.sources_to_use:
+                logging.info(f"Writing keyed edges from {source_name}..")
+                _, edges_file = config.all_harmonized_paths_resolved[source_name]
+                for edge in stream_edges_from_jsonl(edges_file):
+                    # KG2's originals carry their relation (needed to settle undetermined orientations)
+                    triples = kg2_pre_id_triples(edge) if source_name == "kg2" else []
+                    if not triples:
+                        pairs = original_endpoints(edge, source_name)
+                        if pairs is None:  # canonicalized aggregator with no recoverable originals -> stored endpoints
+                            pairs = [(edge.get(EDGE_SUBJECT), edge.get(EDGE_OBJECT))]
+                        triples = [(subj, None, obj) for subj, obj in pairs]
+                    for subj_id, relation, obj_id in triples:
+                        rep_a, rep_b = node_map.get(subj_id), node_map.get(obj_id)
+                        if rep_a is None or rep_b is None:
+                            orphaned += 1  # an endpoint that never became a node -> skip this edge
+                            continue
+                        if source_name != "kg2":
+                            # Only KG2 re-orients edges relative to its recorded originals. ROBOKOP and
+                            # Translator write original_subject/original_object to match their own fields,
+                            # and a native source's endpoints are its own -- orienting those could only flip
+                            # a correct edge when an original happens to be clustered with the other end.
+                            write(edge, rep_a, rep_b)
+                            continue
+                        direction = _orient(rep_a, rep_b, edge, node_map)
+                        orientation[direction] += 1
+                        if direction == "undetermined":
+                            if relation is not None:  # decide after the pass, from how this relation oriented
+                                spool.write(json.dumps([edge, rep_a, rep_b, relation]) + "\n")
+                            else:
+                                write(edge, rep_a, rep_b)
+                            continue
+                        if relation is not None:
+                            votes[(edge.get(EDGE_PREDICATE), relation)][direction] += 1
+                        if direction == "swapped":
+                            write(edge, rep_b, rep_a)
+                        else:
+                            write(edge, rep_a, rep_b)
+
+            spool.close()
+            by_relation = Counter()
+            with open(spool_path) as undetermined:
+                for line in undetermined:
+                    edge, rep_a, rep_b, relation = json.loads(line)
+                    tally = votes.get((edge.get(EDGE_PREDICATE), relation))
+                    if tally and tally["swapped"] > tally["aligned"]:
+                        by_relation["swapped"] += 1
+                        write(edge, rep_b, rep_a)
+                    else:
+                        by_relation["aligned" if tally else "no evidence (kept original order)"] += 1
+                        write(edge, rep_a, rep_b)
+            _write_equivalence_edges(node_map, config, keyed_file)
+    finally:
+        remove_file(spool_path)
+
+    if orientation:
+        logging.info(
+            "Oriented KG2 original endpoints by which stored endpoint's cluster each lands in: "
+            "%d aligned, %d swapped (re-oriented), %d undetermined -> resolved by relation: %s",
+            orientation["aligned"],
+            orientation["swapped"],
+            orientation["undetermined"],
+            dict(by_relation),
+        )
     if orphaned:
         logging.warning("Skipped %d edge endpoints with no node mapping (orphans)", orphaned)
     if self_loops:
         logging.info("Dropped %d self-loop edges (endpoints merged into one node)", self_loops)
+
+
+def _orient(rep_a: str, rep_b: str, edge: dict, node_map: dict[str, str]) -> str:
+    """Which way an original pair runs relative to its stored edge: "aligned", "swapped", or "undetermined".
+
+    Decided by where the originals landed: an original in the stored SUBJECT's cluster is the subject. Clusters
+    rather than id equality, because the originals are different ids from the (Babel-canonical) stored endpoints.
+    Undetermined when neither original shares a cluster with either stored endpoint, or when the evidence points
+    both ways (e.g. the stored endpoints themselves share a cluster).
+    """
+    stored_subj, stored_obj = node_map.get(edge.get(EDGE_SUBJECT)), node_map.get(edge.get(EDGE_OBJECT))
+    aligned = rep_a == stored_subj or rep_b == stored_obj
+    swapped = rep_a == stored_obj or rep_b == stored_subj
+    if aligned and not swapped:
+        return "aligned"
+    if swapped and not aligned:
+        return "swapped"
+    return "undetermined"
 
 
 def _same_as_edge(subject: str, object_: str, primary_ks: str, aggregator_ks: list[str]) -> dict:
@@ -237,9 +320,7 @@ def _merge_sorted_edges(sorted_edges_path: Path, config: KrakenConfig) -> tuple[
 def _write_merged_group(group: list[dict], writer, mergers_writer) -> int:
     """Merge a group of same-key edges into a single edge and write it. Returns 1 if the group actually
     required merging (had more than one edge), else 0."""
-    merged_edge = group[0]
-    for other_edge in group[1:]:
-        merge_into_existing_edge(other_edge, merged_edge)
+    merged_edge = merge_edges(group)
     writer.write(merged_edge)
     if len(group) > 1:
         mergers_writer.write(merged_edge)
@@ -247,81 +328,123 @@ def _write_merged_group(group: list[dict], writer, mergers_writer) -> int:
     return 0
 
 
-def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
-    # NOTE: If edges are being merged, they must match on all properties included in the edge key
-
-    # Merge knowledge_level, favoring values that aren't not_provided
-    if existing_edge[EDGE_KNOWLEDGE_LEVEL] == NOT_PROVIDED:
-        existing_edge[EDGE_KNOWLEDGE_LEVEL] = new_edge[EDGE_KNOWLEDGE_LEVEL]
-
-    # Merge agent_type, favoring values that aren't not_provided
-    if existing_edge[EDGE_AGENT_TYPE] == NOT_PROVIDED:
-        existing_edge[EDGE_AGENT_TYPE] = new_edge[EDGE_AGENT_TYPE]
-
-    # Merge any other properties as applicable (note: props included in edge key must be identical)
-    for property_name, value in new_edge.items():
-        if property_name not in EdgeModel.key_properties() | {EDGE_KNOWLEDGE_LEVEL, EDGE_AGENT_TYPE}:
-            merge_property_into_existing(new_edge, existing_edge, property_name)
+# Merging a group of same-key edges is done in ONE pass over the group, accumulating each property as it goes.
+# It used to fold edges in one at a time, rebuilding every list-valued property from scratch on each fold -- O(n^2)
+# in the group's size. That is invisible at the handful of edges a key normally has, but a single 417,750-edge group
+# (thousands of wrongly-merged pathways, all pointing at the same object) needed ~87 billion set insertions and
+# stalled integration for hours. The result is unchanged, except that merged lists now keep first-seen order
+# instead of the arbitrary order a set gave them.
 
 
-def merge_two_lists(list_a: list, list_b: list) -> list[Any]:
-    # Merges two lists, retaining distinct values if hashable or otherwise just concatenating
-    try:
-        return list(set(list_a) | set(list_b))
-    except Exception:
-        return list_a + list_b
+class _Union:
+    """The distinct values of a merged property, accumulated in first-seen order in amortized O(1) per value.
+
+    Unhashable values can't be de-duplicated, so they are all kept (as the old list merge did)."""
+
+    __slots__ = ("_seen", "items")
+
+    def __init__(self) -> None:
+        self._seen: set = set()
+        self.items: list = []
+
+    def add(self, value: Any) -> None:
+        for item in to_list(value):
+            try:
+                if item in self._seen:
+                    continue
+                self._seen.add(item)
+            except TypeError:
+                pass
+            self.items.append(item)
 
 
-def merge_two_values(
-    value_a: Any, value_b: Any, recursion_allowed: bool = True, combine_flat_types: bool = False
-) -> Any:
-    if value_a is None:
-        return value_b
-    elif value_b is None:
-        return value_a
-    elif isinstance(value_a, dict) and isinstance(value_b, dict) and recursion_allowed:
-        # We recurse only on the top-level entries (no recursing beyond that, even if value is a dict)
-        prop_names = set(value_a.keys()) | set(value_b.keys())
-        merged_value = {
-            prop_name: merge_two_values(
-                value_a.get(prop_name), value_b.get(prop_name), recursion_allowed=False, combine_flat_types=True
-            )
-            for prop_name in prop_names
-        }
-        return merged_value
-    elif (
-        isinstance(value_a, (set, list, dict, tuple))
-        or isinstance(value_b, (set, list, dict, tuple))
+class _DictFold:
+    """A dict-valued property merged key by key (the one level of recursion the merge allows)."""
+
+    __slots__ = ("values",)
+
+    def __init__(self, first: dict) -> None:
+        self.values: dict[str, Any] = dict(first)
+
+    def add(self, value: dict) -> None:
+        for key, item in value.items():
+            self.values[key] = _fold(self.values.get(key), item, recursion_allowed=False, combine_flat_types=True)
+
+
+def _fold(accumulated: Any, value: Any, *, recursion_allowed: bool = True, combine_flat_types: bool = False) -> Any:
+    """Fold one more edge's ``value`` into a property's running ``accumulated`` value. Returns the new accumulation.
+
+    The rules are the merge's long-standing ones: a missing value never replaces a present one; two dicts are merged
+    key by key (top level only, where every entry combines); anything list-like -- or any flat value inside such a
+    dict -- becomes the union of all values seen; otherwise the first value wins.
+    """
+    if value is None:
+        return accumulated
+    if accumulated is None:
+        return value
+    if isinstance(accumulated, _Union):
+        accumulated.add(value)
+        return accumulated
+    if isinstance(accumulated, _DictFold):
+        if isinstance(value, dict):
+            accumulated.add(value)
+            return accumulated
+        accumulated = _materialize(accumulated)
+    if isinstance(accumulated, dict) and isinstance(value, dict) and recursion_allowed:
+        fold = _DictFold(accumulated)
+        fold.add(value)
+        return fold
+    if (
+        isinstance(accumulated, (set, list, dict, tuple))
+        or isinstance(value, (set, list, dict, tuple))
         or combine_flat_types
     ):
-        value_a_list = to_list(value_a)
-        value_b_list = to_list(value_b)
-        return merge_two_lists(value_a_list, value_b_list)
-    else:
-        # First input node wins
-        return value_a
+        union = _Union()
+        union.add(accumulated)
+        union.add(value)
+        return union
+    return accumulated  # first flat value wins
 
 
-def merge_property_into_existing(
-    new_item: dict, existing_item: dict, property_name: str, new_dominates: bool = False
-) -> Any:
-    dominant_item, secondary_item = (new_item, existing_item) if new_dominates else (existing_item, new_item)
-    dominant_value = dominant_item.get(property_name)
-    secondary_value = secondary_item.get(property_name)
+def _materialize(accumulated: Any) -> Any:
+    if isinstance(accumulated, _Union):
+        return accumulated.items
+    if isinstance(accumulated, _DictFold):
+        return {key: _materialize(value) for key, value in accumulated.values.items()}
+    return accumulated
 
-    # Handle attributes slot specially so we can do nesting at the second level
-    if property_name == NODE_ATTRIBUTES or property_name == EDGE_ATTRIBUTES:
-        dominant_attributes = dominant_value if dominant_value else dict()
-        secondary_attributes = secondary_value if secondary_value else dict()
-        source_slots = set(dominant_attributes) | set(secondary_attributes)
-        merged_value = {
-            source_slot: merge_two_values(dominant_attributes.get(source_slot), secondary_attributes.get(source_slot))
-            for source_slot in source_slots
-        }
-    else:
-        merged_value = merge_two_values(dominant_value, secondary_value)
 
-    if property_name == NODE_ID and isinstance(merged_value, list):
-        raise ValueError(f"uh oh! ids were merged... shouldn't be possible. {dominant_value}, {secondary_value}")
+_EDGE_KEY_PROPERTIES = EdgeModel.key_properties()
 
-    existing_item[property_name] = merged_value
+
+def merge_edges(group: list[dict]) -> dict:
+    """Merge edges that share an edge key into one, in a single pass (linear in the group's total size).
+
+    Key properties are identical across the group by definition, so the first edge's are kept. knowledge_level and
+    agent_type take the first value that isn't not_provided. Attributes merge per source slot, and each slot's
+    entries union. Every other property follows ``_fold``.
+    """
+    first = group[0]
+    if len(group) == 1:
+        return first
+    accumulated: dict[str, Any] = {}
+    for edge in group:
+        for name, value in edge.items():
+            if name in _EDGE_KEY_PROPERTIES:
+                accumulated.setdefault(name, value)
+            elif name in (EDGE_KNOWLEDGE_LEVEL, EDGE_AGENT_TYPE):
+                if accumulated.get(name, NOT_PROVIDED) == NOT_PROVIDED:
+                    accumulated[name] = value
+            elif name == EDGE_ATTRIBUTES:
+                slots = accumulated.setdefault(name, {})
+                for source_slot, slot_value in (value or {}).items():
+                    slots[source_slot] = _fold(slots.get(source_slot), slot_value)
+            else:
+                accumulated[name] = _fold(accumulated.get(name), value)
+    merged = {}
+    for name, value in accumulated.items():
+        if name == EDGE_ATTRIBUTES:  # a plain dict of per-source accumulators, so materialize one level down
+            merged[name] = {source_slot: _materialize(slot_value) for source_slot, slot_value in value.items()}
+        else:
+            merged[name] = _materialize(value)
+    return merged

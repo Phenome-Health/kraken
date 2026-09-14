@@ -178,46 +178,27 @@ def test_nn_clique_merges_disease(tmp_path, monkeypatch):
 
 
 def test_small_aggregator_equiv_list_merges_on_its_own(tmp_path):
-    """A small aggregator list merges without any normalizer clique.
-
-    Aggregator lists are size-aware: small ones are reliable (~95%+ agreement with NN through 20
-    ids), so they carry a merge-strength weight. The kg2 Parkinson clique is 10 ids. (Aggregator
-    lists used to be a flat sub-tau weight, which left every such list inert -- this test asserted
-    the opposite until that was changed.)"""
+    """An aggregator list with no bulk prefix merges without any normalizer clique (the kg2 Parkinson clique
+    is 10 ids of different prefixes)."""
     config = _aggregator_only_clique_config(tmp_path, PARKINSON)
     m = resolve_entities(config, biolink=None)  # autouse offline NN stub -> no cliques
     reps = {m.get(c) for c in PARKINSON}
     assert None not in reps, "an id was dropped"
-    assert len(reps) == 1, f"a 10-id kg2 list should merge on its own, but split into {reps}"
+    assert len(reps) == 1, f"a kg2 list with no bulk prefix should merge on its own, but split into {reps}"
 
 
-@pytest.mark.parametrize(
-    "size, merges",
-    [
-        (5, True),
-        (24, True),  # kg2's max_merge_list_size: still merges
-        (25, False),  # one over: corroborates only, below tau
-        (60, False),  # max_corroborate_list_size: still corroborates
-        (61, False),  # one over: carries no evidence at all
-    ],
-)
-def test_aggregator_equiv_list_merges_on_its_own_only_when_small(tmp_path, size, merges):
-    """kg2 merges a list on its own up to 24 ids and not beyond -- and a list that doesn't merge
-    still keeps every id, each as its own singleton (nothing a source provided is dropped).
-
-    DOID ids are used deliberately: MONDO is a one-id-per-cluster prefix, so a list of MONDO ids
-    would fail to merge because of that guardrail and pass this test for the wrong reason. Here
-    size is the only thing that varies."""
-    members = [f"DOID:{i}" for i in range(1, size + 1)]
-    config = _aggregator_only_clique_config(tmp_path, members)
+def test_bulk_prefix_ids_stay_out_but_the_rest_of_a_long_list_merges(tmp_path):
+    """TP53's shape, end to end: a long kg2 list whose good ids merge while its one bulk prefix does not -- and
+    every bulk id is still kept, as its own singleton. DOID/UMLS/NCIT stand in for the good ids; MONDO is avoided
+    because its one-id guardrail would split them for the wrong reason."""
+    good = ["DOID:1", "UMLS:C1", "NCIT:C1", "MESH:D1", "OMIM:MTHU1", "CHV:1"]
+    bulk = [f"REACT:R-HSA-{i}" for i in range(40)]
+    config = _aggregator_only_clique_config(tmp_path, [*good, *bulk])  # head = good[0]
     m = resolve_entities(config, biolink=None)
-    assert all(m.get(c) is not None for c in members), "an id was dropped"
-    reps = {m.get(c) for c in members}
-    if merges:
-        assert len(reps) == 1, f"a {size}-id kg2 list should merge on its own, but split into {len(reps)}"
-    else:
-        for c in members:
-            assert m.get(c) == c, f"a {size}-id kg2 list should NOT merge on its own, but {c} did"
+    assert all(m.get(c) is not None for c in good + bulk), "an id was dropped"
+    assert len({m[c] for c in good}) == 1, "the list's good ids should merge despite its length"
+    for r in bulk:
+        assert m[r] == r, f"bulk-prefix id {r} merged; it should only be weakly linked"
 
 
 def test_every_source_id_survives_as_singleton_with_provenance(tmp_path):
@@ -225,16 +206,16 @@ def test_every_source_id_survives_as_singleton_with_provenance(tmp_path):
     kept as its own singleton node, carrying the referencing source's provenance and
     a category inherited from its referencing node (never silently dropped).
 
-    To get an id that genuinely never merges, the robokop list is made one id larger than
-    robokop's max_merge_list_size (30), so it only corroborates. (A two-id list used to serve,
-    back when aggregator lists were a flat sub-tau weight; a small list now merges on its own.)"""
+    To get an id that genuinely never merges, WEIRD:1 sits in a bulk prefix (more WEIRD ids than robokop's
+    max_ids_per_prefix), so it gets only a weak link. (A two-id list used to serve, back when aggregator lists
+    were a flat sub-tau weight; a small list now merges on its own.)"""
     import jsonlines
 
-    padding = [f"WEIRDPAD:{i}" for i in range(29)]  # non-enforced prefix, so size alone decides
+    padding = [f"WEIRD:{i}" for i in range(2, 13)]  # makes WEIRD a bulk prefix in this list
     node = {
         "id": "MONDO:9",
         "categories": ["biolink:Disease"],
-        # 31 ids: past robokop's merge threshold, so WEIRD:1 (bare, unrecognized) won't merge
+        # WEIRD:1 (bare, unrecognized) is one of 12 WEIRD ids -> bulk, so it won't merge
         "equivalent_ids": ["MONDO:9", "WEIRD:1", *padding],
         "provided_by": ["infores:robokop-kg"],
     }

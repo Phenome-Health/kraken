@@ -94,28 +94,17 @@ def test_original_alias_pairs_skips_originals_equal_to_the_stored_id():
     assert original_alias_pairs(edge, "robokop") == [("ENSEMBL:E1", "NCBIGene:5")]
 
 
-def test_original_alias_pairs_covers_every_kg2_pre_id_pair():
-    """One merged KG2 edge can carry several originals; each contributes both aliases."""
+def test_kg2_contributes_no_aliases():
+    """kg2's equivalence is all in its equivalent_ids lists, and its originals are not reliably paired with
+    the stored endpoints (12% are swapped), so they must not become match-graph aliases."""
     from kraken.entity_resolution.uncanonicalize import original_alias_pairs
 
     edge = {
         "subject": "UNII:1",
         "object": "PUBCHEM.COMPOUND:1",
-        "attributes": {
-            "infores:rtx-kg2": {
-                "kg2pre_ids": [
-                    "ATC:X---rel---None---None---None---UMLS:Y---src",
-                    "CHEBI:Z---rel---None---None---None---UMLS:Y---src",
-                ]
-            }
-        },
+        "attributes": {"infores:rtx-kg2": {"kg2pre_ids": ["ATC:X---rel---None---None---None---UMLS:Y---src"]}},
     }
-    assert original_alias_pairs(edge, "kg2") == [
-        ("ATC:X", "UNII:1"),
-        ("UMLS:Y", "PUBCHEM.COMPOUND:1"),
-        ("CHEBI:Z", "UNII:1"),
-        ("UMLS:Y", "PUBCHEM.COMPOUND:1"),
-    ]
+    assert original_alias_pairs(edge, "kg2") == []
 
 
 def test_original_alias_pairs_requires_both_stored_endpoints():

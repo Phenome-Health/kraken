@@ -134,17 +134,6 @@ def cluster_violations(
     return violations
 
 
-def _node_valid_in_group(
-    node: str,
-    group: list[str],
-    info: NodeInfoMap,
-    config: GuardrailConfig,
-) -> bool:
-    """Would adding ``node`` to ``group`` keep every guardrail satisfied?"""
-    candidate = group + [node]
-    return not cluster_violations(candidate, info, config)
-
-
 def greedy_valid_partition(
     members: list[str],
     info: NodeInfoMap,
@@ -152,13 +141,24 @@ def greedy_valid_partition(
     adjacency: Mapping[str, Mapping[str, float]] | None = None,
 ) -> list[list[str]]:
     """Deterministically partition members into guardrail-valid groups, placing
-    each node into the connected-most valid group (new group if none fits).
+    each node into the connected-most valid group (new group if none fits; ties go
+    to the earliest group).
 
     Constraining (non-wildcard) nodes are processed first so they seed distinct
     groups; wildcard nodes then attach by connectivity (plan: "placed by
     connectivity when a blob splits").
+
+    Near-linear in the cluster's size. Each group keeps its guardrail state (branch
+    intersection, taxon, enforced prefixes present) so a node is checked against a
+    group in O(1), connectivity is scored only over the node's own neighbours, and
+    the earliest compatible group is found with a per-node-kind pointer that only
+    moves forward: a group only becomes more constrained as members join, so once it
+    rejects a kind of node it rejects that kind for good. (It used to rebuild and
+    re-validate every candidate group for every node -- O(n^2), which became
+    reachable once large one-id repairs stopped being capped.)
     """
     adjacency = adjacency or {}
+    enforced = config.enforced_prefixes
 
     def is_wildcard(m: str) -> bool:
         if m not in info:
@@ -167,26 +167,85 @@ def greedy_valid_partition(
         return (
             (ni.branches is ALL_FAMILIES or ni.branches == ALL_FAMILIES)
             and ni.taxon is None
-            and ni.prefix not in (config.enforced_prefixes | config.candidate_prefixes)
+            and ni.prefix not in (enforced | config.candidate_prefixes)
         )
 
-    ordered = sorted(members, key=lambda m: (is_wildcard(m), m))
+    def kind_of(m: str) -> tuple[frozenset[str] | None, str | None, str | None]:
+        """(branches, or None for a wildcard; taxon; enforced prefix, or None)."""
+        ni = info.get(m)
+        branches = ni.branches if ni is not None else ALL_FAMILIES
+        prefix = m.split(":", 1)[0]
+        return (
+            None if (branches is ALL_FAMILIES or branches == ALL_FAMILIES) else branches,
+            ni.taxon if ni is not None else None,
+            prefix if prefix in enforced else None,
+        )
+
     groups: list[list[str]] = []
-    for node in ordered:
-        best_idx = -1
-        best_score = None
-        for idx, group in enumerate(groups):
-            if not _node_valid_in_group(node, group, info, config):
-                continue
-            score = sum(adjacency.get(node, {}).get(other, 0.0) for other in group)
-            # prefer higher connectivity; tie-break to earliest group (deterministic)
-            if best_score is None or score > best_score:
-                best_score = score
-                best_idx = idx
-        if best_idx >= 0:
-            groups[best_idx].append(node)
-        else:
-            groups.append([node])
+    group_branches: list[frozenset[str] | None] = []  # running intersection; None = no constraint yet
+    group_taxon: list[str | None] = []
+    group_prefixes: list[set[str]] = []
+    group_of: dict[str, int] = {}
+    earliest_open: dict[tuple, int] = {}  # node kind -> first group index that may still accept it
+
+    def accepts(idx: int, branches: frozenset[str] | None, taxon: str | None, prefix: str | None) -> bool:
+        if prefix is not None and prefix in group_prefixes[idx]:
+            return False
+        if taxon is not None and group_taxon[idx] is not None and group_taxon[idx] != taxon:
+            return False
+        current = group_branches[idx]
+        if current is not None and not current:  # a member with no branches: nothing may join it
+            return False
+        if branches is not None:
+            if not branches:  # a node with no branches can't join anything
+                return False
+            if current is not None and not (current & branches):
+                return False
+        return True
+
+    for node in sorted(members, key=lambda m: (is_wildcard(m), m)):
+        kind = kind_of(node)
+        branches, taxon, prefix = kind
+
+        # connectivity scores, over the node's neighbours only
+        scores: dict[int, float] = defaultdict(float)
+        for neighbour, weight in adjacency.get(node, {}).items():
+            idx = group_of.get(neighbour)
+            if idx is not None:
+                scores[idx] += weight
+
+        # the earliest group that accepts this kind of node (pointer only moves forward)
+        idx = earliest_open.get(kind, 0)
+        while idx < len(groups) and not accepts(idx, *kind):
+            idx += 1
+        earliest_open[kind] = idx
+
+        best_idx, best_score = -1, None
+        if idx < len(groups):
+            best_idx, best_score = idx, scores.get(idx, 0.0)
+        for candidate, score in scores.items():
+            if score > (best_score if best_score is not None else float("-inf")) or (
+                score == best_score and candidate < best_idx
+            ):
+                if accepts(candidate, *kind):
+                    best_idx, best_score = candidate, score
+
+        if best_idx < 0:
+            best_idx = len(groups)
+            groups.append([])
+            group_branches.append(None)
+            group_taxon.append(None)
+            group_prefixes.append(set())
+        groups[best_idx].append(node)
+        group_of[node] = best_idx
+        if branches is not None:
+            current = group_branches[best_idx]
+            group_branches[best_idx] = branches if current is None else current & branches
+        if taxon is not None:
+            group_taxon[best_idx] = taxon
+        if prefix is not None:
+            group_prefixes[best_idx].add(prefix)
+
     return [sorted(g) for g in groups]
 
 

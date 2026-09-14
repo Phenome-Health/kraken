@@ -84,63 +84,60 @@ def test_name_similarity_own_group():
 
 
 # --------------------------------------------------------------------------------------
-# Size-aware equivalency weights
+# Prefix-capped equivalency lists
 # --------------------------------------------------------------------------------------
 
 
-def test_aggregator_weight_steps_down_with_list_size():
-    """kg2: merge-strength up to 24 ids, corroboration-only to 60, nothing beyond."""
-    w = ERWeights()
-    assert w.equivalency_weight("kg2", 2) >= w.tau
-    assert w.equivalency_weight("kg2", 24) >= w.tau
-    assert 0 < w.equivalency_weight("kg2", 25) < w.tau
-    assert 0 < w.equivalency_weight("kg2", 60) < w.tau
-    assert w.equivalency_weight("kg2", 61) == 0
+def _by_pair(evidence):
+    return {(a, b): wt for a, b, _g, wt in evidence}
 
 
-def test_robokop_merges_larger_lists_than_kg2():
-    """robokop's lists degrade more gracefully (87% vs kg2's 73% at 21-30), so its threshold is higher."""
+def test_bulk_prefix_ids_get_only_a_weak_link_to_the_listing_node():
+    """TP53's shape: a few good ids plus hundreds from one prefix. The few merge; the bulk only links to TP53."""
     w = ERWeights()
-    assert w.equivalency_weight("robokop", 30) >= w.tau
-    assert w.equivalency_weight("kg2", 30) < w.tau
-    assert w.equivalency_weight("robokop", 31) < w.tau
+    reactome = [f"REACT:R-HSA-{i}" for i in range(w.max_ids_per_prefix["kg2"] + 1)]
+    ids = ["NCBIGene:7157", "HGNC:11998", "NCIT:C17359", *reactome]
+    ev = _by_pair(clique_evidence(ids, "kg2", w, head="NCBIGene:7157"))
+    assert ev[("HGNC:11998", "NCIT:C17359")] == w.equivalency_weight("kg2")  # core: full weight, full clique
+    for r in reactome:
+        assert ev[("NCBIGene:7157", r)] == w.bulk_prefix_weight < w.tau  # bulk: one weak edge to the head
+        assert ("HGNC:11998", r) not in ev and ("NCIT:C17359", r) not in ev
+    assert not any(a.startswith("REACT:") and b.startswith("REACT:") for a, b in ev)  # never bulk-to-bulk
+
+
+def test_a_long_list_with_no_bulk_prefix_merges_whole():
+    """Type 2 diabetes's shape: 26 ids, none of one prefix in bulk -- all of it keeps full weight."""
+    w = ERWeights()
+    ids = [f"P{i}:{i}" for i in range(26)]
+    ev = list(clique_evidence(ids, "kg2", w))
+    assert len(ev) == 26 * 25 // 2
+    assert {wt for _a, _b, _g, wt in ev} == {w.equivalency_weight("kg2")}
+
+
+def test_up_to_the_cap_is_not_bulk():
+    w = ERWeights()
+    cap = w.max_ids_per_prefix["kg2"]
+    ids = ["HEAD:1", *[f"X:{i}" for i in range(cap)]]
+    assert {wt for _a, _b, _g, wt in clique_evidence(ids, "kg2", w, head="HEAD:1")} == {w.equivalency_weight("kg2")}
 
 
 @pytest.mark.parametrize("source", ["nn", "ncbigene", "umls", "refmet"])
-def test_sources_not_listed_as_size_aware_keep_a_flat_weight(source):
-    """The size curve was measured on aggregators only. The normalizer's cliques in particular are
-    clean and legitimately large (gene/protein ~30-40); capping them would break up the backbone."""
-    w = ERWeights()
-    assert w.equivalency_weight(source, 2) == w.equivalency_weight(source, 40) == w.equivalency_weight(source, 500)
+def test_uncapped_sources_keep_every_id_at_full_weight(source):
+    """The normalizer's cliques legitimately hold many ids of one prefix (a gene's protein isoforms)."""
+    w = ERWeights(clique_cap=1000)
+    ids = ["HEAD:1", *[f"ENSEMBL:ENSP{i}" for i in range(50)]]
+    assert {wt for _a, _b, _g, wt in clique_evidence(ids, source, w)} == {w.equivalency_weight(source)}
 
 
-def test_alias_is_weighted_as_a_two_id_list():
-    """An alias is the same kind of claim as a list entry, so the two can never drift apart."""
+def test_alias_takes_the_sources_full_equivalency_weight():
     w = ERWeights()
     for source in ["kg2", "robokop", "translator-kg-open"]:
-        assert w.alias_weight(source) == w.equivalency_weight(source, 2)
-        assert w.alias_weight(source) >= w.tau
+        assert w.alias_weight(source) == w.equivalency_weight(source) >= w.tau
 
 
-def test_corroborate_weight_must_stay_below_tau():
-    """Otherwise mid-size lists would merge on their own, defeating the size-awareness."""
-    with pytest.raises(ValueError, match="corroborate_weight"):
-        ERWeights(corroborate_weight=0.3, tau=0.3)
-
-
-def test_list_too_large_to_carry_weight_emits_no_evidence():
-    """Not a pile of zero-weight edges -- nothing at all (its ids are still seeded as nodes elsewhere)."""
-    w = ERWeights()
-    ids = [f"C:{i}" for i in range(61)]
-    assert list(clique_evidence(ids, "kg2", w)) == []
-    assert list(clique_evidence(ids[:60], "kg2", w))  # one fewer still corroborates
-
-
-def test_every_clique_edge_carries_the_whole_list_size_weight():
-    """A 25-id kg2 list is judged as a 25-id list on every one of its edges, not per pair."""
-    w = ERWeights()
-    ev = list(clique_evidence([f"C:{i}" for i in range(25)], "kg2", w))
-    assert {wt for _a, _b, _g, wt in ev} == {w.equivalency_weight("kg2", 25)}
+def test_bulk_prefix_weight_must_stay_below_tau():
+    with pytest.raises(ValueError, match="bulk_prefix_weight"):
+        ERWeights(bulk_prefix_weight=0.3, tau=0.3)
 
 
 # --------------------------------------------------------------------------------------

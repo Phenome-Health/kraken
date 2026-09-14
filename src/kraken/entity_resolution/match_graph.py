@@ -19,6 +19,7 @@ the in-memory accumulator here is correct and used for smaller runs and tests.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
@@ -37,24 +38,38 @@ def clique_evidence(
     equivalent_ids: Iterable[str],
     source: str,
     weights: ERWeights,
+    head: str | None = None,
 ) -> Iterator[Evidence]:
     """Emit evidence edges for one source's equivalency set.
 
     Up to ``clique_cap`` ids -> full clique (robust: survives to the accumulated
     weight-vs-gamma threshold, all-or-nothing). Beyond the cap -> a star from the
-    lexically smallest id (fragile on purpose; big "equivalent" lists are junk).
+    lexically smallest id (a scale valve against N^2 edges on a pathological set).
 
-    The weight depends on the list's SIZE for size-aware sources (see
-    ``ERWeights.max_merge_list_size``); a list large enough to carry no weight at all
-    emits nothing, rather than a pile of zero-weight edges. Its ids are still seeded as
-    nodes elsewhere -- only the equivalence claim is dropped.
+    For a prefix-capped source (``ERWeights.max_ids_per_prefix``), ids of any prefix the set holds more of
+    than the cap are BULK: each gets one ``bulk_prefix_weight`` edge to ``head`` (the node that listed them;
+    defaults to the lexically smallest non-bulk id) instead of joining the clique.
     """
     ids = sorted({i for i in equivalent_ids if i})
     if len(ids) < 2:
         return
     group = weights.source_group(source)
-    weight = weights.equivalency_weight(source, len(ids))
-    if weight <= 0:
+    weight = weights.equivalency_weight(source)
+    cap = weights.max_ids_per_prefix.get(source)
+    bulk: list[str] = []
+    if cap is not None:
+        per_prefix = Counter(i.split(":", 1)[0] for i in ids)
+        bulk = [i for i in ids if per_prefix[i.split(":", 1)[0]] > cap]
+        if bulk:
+            bulk_set = set(bulk)
+            core = [i for i in ids if i not in bulk_set]
+            anchor = head if head else (core[0] if core else ids[0])
+            for other in bulk:
+                if other != anchor:
+                    a, b = _ordered(anchor, other)
+                    yield (a, b, group, weights.bulk_prefix_weight)
+            ids = core
+    if len(ids) < 2:
         return
     if len(ids) <= weights.clique_cap:
         n = len(ids)
@@ -77,8 +92,8 @@ def alias_evidence(
 ) -> Evidence | None:
     """Evidence for one ``original -> canonical`` alias asserted by a canonicalized aggregator edge.
 
-    Weighted exactly like a two-id equivalency list from the same source (``ERWeights.alias_weight``)
-    -- it is the same kind of claim -- and kept in that source's normal group, so an aggregator
+    Weighted like an entry in the same source's equivalency lists (``ERWeights.alias_weight``) -- it is
+    the same kind of claim -- and kept in that source's normal group, so an aggregator
     echoing what the NN clique already says still counts once (max within ``sri_nn_derived``).
     """
     if not original or not canonical or original == canonical:

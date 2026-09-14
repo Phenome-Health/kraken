@@ -65,10 +65,11 @@ def test_kg2_close_match_downweighted_by_subclass_count(tmp_path):
         wr.write_all(edges)
 
     out = io.StringIO()
-    _write_kg2_match_evidence(ef, w, out, lambda _edge: None)  # alias harvesting tested separately
+    _write_kg2_match_evidence(ef, w, out)
     lines = [ln for ln in out.getvalue().splitlines() if ln]
     assert len(lines) == 1
-    a, b, _group, weight = lines[0].split("\t")
+    a, b, _group, weight, kind = lines[0].split("\t")
+    assert kind == "match:kg2"
     assert (a, b) == ("ATC:X", "UMLS:Y")
     assert float(weight) == w.close_match_weight * (w.subclass_penalty_decay**2)  # 2 hierarchical edges
 
@@ -603,8 +604,95 @@ def test_kg2_parallel_close_matches_from_different_kses_reach_tau_through_the_re
         wr.write_all([edge("infores:mesh"), edge("infores:go"), edge("infores:chv-umls")])
 
     out = io.StringIO()
-    _write_kg2_match_evidence(ef, w, out, lambda _edge: None)
-    rows = [ln.split("\t") for ln in out.getvalue().splitlines() if ln]
+    _write_kg2_match_evidence(ef, w, out)
+    rows = [ln.split("\t")[:4] for ln in out.getvalue().splitlines() if ln]
     assert len({group for _a, _b, group, _wt in rows}) == 3, "each KS should land in its own group"
     total = accumulate([(a, b, g, float(wt)) for a, b, g, wt in rows], w)[("ATC:X", "UMLS:Y")]
     assert total >= w.tau, f"three independent KSes should reach tau, got {total}"
+
+
+def test_alias_is_skipped_when_its_original_is_already_in_the_graph(tmp_path):
+    """An alias only attaches ids nothing else places. If any source's nodes or lists already carry the original
+    -- here a source that sorts AFTER robokop, so this also checks the node pass completes before aliases -- the
+    alias contributes nothing, and the original stays wherever that source's evidence puts it."""
+    robokop_nodes = [
+        {
+            "id": "CAID:CA1",
+            "categories": ["biolink:SequenceVariant"],
+            "provided_by": ["infores:robokop-kg"],
+            "equivalent_ids": ["CAID:CA1"],
+        },
+        {
+            "id": "NCBIGene:5",
+            "categories": ["biolink:Gene"],
+            "provided_by": ["infores:robokop-kg"],
+            "equivalent_ids": ["NCBIGene:5"],
+        },
+    ]
+    robokop_edges = [
+        {
+            "subject": "CAID:CA1",
+            "object": "NCBIGene:5",
+            "predicate": "biolink:affects",
+            "primary_knowledge_source": "infores:gtex",
+            "attributes": {
+                "infores:robokop-kg": {"original_subject": "HGVS:already", "original_object": "ENSEMBL:new"}
+            },
+        }
+    ]
+    umls_nodes = [
+        {
+            "id": "HGVS:already",
+            "categories": ["biolink:SequenceVariant"],
+            "provided_by": ["infores:umls"],
+            "equivalent_ids": ["HGVS:already"],
+        },
+    ]
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={
+            "robokop": _write_source_with_edges(tmp_path, "robokop", robokop_nodes, robokop_edges),
+            "umls": _write_source_with_edges(tmp_path, "umls", umls_nodes, []),
+        },
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+        er_nodenorm_cache_path=tmp_path / "nodenorm.sqlite",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["HGVS:already"] != m["CAID:CA1"], "an alias merged an id another source already places"
+    assert m["ENSEMBL:new"] == m["NCBIGene:5"], "an id nothing else places should still attach via its alias"
+
+
+def test_oversized_cluster_evidence_report_counts_kinds_inside_the_cluster(tmp_path, monkeypatch):
+    """The kind column is what tells an NN clique from an aggregator list; only rows linking two members of the
+    same oversized cluster count. The breakdown goes to a file, one JSON line per cluster, largest first."""
+    import json
+
+    from kraken.entity_resolution import build as build_mod
+
+    monkeypatch.setattr(build_mod, "OVERSIZED_EVIDENCE_REPORT_MIN_SIZE", 3)
+    evidence = tmp_path / "ev.tmp"
+    evidence.write_text(
+        build_mod._evidence_row("A:1", "A:2", "sri_nn_derived", 0.5, kind="nn")
+        + build_mod._evidence_row("A:2", "A:3", "sri_nn_derived", 0.5, kind="equiv:kg2")
+        + build_mod._evidence_row("A:1", "A:3", "sri_nn_derived", 0.5, kind="equiv:kg2")
+        + build_mod._evidence_row("A:1", "B:1", "name_similarity", 0.7, kind="name_sim")  # crosses clusters
+    )
+    curie_to_cluster = {"A:1": 0, "A:2": 0, "A:3": 0, "B:1": 1}
+    report = tmp_path / "debug" / "oversized_clusters.jsonl"
+    build_mod._report_oversized_cluster_evidence(evidence, curie_to_cluster, report)
+    rows = [json.loads(line) for line in report.read_text().splitlines()]
+    assert len(rows) == 1  # cluster 1 is too small to report
+    assert rows[0]["members"] == 3
+    assert rows[0]["evidence_rows_inside_by_kind"] == {"equiv:kg2": 2, "nn": 1}
+    assert rows[0]["id_prefixes"] == {"A": 3}
+
+
+def test_no_report_file_when_no_cluster_is_oversized(tmp_path):
+    from kraken.entity_resolution import build as build_mod
+
+    evidence = tmp_path / "ev.tmp"
+    evidence.write_text(build_mod._evidence_row("A:1", "A:2", "g", 0.5, kind="nn"))
+    report = tmp_path / "oversized_clusters.jsonl"
+    build_mod._report_oversized_cluster_evidence(evidence, {"A:1": 0, "A:2": 0}, report)
+    assert not report.exists()
