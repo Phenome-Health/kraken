@@ -32,7 +32,6 @@ def test_cross_cluster_equivalence_becomes_close_match_self_loops_dropped(tmp_pa
     config = SimpleNamespace(
         sources_to_use=["src"],
         all_harmonized_paths_resolved={"src": (nodes_file, tmp_path / "none.jsonl")},
-        er_nodenorm_cache_path=tmp_path / "nn.sqlite",  # empty cache -> no NN cliques
     )
     out = tmp_path / "keyed.tsv"
     with open(out, "w") as f:
@@ -49,35 +48,6 @@ def test_cross_cluster_equivalence_becomes_close_match_self_loops_dropped(tmp_pa
     assert edge["agent_type"] == "not_provided"  # synthesized edge -> agent unknown
 
 
-def test_nn_clique_equivalence_edge_uses_normalizer_primary_ks(tmp_path):
-    from kraken.entity_resolution.sri_nodenorm import NodeNormClient, NormInfo
-
-    # Seed a normalizer clique into the cache: MONDO:1 (canonical) ~ DOID:2.
-    cache = tmp_path / "nn.sqlite"
-    client = NodeNormClient(cache)
-    info = NormInfo(label="d", categories=("biolink:Disease",), canonical="MONDO:1")
-    client._cache_put("MONDO:1", info, resolved=True)
-    client._cache_put("DOID:2", info, resolved=True)
-    client.close()
-
-    empty_nodes = tmp_path / "empty.jsonl"
-    empty_nodes.write_text("")
-    node_map = {"MONDO:1": "MONDO:1", "DOID:2": "DOID:2"}  # split into different clusters
-    config = SimpleNamespace(
-        sources_to_use=["src"],
-        all_harmonized_paths_resolved={"src": (empty_nodes, tmp_path / "none.jsonl")},
-        er_nodenorm_cache_path=cache,
-    )
-    out = tmp_path / "keyed.tsv"
-    with open(out, "w") as f:
-        _write_equivalence_edges(node_map, config, f)
-
-    edges = _edges_from_keyed(out)
-    assert len(edges) == 1
-    assert (edges[0]["subject"], edges[0]["object"]) == ("DOID:2", "MONDO:1")  # sorted
-    assert edges[0]["primary_knowledge_source"] == "infores:sri-node-normalizer"
-
-
 def _write_kg2(tmp_path, edges):
     src = tmp_path / "h" / "kg2"
     src.mkdir(parents=True)
@@ -88,7 +58,6 @@ def _write_kg2(tmp_path, edges):
     return SimpleNamespace(
         sources_to_use=["kg2"],
         all_harmonized_paths_resolved={"kg2": (src / "nodes.jsonl", edges_file)},
-        er_nodenorm_cache_path=tmp_path / "nn.sqlite",
     )
 
 
@@ -177,8 +146,61 @@ def test_non_kg2_originals_are_never_re_oriented(tmp_path):
     config = SimpleNamespace(
         sources_to_use=["robokop"],
         all_harmonized_paths_resolved={"robokop": (src / "nodes.jsonl", src / "edges.jsonl")},
-        er_nodenorm_cache_path=tmp_path / "nn.sqlite",
     )
     # the originals landed crosswise (as a conflation elsewhere could make them)
     node_map = {"CAID:CA1": "V", "NCBIGene:5": "G", "HGVS:x": "G", "ENSEMBL:y": "V"}
     assert _remapped(tmp_path, config, node_map) == [("G", "biolink:affects", "V")]  # recorded order, not flipped
+
+
+def test_babel_same_as_between_clusters_becomes_close_match(tmp_path):
+    from kraken.integrate import _write_keyed_edges
+
+    src = tmp_path / "h" / "babel"
+    src.mkdir(parents=True)
+    (src / "nodes.jsonl").write_text("")
+    edges_file = src / "edges.jsonl"
+
+    def edge(subject, predicate, object_):
+        return {
+            "subject": subject,
+            "predicate": predicate,
+            "object": object_,
+            "primary_knowledge_source": "infores:sri-node-normalizer",
+            "knowledge_level": "knowledge_assertion",
+            "agent_type": "automated_agent",
+        }
+
+    with jsonlines.open(edges_file, "w") as w:
+        w.write_all(
+            [
+                edge("MONDO:1", "biolink:same_as", "DOID:2"),  # same cluster -> self-loop
+                edge("MONDO:1", "biolink:same_as", "UMLS:C3"),  # entity resolution split it off
+                edge("RXCUI:1", "biolink:has_active_ingredient", "CHEBI:1"),  # not same_as -> stays as is
+            ]
+        )
+    config = SimpleNamespace(
+        sources_to_use=["babel"],
+        all_harmonized_paths_resolved={"babel": (src / "nodes.jsonl", edges_file)},
+    )
+    node_map = {"MONDO:1": "R1", "DOID:2": "R1", "UMLS:C3": "R2", "RXCUI:1": "D", "CHEBI:1": "C"}
+    out = tmp_path / "keyed.tsv"
+    _write_keyed_edges(node_map, config, out)
+
+    assert {(e["subject"], e["predicate"], e["object"]) for e in _edges_from_keyed(out)} == {
+        ("R1", "biolink:close_match", "R2"),
+        ("D", "biolink:has_active_ingredient", "C"),
+    }
+
+
+def test_integration_refuses_to_run_without_babel(tmp_path):
+    import pytest
+
+    from kraken.integrate import integrate_sources
+
+    config = SimpleNamespace(
+        sources_to_use={"kg2", "robokop"},
+        integrated_dir=tmp_path / "integrated",
+        integrated_debug_dir=tmp_path / "integrated" / "debug",
+    )
+    with pytest.raises(ValueError, match="babel"):
+        integrate_sources(config, biolink=None)

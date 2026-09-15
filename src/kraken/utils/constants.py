@@ -10,6 +10,15 @@ ROOT_PREDICATE = "biolink:related_to"
 
 BIOLINK_PREFIX = "biolink"
 INFORES_PREFIX = "infores"
+# A chemical structure as a curie, e.g. "SMILES:O=C(O)CCCO". biomapper2 canonicalizes the local part (RDKit), so one
+# structure is one id whichever source it came from.
+SMILES_PREFIX = "SMILES"
+# Edge attribute naming the Babel relation an edge came from (harmonizers/babel.py). Several relations share each
+# Biolink predicate -- Babel's clique edges and its gene/protein conflation edges are both same_as -- so entity
+# resolution reads this to tell them apart.
+BABEL_RELATION_ATTRIBUTE = "babel_relation"
+GENE_PROTEIN_CONFLATION_RELATION = "gene_protein_conflation"
+DRUG_CHEMICAL_CONFLATION_RELATION = "drug_chemical_conflation"
 
 # Every KRAKEN source's own identity (the id recorded as provenance / provided_by) lives in build_config.yaml
 # under `sources.<name>.source_id` -- that is the single source of truth, and cross-source references derive
@@ -28,9 +37,8 @@ KNOWN_INVALID = "KNOWN_INVALID"
 
 NOT_PROVIDED = "not_provided"
 MANUAL_AGENT = "manual_agent"
+AUTOMATED_AGENT = "automated_agent"
 KNOWLEDGE_ASSERTION = "knowledge_assertion"
-# Infores for equivalence asserted by the SRI Node Normalizer (Babel).
-SRI_NN_INFORES = "infores:sri-node-normalizer"
 # KRAKEN's own provenance id, recorded as the aggregator_knowledge_source on every edge from a source we
 # ingest DIRECTLY (see BaseHarmonizer.create_edge). Without it, an edge we took straight from NCBI Gene is
 # indistinguishable from the same edge as kg2 or ROBOKOP re-published it -- and once the two merge, the
@@ -38,10 +46,11 @@ SRI_NN_INFORES = "infores:sri-node-normalizer"
 # this follows the convention for unregistered ids: bare, like "translator-kg-open" or "pgs-catalog".
 KRAKEN_SOURCE_ID = "kraken"
 SAME_AS_PREDICATE = "biolink:same_as"
-# Predicate for the edges integration retains between two clusters that some source (or the normalizer) said were
+CLOSE_MATCH_PREDICATE = "biolink:close_match"
+# Predicate for the edges integration retains between two clusters that some source (Babel included) said were
 # equivalent but entity resolution kept apart. close_match, not same_as: we decided they are NOT the same entity, so
 # asserting same_as would contradict our own clustering -- close_match records the relatedness without that claim.
-CROSS_CLUSTER_EQUIVALENCE_PREDICATE = "biolink:close_match"
+CROSS_CLUSTER_EQUIVALENCE_PREDICATE = CLOSE_MATCH_PREDICATE
 # Biolink KLAT values. For edges that report direct, dataset-specific statistical results (e.g. a feature's
 # association with an outcome in a model's cohort), statistical_association pairs with data_analysis_pipeline.
 # computational_model is for agents that generate broader conclusions/predictions (kept for such future edges).

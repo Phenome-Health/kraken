@@ -9,15 +9,15 @@ Design (see ``docs/entity_resolution_plan.md`` §1):
   a source whose weight alone reaches tau can merge a pair on its own; a source
   below tau can only *corroborate* (its weight sums with other sub-tau evidence
   to cross tau). Only ``close_match`` sits below tau (a weak "roughly the same"
-  assertion); every equivalence source — including the aggregators' SRI/Babel
-  cliques — sits **at or above** tau so it can merge on its own. The aggregators
+  assertion); every equivalence source — including Babel's cliques and the aggregators'
+  Babel-derived lists — sits **at or above** tau so it can merge on its own. The aggregators
   are kept safe not by a sub-tau weight but by (a) sharing one source group
   (max, not sum) so echoing Babel counts once, (b) the guardrail edge-prune,
   which drops cross-family conflation edges before clustering regardless of weight,
   and (c) being **prefix-capped**: ids of a prefix a list holds in bulk don't merge on
   their own, because that bulk is where aggregator lists go wrong (see ``max_ids_per_prefix``).
 * Correlated sources are de-correlated: KG2 / ROBOKOP / Translator all derive
-  equivalence from the SRI Node Normalizer (Babel), so they are **not**
+  equivalence from the SRI Node Normalizer, i.e. from Babel, so neither they nor Babel itself are
   independent evidence. Evidence within a source group is combined by
   **max**, not sum, so their shared ancestry cannot triple-count and re-import
   Babel's clustering. Independent sources accumulate by sum.
@@ -34,7 +34,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
-from kraken.utils.constants import PROJECT_ROOT
+from kraken.utils.constants import CLOSE_MATCH_PREDICATE, PROJECT_ROOT, SAME_AS_PREDICATE
 
 # Optional tuning file; if absent, the defaults below apply.
 DEFAULT_WEIGHTS_PATH = PROJECT_ROOT / "config" / "entity_resolution" / "weights.yaml"
@@ -43,8 +43,8 @@ DEFAULT_WEIGHTS_PATH = PROJECT_ROOT / "config" / "entity_resolution" / "weights.
 # close_match is weak; broad_match / narrow_match are hierarchical and MUST be
 # excluded (including them guarantees parent/child collapse). Predicate values
 # are always biolink-prefixed after harmonization, so only prefixed forms appear.
-EXACT_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:exact_match", "biolink:same_as"})
-CLOSE_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:close_match"})
+EXACT_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:exact_match", SAME_AS_PREDICATE})
+CLOSE_MATCH_PREDICATES: frozenset[str] = frozenset({CLOSE_MATCH_PREDICATE})
 EXCLUDED_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:broad_match", "biolink:narrow_match"})
 
 NAME_SIMILARITY_GROUP = "name_similarity"
@@ -62,12 +62,10 @@ class ERWeights(BaseModel):
     # Sources absent from this map use ``default_equivalency_weight``.
     equivalency_weights: dict[str, float] = Field(
         default_factory=lambda: {
-            # THE equivalence backbone: the SRI Node Normalizer's cliques (source
-            # "nn"), queried live so they're the current, cleanest Babel mapping.
-            # Above tau so a clique merges on its own; cross-family conflations are
-            # pruned pairwise before clustering, so this only governs SAME-family
-            # merges.
-            "nn": 0.5,
+            # THE equivalence backbone: Babel's cliques and gene/protein conflations, read from its release
+            # files (harmonizers/babel.py). Above tau so a clique merges on its own; cross-family conflations
+            # are pruned pairwise before clustering, so this only governs SAME-family merges.
+            "babel": 0.5,
             # Curated, structurally tight -> reach tau, so they merge on their own.
             "ncbigene": 1.0,
             "refmet": 1.0,
@@ -78,9 +76,9 @@ class ERWeights(BaseModel):
             # Aggregators' baked-in equivalent_ids lists. At or above tau, so a list can merge on
             # its own -- except ids of a prefix it holds in bulk: these sources are PREFIX-CAPPED
             # (see max_ids_per_prefix), which is what actually keeps them safe. Their value is
-            # recovering the mappings NN doesn't know, and that gap is large: of kg2's list pairs
-            # 64% are unknown to NN (RXCUI/UMLS/RXNORM/CHV), of robokop's 78% (almost all DBSNP).
-            # Sharing the "sri_nn_derived" group (max-not-sum) still stops the same Babel
+            # recovering the mappings Babel doesn't know, and that gap is large: of kg2's list pairs
+            # 64% were unknown to the Node Normalizer (RXCUI/UMLS/RXNORM/CHV), of robokop's 78% (almost all DBSNP).
+            # Sharing the "babel_derived" group (max-not-sum) still stops the same Babel
             # assertion counting twice across aggregators.
             #
             # (These were a flat 0.15 -- below tau, and with nothing else sub-tau in the graph to
@@ -105,7 +103,7 @@ class ERWeights(BaseModel):
     # related, and can add to other evidence, but never merges on its own; a star, so 1,329 bulk ids cost 1,329
     # edges rather than ~880k). Every other id keeps the source's full weight, however long the list is.
     #
-    # Only the sources listed are capped. Everything else is trusted as a whole list -- above all "nn", whose
+    # Only the sources listed are capped. Everything else is trusted as a whole list -- above all "babel", whose
     # cliques are clean and legitimately hold many ids of one prefix (a gene's protein isoforms). The cap is a
     # starting value: it clears the bulk seen so far (hundreds per prefix), and nothing measurable separates good
     # from bad at 11-50 ids of one prefix, so tune it against spot checks.
@@ -132,7 +130,7 @@ class ERWeights(BaseModel):
     # from a different primary knowledge source, are independent claims and should sum -- three at
     # 0.1 reach tau. So match-predicate evidence is grouped per (source, primary knowledge source),
     # not per source (see predicate_group). Grouping by source alone put every kg2 assertion in
-    # sri_nn_derived, where they combine by MAX and three parallel edges came to 0.1, not 0.3.
+    # babel_derived, where they combine by MAX and three parallel edges came to 0.1, not 0.3.
     #
     # Today this rarely fires: on the ORIGINAL endpoints ER matches on, no kg2 pair is asserted by
     # two different KSes. What looks like agreement on kg2's stored endpoints is different source
@@ -164,17 +162,15 @@ class ERWeights(BaseModel):
     # Each source maps to a group id; sources not listed are their own group.
     source_groups: dict[str, list[str]] = Field(
         default_factory=lambda: {
-            # All Babel/SRI-NN-derived equivalence shares one group so echoing the same
-            # Babel assertion (live NN clique + the aggregators' baked-in lists) counts
-            # once (max), not summed. "nn" is the live NN cliques; the rest are the
-            # aggregators' stored lists.
-            "sri_nn_derived": ["nn", "kg2", "robokop", "translator-kg-open"],
+            # All Babel-derived equivalence shares one group so the same Babel assertion
+            # (Babel's own clique + the aggregators' baked-in lists) counts once (max), not summed.
+            "babel_derived": ["babel", "kg2", "robokop", "translator-kg-open"],
         }
     )
 
     # Equivalency clique handling. Sets up to this size become full cliques; larger
-    # sets become a star from the lexically-smallest hub. Now that equivalence comes
-    # from the normalizer's CLEAN cliques (not aggregators' junk lists), this is a
+    # sets become a star from the list's head. Now that equivalence comes
+    # from Babel's CLEAN cliques (not aggregators' junk lists), this is a
     # pure SCALE valve (avoid N^2 edges on a pathological clique), not a distrust
     # mechanism — so keep it above real clique sizes (gene/protein ~30-40, disease
     # ~15-20) so legitimate cliques stay full (robust), and only true outliers star.

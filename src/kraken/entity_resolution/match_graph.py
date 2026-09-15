@@ -44,7 +44,7 @@ def clique_evidence(
 
     Up to ``clique_cap`` ids -> full clique (robust: survives to the accumulated
     weight-vs-gamma threshold, all-or-nothing). Beyond the cap -> a star (a scale valve against N^2 edges on
-    a pathological set) whose hub is ``head``: the node that listed the ids, or the normalizer's canonical id
+    a pathological set) whose hub is ``head``: the node that listed the ids, or Babel's preferred id
     for one of its cliques. The hub matters. A star's hub is where label propagation anchors the set, so an
     arbitrary hub can carry real members off into a side community -- with the lexically smallest id as hub,
     metformin hydrochloride's CAS (which happens to sort first) ended up representing a separate node of
@@ -99,7 +99,7 @@ def alias_evidence(
 
     Weighted like an entry in the same source's equivalency lists (``ERWeights.alias_weight``) -- it is
     the same kind of claim -- and kept in that source's normal group, so an aggregator
-    echoing what the NN clique already says still counts once (max within ``sri_nn_derived``).
+    echoing what Babel's clique already says still counts once (max within ``babel_derived``).
     """
     if not original or not canonical or original == canonical:
         return None
@@ -148,7 +148,7 @@ def accumulate(evidence: Iterable[Evidence], weights: ERWeights) -> dict[tuple[s
     """Accumulate evidence into per-pair total weight.
 
     Within a source group: **max**. Across groups: **sum**. This treats
-    correlated sources (the SRI-NN-derived aggregators) as a single source while
+    correlated sources (Babel and the Babel-derived aggregators) as a single source while
     letting independent sources reinforce each other.
     """
     # pair -> {group -> max weight seen}

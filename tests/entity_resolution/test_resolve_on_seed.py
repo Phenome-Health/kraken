@@ -13,10 +13,8 @@ from types import SimpleNamespace
 import jsonlines
 import pytest
 
-from kraken.entity_resolution import build as build_mod
 from kraken.entity_resolution.build import resolve_entities
 from kraken.entity_resolution.eval.scorer import load_gold, score
-from kraken.entity_resolution.sri_nodenorm import NormInfo
 
 pytest.importorskip("igraph")
 
@@ -46,13 +44,43 @@ def _category_for(curie: str, group_label: str) -> str:
     return "biolink:NamedThing"
 
 
-def _write_source(tmp_path: Path, source: str, records: list[dict]) -> tuple[Path, Path]:
+def _write_source(tmp_path: Path, source: str, records: list[dict], edges: list[dict] = ()) -> tuple[Path, Path]:
     d = tmp_path / "harmonized" / source
     d.mkdir(parents=True, exist_ok=True)
     nodes_path = d / "nodes.jsonl"
     with jsonlines.open(nodes_path, "w") as w:
         w.write_all(records)
-    return nodes_path, d / "edges.jsonl"
+    edges_path = d / "edges.jsonl"
+    if edges:
+        with jsonlines.open(edges_path, "w") as w:
+            w.write_all(edges)
+    return nodes_path, edges_path
+
+
+def _babel_node(curie: str, category: str, name: str | None = None, taxon: str | None = None) -> dict:
+    node = {"id": curie, "categories": [category], "provided_by": ["infores:sri-node-normalizer"]}
+    if name:
+        node["name"] = name
+    if taxon:
+        node["taxon"] = taxon
+    return node
+
+
+def _same_as_star(members: list[str]) -> list[dict]:
+    """A Babel clique as the harmonizer writes it: same_as from the preferred (first) id to each other member."""
+    return [
+        {"subject": members[0], "predicate": "biolink:same_as", "object": member, "primary_knowledge_source": "x"}
+        for member in members[1:]
+    ]
+
+
+def _config(tmp_path: Path, harmonized: dict) -> SimpleNamespace:
+    integrated = tmp_path / "integrated"
+    return SimpleNamespace(
+        all_harmonized_paths_resolved=harmonized,
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
 
 
 def _build_config_from_seed(tmp_path: Path):
@@ -94,7 +122,6 @@ def _build_config_from_seed(tmp_path: Path):
         all_harmonized_paths_resolved=harmonized,
         integrated_dir=integrated,
         integrated_nodes_path=integrated / "nodes.jsonl",
-        er_nodenorm_cache_path=tmp_path / "nodenorm.sqlite",
     )
 
 
@@ -131,57 +158,27 @@ def _aggregator_only_clique_config(tmp_path: Path, members: list[str]):
         all_harmonized_paths_resolved={"kg2": _write_source(tmp_path, "kg2", [node])},
         integrated_dir=integrated,
         integrated_nodes_path=integrated / "nodes.jsonl",
-        er_nodenorm_cache_path=tmp_path / "nodenorm.sqlite",
     )
 
 
-class _CliqueNN:
-    """Node-normalizer stub that returns the Parkinson clique (the equivalence
-    signal now comes from the normalizer's cliques, not aggregator equiv lists)."""
-
-    def __init__(self, *a, **k):
-        pass
-
-    def resolve(self, curies, **k):
-        return {
-            c: NormInfo(label=None, categories=("biolink:Disease",), taxa=(), canonical=PARKINSON[0])
-            for c in curies
-            if c in PARKINSON
-        }
-
-    def iter_cliques(self):
-        yield (PARKINSON[0], list(PARKINSON))
-
-    def iter_labels(self):
-        return iter(())
-
-    def get(self, curie):
-        if curie in PARKINSON:
-            return NormInfo(label=None, categories=("biolink:Disease",), canonical=PARKINSON[0])
-        return None
-
-    def close(self):
-        pass
-
-
-def test_nn_clique_merges_disease(tmp_path, monkeypatch):
-    """A cross-ontology disease clique merges into one node when the NORMALIZER
-    supplies the clique (the Parkinson case) -- this is the new equivalence path."""
-    monkeypatch.setattr(build_mod, "NodeNormClient", _CliqueNN)
-    config = _aggregator_only_clique_config(tmp_path, PARKINSON)
-    m = resolve_entities(config, biolink=None)
-    mapped = [c for c in PARKINSON if m.get(c) == PARKINSON[0]]
+def test_babel_clique_merges_disease(tmp_path):
+    """A cross-ontology disease clique merges into one node when Babel supplies the clique (the Parkinson case)."""
+    babel = _write_source(
+        tmp_path, "babel", [_babel_node(c, "biolink:Disease") for c in PARKINSON], _same_as_star(PARKINSON)
+    )
+    m = resolve_entities(_config(tmp_path, {"babel": babel}), biolink=None)
+    mapped = [c for c in PARKINSON if m.get(c) == m.get(PARKINSON[0])]
     assert mapped == PARKINSON, (
-        f"clique did not fully merge: {len(mapped)}/{len(PARKINSON)} mapped to rep; "
-        f"missing/split={[c for c in PARKINSON if m.get(c) != PARKINSON[0]]}"
+        f"clique did not fully merge: {len(mapped)}/{len(PARKINSON)} merged; "
+        f"missing/split={[c for c in PARKINSON if m.get(c) != m.get(PARKINSON[0])]}"
     )
 
 
 def test_small_aggregator_equiv_list_merges_on_its_own(tmp_path):
-    """An aggregator list with no bulk prefix merges without any normalizer clique (the kg2 Parkinson clique
+    """An aggregator list with no bulk prefix merges without any Babel clique (the kg2 Parkinson clique
     is 10 ids of different prefixes)."""
     config = _aggregator_only_clique_config(tmp_path, PARKINSON)
-    m = resolve_entities(config, biolink=None)  # autouse offline NN stub -> no cliques
+    m = resolve_entities(config, biolink=None)  # no Babel source -> no cliques
     reps = {m.get(c) for c in PARKINSON}
     assert None not in reps, "an id was dropped"
     assert len(reps) == 1, f"a kg2 list with no bulk prefix should merge on its own, but split into {reps}"
@@ -202,7 +199,7 @@ def test_bulk_prefix_ids_stay_out_but_the_rest_of_a_long_list_merges(tmp_path):
 
 
 def test_every_source_id_survives_as_singleton_with_provenance(tmp_path):
-    """A bare equiv-list-only id that NN doesn't recognize and that never merges is
+    """A bare equiv-list-only id that Babel doesn't know and that never merges is
     kept as its own singleton node, carrying the referencing source's provenance and
     a category inherited from its referencing node (never silently dropped).
 
@@ -224,164 +221,80 @@ def test_every_source_id_survives_as_singleton_with_provenance(tmp_path):
         all_harmonized_paths_resolved={"robokop": _write_source(tmp_path, "robokop", [node])},
         integrated_dir=integrated,
         integrated_nodes_path=integrated / "nodes.jsonl",
-        er_nodenorm_cache_path=tmp_path / "nodenorm.sqlite",
     )
     resolve_entities(config, biolink=None)
     by_id = {n["id"]: n for n in jsonlines.open(config.integrated_nodes_path)}
     assert "WEIRD:1" in by_id, "bare equiv-list id was dropped instead of kept as a singleton"
     assert by_id["WEIRD:1"]["provided_by"] == ["infores:robokop-kg"]
     # typed via inheritance from its single-family referencing node (Disease), even
-    # though NN doesn't recognize it and it never merged
+    # though Babel doesn't know it and it never merged
     assert by_id["WEIRD:1"]["categories"] == ["biolink:Disease"]
 
 
-class _LabelNN:
-    """Stub giving two bare ids INDIVIDUAL NN labels that normalize identically."""
-
-    _labels = {"DOID:14330": "Parkinson disease", "MESH:D010300": "PARKINSON DISEASE"}
-
-    def __init__(self, *a, **k):
-        pass
-
-    def resolve(self, curies, **k):
-        return {
-            c: NormInfo(label=self._labels[c], categories=("biolink:Disease",)) for c in curies if c in self._labels
-        }
-
-    def iter_cliques(self):
-        return iter(())  # no equivalence clique -- ONLY name-sim can link them
-
-    def iter_labels(self):
-        return iter(self._labels.items())
-
-    def get(self, curie):
-        if curie not in self._labels:
-            return None
-        return NormInfo(label=self._labels[curie], categories=("biolink:Disease",))
-
-    def close(self):
-        pass
-
-
-def test_name_sim_links_ids_by_individual_nn_label(tmp_path, monkeypatch):
-    """Name-similarity operates PER-ID on each id's own NN label: two bare ids whose
-    individual NN labels normalize the same are linked, with no equivalence edge and
-    no harmonized primary name involved."""
-    monkeypatch.setattr(build_mod, "NodeNormClient", _LabelNN)
-    node = {
-        "id": "DOID:14330",
-        "categories": ["biolink:Disease"],
-        "equivalent_ids": ["DOID:14330", "MESH:D010300"],
-        "provided_by": ["infores:robokop-kg"],
-    }
-    integrated = tmp_path / "integrated"
-    config = SimpleNamespace(
-        all_harmonized_paths_resolved={"robokop": _write_source(tmp_path, "robokop", [node])},
-        integrated_dir=integrated,
-        integrated_nodes_path=integrated / "nodes.jsonl",
-        er_nodenorm_cache_path=tmp_path / "nodenorm.sqlite",
+def test_name_sim_links_ids_by_their_own_babel_labels(tmp_path):
+    """Name-similarity operates PER-ID on each id's own Babel label: two ids whose individual labels normalize the
+    same are linked, with no equivalence edge and no harmonized primary name involved."""
+    babel = _write_source(
+        tmp_path,
+        "babel",
+        [
+            _babel_node("DOID:14330", "biolink:Disease", "Parkinson disease"),
+            _babel_node("MESH:D010300", "biolink:Disease", "PARKINSON DISEASE"),
+        ],
     )
-    m = resolve_entities(config, biolink=None)
-    assert m.get("DOID:14330") == m.get("MESH:D010300"), "per-id NN-label name-sim did not link them"
+    m = resolve_entities(_config(tmp_path, {"babel": babel}), biolink=None)
+    assert m.get("DOID:14330") == m.get("MESH:D010300"), "per-id Babel-label name-sim did not link them"
 
 
-class _RepLabelNN:
-    _info = NormInfo(
-        label="Angiotensin I converting enzyme", categories=("biolink:Gene",), taxa=("NCBITaxon:9606",)
-    )
-
-    def __init__(self, *a, **k):
-        pass
-
-    def resolve(self, curies, **k):
-        return {c: self._info for c in curies if c == "NCBIGene:1636"}
-
-    def iter_cliques(self):
-        return iter(())
-
-    def iter_labels(self):
-        return iter([("NCBIGene:1636", self._info.label)])
-
-    def get(self, curie):
-        return self._info if curie == "NCBIGene:1636" else None
-
-    def close(self):
-        pass
-
-
-def test_display_name_and_taxon_from_normalizer(tmp_path, monkeypatch):
-    """The merged node's display name is the REPRESENTATIVE id's own NN label (source
-    name demotes to a synonym), and the NN taxon is retained even though the source
-    node carried none."""
-    monkeypatch.setattr(build_mod, "NodeNormClient", _RepLabelNN)
-    node = {
+def test_display_name_and_taxon_from_babel(tmp_path):
+    """The merged node's display name is the REPRESENTATIVE id's own Babel label (source name demotes to a
+    synonym), and Babel's taxon is retained even though the source node carried none."""
+    source_node = {
         "id": "NCBIGene:1636",
         "categories": ["biolink:Gene"],
         "equivalent_ids": ["NCBIGene:1636"],
         "provided_by": ["infores:ncbi-gene"],
         "name": "ACE",  # no taxon on the source node
     }
-    integrated = tmp_path / "integrated"
-    config = SimpleNamespace(
-        all_harmonized_paths_resolved={"ncbigene": _write_source(tmp_path, "ncbigene", [node])},
-        integrated_dir=integrated,
-        integrated_nodes_path=integrated / "nodes.jsonl",
-        er_nodenorm_cache_path=tmp_path / "nodenorm.sqlite",
-    )
+    harmonized = {
+        "ncbigene": _write_source(tmp_path, "ncbigene", [source_node]),
+        "babel": _write_source(
+            tmp_path,
+            "babel",
+            [_babel_node("NCBIGene:1636", "biolink:Gene", "Angiotensin I converting enzyme", "NCBITaxon:9606")],
+        ),
+    }
+    config = _config(tmp_path, harmonized)
     resolve_entities(config, biolink=None)
     n = {node["id"]: node for node in jsonlines.open(config.integrated_nodes_path)}["NCBIGene:1636"]
-    assert n["name"] == "Angiotensin I converting enzyme"  # rep's NN label preferred
+    assert n["name"] == "Angiotensin I converting enzyme"  # rep's Babel label preferred
     assert "ACE" in n.get("synonyms", [])  # source name demoted to synonym
-    assert n.get("taxon") == "NCBITaxon:9606"  # NN taxon retained (source had none)
+    assert n.get("taxon") == "NCBITaxon:9606"  # Babel taxon retained (source had none)
 
 
-class _TwoLabelNN:
-    """NN gives each of two harmonized members its own label (differing from source
-    name) and groups them in one clique."""
-
-    _labels = {"NCBIGene:1636": "angiotensin converting enzyme", "HGNC:2707": "ACE gene"}
-
-    def __init__(self, *a, **k):
-        pass
-
-    def resolve(self, curies, **k):
-        return {c: NormInfo(label=self._labels[c], categories=("biolink:Gene",)) for c in curies if c in self._labels}
-
-    def iter_cliques(self):
-        yield ("NCBIGene:1636", ["NCBIGene:1636", "HGNC:2707"])
-
-    def iter_labels(self):
-        return iter(self._labels.items())
-
-    def get(self, curie):
-        return NormInfo(label=self._labels[curie], categories=("biolink:Gene",)) if curie in self._labels else None
-
-    def close(self):
-        pass
-
-
-def test_harmonized_member_nn_label_retained_as_synonym(tmp_path, monkeypatch):
-    """A HARMONIZED (non-bare) member's own NN label is retained as a synonym on the
-    merged node -- not just its source name (never throw away an NN label)."""
-    monkeypatch.setattr(build_mod, "NodeNormClient", _TwoLabelNN)
-    nodes = [
+def test_harmonized_member_babel_label_retained_as_synonym(tmp_path):
+    """A HARMONIZED (non-bare) member's own Babel label is retained as a synonym on the merged node -- not just its
+    source name (never throw away a label)."""
+    ncbigene = [
         {"id": "NCBIGene:1636", "categories": ["biolink:Gene"], "equivalent_ids": ["NCBIGene:1636"],
          "provided_by": ["infores:ncbi-gene"], "name": "ACE"},
         {"id": "HGNC:2707", "categories": ["biolink:Gene"], "equivalent_ids": ["HGNC:2707"],
          "provided_by": ["infores:ncbi-gene"], "name": "ACE_symbol"},
     ]
-    integrated = tmp_path / "integrated"
-    config = SimpleNamespace(
-        all_harmonized_paths_resolved={"ncbigene": _write_source(tmp_path, "ncbigene", nodes)},
-        integrated_dir=integrated,
-        integrated_nodes_path=integrated / "nodes.jsonl",
-        er_nodenorm_cache_path=tmp_path / "nodenorm.sqlite",
-    )
+    babel = [
+        _babel_node("NCBIGene:1636", "biolink:Gene", "angiotensin converting enzyme"),
+        _babel_node("HGNC:2707", "biolink:Gene", "ACE gene"),
+    ]
+    harmonized = {
+        "ncbigene": _write_source(tmp_path, "ncbigene", ncbigene),
+        "babel": _write_source(tmp_path, "babel", babel, _same_as_star(["NCBIGene:1636", "HGNC:2707"])),
+    }
+    config = _config(tmp_path, harmonized)
     m = resolve_entities(config, biolink=None)
-    assert m["NCBIGene:1636"] == m["HGNC:2707"]  # merged via NN clique
+    assert m["NCBIGene:1636"] == m["HGNC:2707"]  # merged via the Babel clique
     merged = {node["id"]: node for node in jsonlines.open(config.integrated_nodes_path)}[m["HGNC:2707"]]
     syns = merged.get("synonyms", [])
-    # HGNC:2707 is the rep (name = its NN label "ACE gene"); NCBIGene:1636's NN label
+    # HGNC:2707 is the rep (name = its Babel label "ACE gene"); NCBIGene:1636's Babel label
     # is a harmonized member's label and must survive as a synonym.
     assert "angiotensin converting enzyme" in syns
     assert "ACE" in syns and "ACE_symbol" in syns  # source names retained too

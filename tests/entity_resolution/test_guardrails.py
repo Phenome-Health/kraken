@@ -55,8 +55,8 @@ def test_one_id_guardrail():
 
 
 def test_default_enforced_prefixes():
-    # RefMet=RM, LIPID MAPS=LM (verified in harmonized data), MONDO, and ClinGen alleles (CAID).
-    assert DEFAULT_ENFORCED_PREFIXES == frozenset({"RM", "LM", "MONDO", "CAID"})
+    # RefMet=RM, LIPID MAPS=LM (verified in harmonized data), MONDO, ClinGen alleles (CAID), and structures (SMILES).
+    assert DEFAULT_ENFORCED_PREFIXES == frozenset({"RM", "LM", "MONDO", "CAID", "SMILES"})
 
 
 def test_two_alleles_are_never_one_cluster():
@@ -160,3 +160,10 @@ def test_histogram():
     hist = ids_per_cluster_histogram(clusters)
     assert hist["HGNC"] == {2: 1, 1: 1}
     assert hist["NCBIGene"] == {1: 1}
+
+
+def test_a_compound_and_its_salt_are_never_one_cluster():
+    """Canonical SMILES name one structure each; the same lipid from lipidmaps and its sodium salt from translator
+    (lumped under the parent's InChIKey) must not share a cluster."""
+    assert not one_id_valid(["SMILES:O=C(O)CCCO", "SMILES:O=C([O-])CCCO.[Na+]"], DEFAULT_ENFORCED_PREFIXES)
+    assert one_id_valid(["SMILES:O=C(O)CCCO", "LM:FA01050006"], DEFAULT_ENFORCED_PREFIXES)

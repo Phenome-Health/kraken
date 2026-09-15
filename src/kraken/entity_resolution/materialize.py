@@ -123,9 +123,9 @@ def materialize_cluster(
 ) -> dict:
     """Reconcile member node dicts into one canonical node (order-independent).
 
-    ``label_of`` returns the normalizer's per-id label for a CURIE (or None); the
-    display name prefers the REPRESENTATIVE id's own NN label (attributable to that
-    exact canonical id), falling back to the highest-ranked member name when NN has
+    ``label_of`` returns Babel's per-id label for a CURIE (or None); the
+    display name prefers the REPRESENTATIVE id's own Babel label (attributable to that
+    exact canonical id), falling back to the highest-ranked member name when Babel has
     none. Every other member name is retained as a synonym either way."""
     if not members:
         raise ValueError("cannot materialize an empty cluster")
@@ -153,12 +153,12 @@ def materialize_cluster(
         member_equiv = {e for e in (m.get(NODE_EQUIVALENT_IDS) or ()) if e}
         if member_equiv <= cluster_ids:
             synonyms.update(s for s in (m.get(NODE_SYNONYMS) or ()) if s)
-    # Display name: the representative id's OWN NN label wins (per-id, attributable);
+    # Display name: the representative id's OWN Babel label wins (per-id, attributable);
     # else the highest-ranked member name. Every other member name (incl. the rep's
-    # own source name when the NN label differs) is retained as a synonym below.
+    # own source name when the Babel label differs) is retained as a synonym below.
     chosen_name = label_of(representative[NODE_ID]) or (name_src.get(NODE_NAME) if name_src else None)
     for m in members:
-        # keep each member's source name AND its own NN label (never throw either away)
+        # keep each member's source name AND its own Babel label (never throw either away)
         for candidate in (m.get(NODE_NAME), label_of(m[NODE_ID])):
             if candidate and candidate != chosen_name:
                 synonyms.add(candidate)

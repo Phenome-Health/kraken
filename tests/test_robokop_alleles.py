@@ -67,3 +67,20 @@ def test_rsid_becomes_a_membership_edge_not_an_equivalent_id(tmp_path, monkeypat
     assert {e["object"] for e in membership} == {"DBSNP:rs7944541"}
 
     assert nodes["NCBIGene:1"]["equivalent_ids"] == ["NCBIGene:1"]  # non-allele nodes untouched
+
+
+def test_smiles_attribute_becomes_a_smiles_equivalent_id(monkeypatch):
+    node = _harmonizer(monkeypatch)._harmonize_node(
+        {
+            "id": "CHEBI:367163",
+            "name": "Darunavir",
+            "category": ["biolink:SmallMolecule"],
+            "equivalent_identifiers": ["CHEBI:367163", "PUBCHEM.COMPOUND:213039"],
+            "smiles": "CC(C)CN(C[C@@H](O)[C@H](CC1=CC=CC=C1)NC(=O)O[C@H]1CO[C@H]2OCC[C@@H]12)S(=O)(=O)C1=CC=C(N)C=C1",
+        }
+    )
+    assert set(node["equivalent_ids"]) == {
+        "CHEBI:367163",
+        "PUBCHEM.COMPOUND:213039",
+        "SMILES:CC(C)CN(C[C@@H](O)[C@H](CC1=CC=CC=C1)NC(=O)O[C@H]1CO[C@H]2OCC[C@@H]12)S(=O)(=O)C1=CC=C(N)C=C1",
+    }

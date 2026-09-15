@@ -6,7 +6,8 @@ from typing import Any
 import jsonlines
 
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import NODE_EQUIVALENT_IDS, NODE_ID
+from kraken.utils.constants import NODE_EQUIVALENT_IDS, NODE_ID, SMILES_PREFIX
+from kraken.utils.general import to_list
 
 # ROBOKOP lists a variant's dbSNP rsid as an equivalent id of its ClinGen allele (CAID) node. They are not the
 # same thing: an rsid names a POSITION, and each CAID is one ALLELE at it -- rs7944541 is carried by three
@@ -18,6 +19,11 @@ ALLELE_PREFIX = "CAID"
 POSITION_PREFIX = "DBSNP"
 ALLELE_TO_POSITION_PREDICATE = "biolink:member_of"  # a RefSNP is the collection of alleles at a position
 POSITION_CATEGORY = "biolink:SequenceVariant"  # what Biolink uses for DBSNP ids (see its id_prefixes)
+
+# A few thousand chemical nodes carry their structure as a bare `smiles` string (one per node). It's folded into
+# equivalent_ids as a SMILES curie, which biomapper2 canonicalizes like any other -- so the same structure from
+# lipidmaps or translator gets the same id.
+SMILES_PROP = "smiles"
 
 
 class RobokopHarmonizer(BaseHarmonizer):
@@ -49,6 +55,10 @@ class RobokopHarmonizer(BaseHarmonizer):
             self._append_positions_and_membership(nodes_output, edges_output)
 
     def _harmonize_node(self, node: dict[str, Any]) -> dict[str, Any]:
+        smiles = node.get(SMILES_PROP)
+        if isinstance(smiles, str) and smiles.strip():
+            equivalent_ids = to_list(node.get(self.equivalent_ids_prop))
+            node = {**node, self.equivalent_ids_prop: [*equivalent_ids, f"{SMILES_PREFIX}:{smiles.strip()}"]}
         harmonized = super()._harmonize_node(node)
         allele = harmonized[NODE_ID]
         if not allele.startswith(f"{ALLELE_PREFIX}:"):

@@ -200,10 +200,6 @@ class KrakenConfig(BaseModel):
     # Entity-resolution outputs (curated inputs load from fixed config paths in
     # the ER modules themselves). These resolve against base_path.
     @property
-    def er_nodenorm_cache_path(self) -> Path:
-        return self.base_path_resolved / "artifacts" / "entity_resolution" / "nodenorm_cache.sqlite"
-
-    @property
     def er_membership_path(self) -> Path:
         return self.integrated_dir / f"kraken_membership_{self.kraken_version}.jsonl"
 

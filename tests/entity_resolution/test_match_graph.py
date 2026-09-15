@@ -53,7 +53,7 @@ def test_accumulate_sums_independent_sources():
 def test_accumulate_decorrelates_aggregators():
     w = ERWeights()
     # KG2, ROBOKOP, Translator all assert the same pair. They share the
-    # sri_nn_derived source group -> combine by MAX, not sum.
+    # babel_derived source group -> combine by MAX, not sum.
     ev = []
     for src in ["kg2", "robokop", "translator-kg-open"]:
         ev += list(clique_evidence(["A:1", "B:1"], src, w))
@@ -121,9 +121,9 @@ def test_up_to_the_cap_is_not_bulk():
     assert {wt for _a, _b, _g, wt in clique_evidence(ids, "kg2", w, head="HEAD:1")} == {w.equivalency_weight("kg2")}
 
 
-@pytest.mark.parametrize("source", ["nn", "ncbigene", "umls", "refmet"])
+@pytest.mark.parametrize("source", ["babel", "ncbigene", "umls", "refmet"])
 def test_uncapped_sources_keep_every_id_at_full_weight(source):
-    """The normalizer's cliques legitimately hold many ids of one prefix (a gene's protein isoforms)."""
+    """Babel's cliques legitimately hold many ids of one prefix (a gene's protein isoforms)."""
     w = ERWeights(clique_cap=1000)
     ids = ["HEAD:1", *[f"ENSEMBL:ENSP{i}" for i in range(50)]]
     assert {wt for _a, _b, _g, wt in clique_evidence(ids, source, w)} == {w.equivalency_weight(source)}
@@ -176,11 +176,11 @@ def test_close_match_without_a_primary_ks_falls_back_to_the_source_group():
 
 
 def test_star_hub_is_the_head_not_the_lexically_smallest_id():
-    """Metformin's normalizer clique is over the cap, and CAS:1115-70-4 sorts first. As hub it anchored a
+    """Metformin's Babel clique is over the cap, and CAS:1115-70-4 sorts first. As hub it anchored a
     side node of branded products; the clique's canonical id must be the hub."""
     w = ERWeights(clique_cap=3)
     ids = ["CAS:1115-70-4", "CHEBI:6801", "RXCUI:1", "RXCUI:2", "UMLS:C1"]
-    ev = list(clique_evidence(ids, "nn", w, head="CHEBI:6801"))
+    ev = list(clique_evidence(ids, "babel", w, head="CHEBI:6801"))
     assert len(ev) == len(ids) - 1
     assert all("CHEBI:6801" in (a, b) for a, b, _g, _wt in ev)
 
@@ -189,4 +189,4 @@ def test_star_hub_falls_back_to_lexically_smallest_without_a_usable_head():
     w = ERWeights(clique_cap=3)
     ids = ["B:1", "A:1", "C:1", "D:1"]
     for head in (None, "NOT:IN_SET"):
-        assert all("A:1" in (a, b) for a, b, _g, _wt in clique_evidence(ids, "nn", w, head=head))
+        assert all("A:1" in (a, b) for a, b, _g, _wt in clique_evidence(ids, "babel", w, head=head))

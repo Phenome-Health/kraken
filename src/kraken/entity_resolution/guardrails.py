@@ -38,6 +38,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
 from kraken.entity_resolution.families import ALL_FAMILIES, BranchFamilies
+from kraken.utils.constants import SMILES_PREFIX
 
 # Splitter injected by resolve/clustering: given member ids, return sub-clusters.
 Splitter = Callable[[list[str]], list[list[str]]]
@@ -53,7 +54,11 @@ Splitter = Callable[[list[str]], list[list[str]]]
 #   * CAID — ClinGen Allele Registry: one canonical allele per id, so two in a cluster
 #     means two alleles were merged (e.g. by a shared rsid, which names the position
 #     they sit at rather than either allele).
-DEFAULT_ENFORCED_PREFIXES: frozenset[str] = frozenset({"RM", "LM", "MONDO", "CAID"})
+#   * SMILES — one structure per id once biomapper2 has canonicalized it. Two in a cluster are two structures:
+#     in practice a compound and its salt, or two stereoisomers (of 846 lipids lipidmaps and translator share an
+#     InChIKey with, the 60 whose SMILES differ are exactly that). Drug/chemical conflation is off, so they stay
+#     apart.
+DEFAULT_ENFORCED_PREFIXES: frozenset[str] = frozenset({"RM", "LM", "MONDO", "CAID", SMILES_PREFIX})
 
 # Candidate one-id-per-cluster prefixes: watched (instrumented) but NOT enforced.
 # HGNC only — it is a curated one-id-per-human-gene nomenclature, so >1 usually

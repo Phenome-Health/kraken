@@ -51,6 +51,13 @@ sources:
     nodes_input: "input_data/translator-kg-open/2026_07_19/nodes.jsonl"
     edges_input: "input_data/translator-kg-open/2026_07_19/edges.jsonl"
 
+  babel:
+    # Babel, the equivalence build behind the SRI Node Normalizer (which is what source_id names; Babel itself
+    # has no infores). Replaces querying the Node Normalizer API during entity resolution.
+    source_id: "infores:sri-node-normalizer"
+    version: "2026jul22"
+    input_file: "input_data/babel/2026jul22"
+
   ncbigene:
     source_id: "infores:ncbi-gene"
     version: "accessed_2026-08-31"

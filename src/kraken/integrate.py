@@ -21,7 +21,6 @@ import jsonlines
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
 from kraken.entity_resolution.build import resolve_entities
-from kraken.entity_resolution.sri_nodenorm import NodeNormClient
 from kraken.entity_resolution.uncanonicalize import (
     kg2_pre_id_triples,
     original_endpoints,
@@ -42,7 +41,7 @@ from kraken.utils.constants import (
     NODE_ID,
     NODE_PROVIDED_BY,
     NOT_PROVIDED,
-    SRI_NN_INFORES,
+    SAME_AS_PREDICATE,
 )
 from kraken.utils.general import create_edge_key, to_list
 from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_nodes_from_jsonl
@@ -50,6 +49,14 @@ from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_node
 
 def integrate_sources(config: KrakenConfig, biolink: BiolinkClient):
     """Resolve entities into canonical nodes, then merge edges across all sources."""
+    # Babel is the equivalence backbone and the per-id name/category/taxon authority (see entity_resolution.build);
+    # without it entity resolution would still run, but quietly lose most cross-ontology merges.
+    if "babel" not in config.sources_to_use:
+        raise ValueError(
+            "Integration requires the 'babel' source: entity resolution takes its cliques and per-id names, "
+            "categories and taxa from it. Include babel (and harmonize it) before integrating."
+        )
+
     config.integrated_dir.mkdir(parents=True, exist_ok=True)
     config.integrated_debug_dir.mkdir(parents=True, exist_ok=True)
 
@@ -127,6 +134,10 @@ def _write_keyed_edges(node_map: dict[str, str], config: KrakenConfig, keyed_edg
                 logging.info(f"Writing keyed edges from {source_name}..")
                 _, edges_file = config.all_harmonized_paths_resolved[source_name]
                 for edge in stream_edges_from_jsonl(edges_file):
+                    if source_name == "babel" and edge.get(EDGE_PREDICATE) == SAME_AS_PREDICATE:
+                        # A Babel clique edge. Within one cluster it becomes a self-loop and is dropped below; one
+                        # that survives joins ids entity resolution kept apart, so it can't claim same_as.
+                        edge = {**edge, EDGE_PREDICATE: CROSS_CLUSTER_EQUIVALENCE_PREDICATE}
                     # KG2's originals carry their relation (needed to settle undetermined orientations)
                     triples = kg2_pre_id_triples(edge) if source_name == "kg2" else []
                     if not triples:
@@ -237,8 +248,8 @@ def _write_equivalence_edges(node_map: dict[str, str], config: KrakenConfig, key
     two ids ended up in DIFFERENT clusters, emit a ``close_match`` edge between their
     representatives (same-cluster assertions collapse to self-loops and are dropped).
     So e.g. TP53 protein-isoforms that don't merge into the main TP53 node stay LINKED
-    to it. Two sources: each source's equiv-list (primary KS = that source) and the SRI
-    Node Normalizer's cliques (primary KS = the normalizer)."""
+    to it. These come from each source's equiv-lists (primary KS = that source); Babel's cliques are ordinary
+    same_as edges, turned into close_match in _write_keyed_edges."""
     written = 0
 
     def emit(rep_a: str, rep_b: str, primary_ks: str, aggregator_ks: list[str]) -> int:
@@ -250,6 +261,8 @@ def _write_equivalence_edges(node_map: dict[str, str], config: KrakenConfig, key
 
     # (1) each source's equiv lists (the source asserts node_id ~ each of its members)
     for source_name in config.sources_to_use:
+        if source_name == "babel":
+            continue  # one node per id, so no lists: its equivalences are edges (see _write_keyed_edges)
         nodes_file, _ = config.all_harmonized_paths_resolved[source_name]
         for node in stream_nodes_from_jsonl(nodes_file):
             node_id = node.get(NODE_ID)
@@ -263,19 +276,6 @@ def _write_equivalence_edges(node_map: dict[str, str], config: KrakenConfig, key
                 if rep_b is not None:
                     written += emit(rep_a, rep_b, primary_ks, aggregator_ks)
 
-    # (2) the SRI Node Normalizer's cliques (primary KS = the normalizer)
-    nodenorm = NodeNormClient(config.er_nodenorm_cache_path)
-    try:
-        for canonical, members in nodenorm.iter_cliques():
-            rep_a = node_map.get(canonical)
-            if rep_a is None:
-                continue
-            for member in members:
-                rep_b = node_map.get(member)
-                if rep_b is not None:
-                    written += emit(rep_a, rep_b, SRI_NN_INFORES, [])
-    finally:
-        nodenorm.close()
     logging.info("Wrote %d cross-cluster close_match equivalence edges", written)
 
 

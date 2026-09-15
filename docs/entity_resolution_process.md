@@ -4,10 +4,12 @@ This is the intended ER process, in order. Everything in the implementation shou
 serve this; if the code and this doc disagree, this doc is the north star.
 
 1. Take every id from the equivalent-ids list on the harmonized source files and make a
-   separate node in the match graph.
+   separate node in the match graph. Babel is one of those sources — it's ingested with one
+   node per id, and its cliques and gene/protein conflations come in as `same_as` edges,
+   which count as equivalence evidence just like an equiv-ids list.
 
-2. Set those nodes' id / category / name / taxon based on what the SRI Node Normalizer
-   returns (label, etc.), backing up to deriving it from the source if possible.
+2. Set those nodes' id / category / name / taxon based on Babel's node for that exact id
+   (its own label, etc.), backing up to deriving it from the source if possible.
 
 3. Convert each of those individual nodes' categories to a "family" per our curated
    mappings.
@@ -22,11 +24,11 @@ serve this; if the code and this doc disagree, this doc is the north star.
 
 7. Now we're ready to merge nodes. The "canonical" id for the merged node is chosen based
    on our prefix ranking. The chosen name should preferably be the label for that exact
-   chosen id per the SRI NN, backing up as appropriate. The description preferably comes
+   chosen id per Babel, backing up as appropriate. The description preferably comes
    from the same id as the name, backing up as appropriate. Synonyms should be retained
    from sources IF their equiv ids are a subset of the merged node's equiv ids. Retain the
-   taxon from the SRI NN as well — basically never throw away anything from the SRI NN or
-   from sources.
+   taxon from Babel as well — basically never throw away anything from Babel or from
+   sources.
 
 8. Now nodes are properly merged. Go through and remap edges appropriately: for aggregator
    sources, look at their ORIGINAL subj/obj, map that to what is now canonical, and
@@ -34,9 +36,10 @@ serve this; if the code and this doc disagree, this doc is the north star.
    per edge).
 
 9. Retain the equivalence signal as edges. For every asserted equivalence whose two ids
-   ended up in DIFFERENT clusters, keep a `biolink:same_as` edge between their
+   ended up in DIFFERENT clusters, keep a `biolink:close_match` edge between their
    representatives — so e.g. TP53 protein-isoforms that didn't merge into the main TP53
-   node stay linked to it. Equiv-list assertions carry the source as the primary knowledge
-   source; the SRI NN's cliques carry the normalizer as the primary knowledge source. Do
+   node stay linked to it. (Not `same_as` — we decided they aren't the same thing.)
+   Equiv-list assertions carry the source as the primary knowledge source; Babel's cliques
+   carry Babel (`infores:sri-node-normalizer`) as the primary knowledge source. Do
    NOT emit name-similarity edges. Globally drop self-edges (an edge whose endpoints merged
    into the same node).
