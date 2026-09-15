@@ -24,6 +24,11 @@ def _ni(curie: str, categories: tuple[str, ...] = (), taxon: str | None = None) 
     return NodeInfo(curie=curie, branches=BF.branches(categories), taxon=taxon)
 
 
+def _complete(members) -> dict[str, dict[str, float]]:
+    """Adjacency linking every pair of members at weight 1.0 -- a cluster whose ids all vouch for each other."""
+    return {a: {b: 1.0 for b in members if b != a} for a in members}
+
+
 def _ace_info() -> dict[str, NodeInfo]:
     return {
         "NCBIGene:1636": _ni("NCBIGene:1636", ("biolink:Gene",), taxon="NCBITaxon:9606"),
@@ -67,7 +72,12 @@ def test_two_alleles_are_never_one_cluster():
         c: _ni(c, ("biolink:SequenceVariant",))
         for c in ("CAID:CA675382683", "CAID:CA1961200538", "CAID:CA220112499", "DBSNP:rs7944541")
     }
-    parts = enforce_cluster(list(info), info, cfg)
+    # every allele linked to the shared rsid, which is what pulled them together
+    adjacency = {"DBSNP:rs7944541": {c: 1.0 for c in info if c.startswith("CAID:")}}
+    for c in info:
+        if c.startswith("CAID:"):
+            adjacency[c] = {"DBSNP:rs7944541": 1.0}
+    parts = enforce_cluster(list(info), info, cfg, adjacency=adjacency)
     assert all(sum(m.startswith("CAID:") for m in part) <= 1 for part in parts)
 
 
@@ -85,7 +95,7 @@ def test_default_config_enforces_one_refmet_lipidmaps_mondo():
     assert "one_id" in cluster_violations(["LM:1", "LM:2"], info, cfg)
     assert "one_id" in cluster_violations(["MONDO:1", "MONDO:2"], info, cfg)
     # a cluster with two MONDO ids gets split until each part has at most one
-    parts = enforce_cluster(["MONDO:1", "MONDO:2"], info, cfg)
+    parts = enforce_cluster(["MONDO:1", "MONDO:2"], info, cfg, adjacency=_complete(["MONDO:1", "MONDO:2"]))
     assert len(parts) == 2
     for part in parts:
         assert not cluster_violations(part, info, cfg)
@@ -93,7 +103,12 @@ def test_default_config_enforces_one_refmet_lipidmaps_mondo():
 
 def test_enforce_splits_ace_by_branch():
     info, cfg = _ace_info(), GuardrailConfig()
-    parts = enforce_cluster(list(info), info, cfg)  # no splitter -> greedy fallback
+    # the gene/protein ids vouch for each other, the disease ids for each other, and one conflation edge bridges them
+    genes = ["NCBIGene:1636", "HGNC:2707", "UniProtKB:P12821"]
+    adjacency = {**_complete(genes), **{d: {} for d in ("MONDO:0017609", "orphanet:3033")}}
+    adjacency["MONDO:0017609"]["orphanet:3033"] = adjacency["orphanet:3033"]["MONDO:0017609"] = 1.0
+    adjacency["MONDO:0017609"]["NCBIGene:1636"] = adjacency["NCBIGene:1636"]["MONDO:0017609"] = 0.3
+    parts = enforce_cluster(list(info), info, cfg, adjacency=adjacency)  # no splitter -> greedy fallback
     for part in parts:
         assert not cluster_violations(part, info, cfg)  # every resulting part valid
     # gene/protein land together, disease apart
@@ -116,6 +131,31 @@ def test_greedy_respects_connectivity_for_wildcards():
     assert "X:1" in gene_group
 
 
+def test_split_keeps_the_strongest_link_rather_than_following_id_order():
+    """MONDO:1 -0.5- UMLS:C1 -0.5- MONDO:2 -1.0- DOID:7 holds two MONDO ids, so it must split. Placing ids in sorted
+    order put MONDO:1 in DOID:7's group before MONDO:2 (DOID:7's only real link) was placed, cutting that link."""
+    cfg = GuardrailConfig()
+    members = ["MONDO:1", "UMLS:C1", "MONDO:2", "DOID:7"]
+    info = {m: _ni(m, ("biolink:Disease",)) for m in members}
+    adjacency: dict[str, dict[str, float]] = {m: {} for m in members}
+    for a, b, weight in [("MONDO:1", "UMLS:C1", 0.5), ("UMLS:C1", "MONDO:2", 0.5), ("MONDO:2", "DOID:7", 1.0)]:
+        adjacency[a][b] = adjacency[b][a] = weight
+    parts = greedy_valid_partition(members, info, cfg, adjacency)
+    assert ["DOID:7", "MONDO:2"] in parts
+    assert all(not cluster_violations(part, info, cfg) for part in parts)
+
+
+def test_split_never_groups_ids_without_an_edge_between_them():
+    """A member whose every edge would break a guardrail stays on its own -- it isn't parked in some group it has no
+    evidence for."""
+    cfg = GuardrailConfig()
+    members = ["MONDO:1", "MONDO:2", "DOID:9"]
+    info = {m: _ni(m, ("biolink:Disease",)) for m in members}
+    adjacency = {"MONDO:1": {"MONDO:2": 1.0}, "MONDO:2": {"MONDO:1": 1.0}, "DOID:9": {}}
+    parts = greedy_valid_partition(members, info, cfg, adjacency)
+    assert sorted(parts) == [["DOID:9"], ["MONDO:1"], ["MONDO:2"]]
+
+
 def test_splitter_used_when_it_reduces():
     info, cfg = _ace_info(), GuardrailConfig()
     calls = {"n": 0}
@@ -126,7 +166,7 @@ def test_splitter_used_when_it_reduces():
         disease = [m for m in members if m.split(":")[0] in {"MONDO", "orphanet"}]
         return [genes, disease] if genes and disease else [members]
 
-    parts = enforce_cluster(list(info), info, cfg, splitter=splitter)
+    parts = enforce_cluster(list(info), info, cfg, adjacency=_complete(list(info)), splitter=splitter)
     assert calls["n"] >= 1
     for part in parts:
         assert not cluster_violations(part, info, cfg)
@@ -140,7 +180,7 @@ def test_large_one_id_violation_is_repaired_and_logged(caplog):
     cfg = GuardrailConfig(enforced_prefixes=frozenset({"HGNC"}), one_id_repair_log_threshold=3)
     info = {f"HGNC:{i}": _ni(f"HGNC:{i}", ("biolink:Gene",)) for i in range(6)}
     with caplog.at_level("WARNING"):
-        parts = enforce_cluster(list(info), info, cfg)
+        parts = enforce_cluster(list(info), info, cfg, adjacency=_complete(list(info)))
     assert len(parts) == 6
     assert all(not cluster_violations(part, info, cfg) for part in parts)
     assert "one_id violation with 6 ids" in caplog.text
@@ -150,7 +190,7 @@ def test_small_one_id_repair_is_not_logged(caplog):
     cfg = GuardrailConfig(enforced_prefixes=frozenset({"HGNC"}), one_id_repair_log_threshold=3)
     info = {f"HGNC:{i}": _ni(f"HGNC:{i}", ("biolink:Gene",)) for i in range(2)}
     with caplog.at_level("WARNING"):
-        parts = enforce_cluster(list(info), info, cfg)
+        parts = enforce_cluster(list(info), info, cfg, adjacency=_complete(list(info)))
     assert len(parts) == 2
     assert "one_id violation" not in caplog.text
 

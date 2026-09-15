@@ -14,16 +14,16 @@ Guardrails implemented:
   *instrumented but not enforced* by default; promote once the histogram is
   clean.
 
-Repair strategy for a violating cluster: an optional injected ``splitter`` may
-try to split it better; otherwise (or if it can't) fall back to a deterministic
-greedy valid partition that respects edge connectivity (repairs but cannot
-discover). A one-id violation is always repaired, however many ids are involved:
-k ids of a one-entity-per-id prefix in one cluster means k entities were merged,
-so k clusters is the right answer, and a large k is the strongest sign of it --
-not a reason to stop. Large repairs are logged, because they point at an upstream
-conflation worth finding. (This used to be capped at 3, leaving bigger violations
-intact; that shipped the worst conflations unrepaired, e.g. a single 2.1.1 cluster
-holding 247 RefMet and 247 LIPID MAPS ids.)
+Repair strategy for a violating cluster: an optional injected ``splitter`` may try
+to split it better; otherwise (or if it can't) fall back to a deterministic greedy
+valid partition that regrows the cluster along its strongest edges, keeping only
+merges that stay valid (repairs but cannot discover). A one-id violation is always
+repaired, however many ids are involved: k ids of a one-entity-per-id prefix in one
+cluster means k entities were merged, so k clusters is the right answer, and a large
+k is the strongest sign of it -- not a reason to stop. Large repairs are logged,
+because they point at an upstream conflation worth finding. (This used to be capped
+at 3, leaving bigger violations intact; that shipped the worst conflations
+unrepaired, e.g. a single 2.1.1 cluster holding 247 RefMet and 247 LIPID MAPS ids.)
 
 Two documented blind spots (log, don't solve): a node violating a rule *by
 itself* (evaluated cross-node only), and protein vs. cleavage products (Biolink
@@ -143,115 +143,85 @@ def greedy_valid_partition(
     members: list[str],
     info: NodeInfoMap,
     config: GuardrailConfig,
-    adjacency: Mapping[str, Mapping[str, float]] | None = None,
+    adjacency: Mapping[str, Mapping[str, float]],
 ) -> list[list[str]]:
-    """Deterministically partition members into guardrail-valid groups, placing
-    each node into the connected-most valid group (new group if none fits; ties go
-    to the earliest group).
+    """Deterministically partition members into guardrail-valid groups by growing them along the match graph,
+    strongest edges first.
 
-    Constraining (non-wildcard) nodes are processed first so they seed distinct
-    groups; wildcard nodes then attach by connectivity (plan: "placed by
-    connectivity when a blob splits").
+    Every member starts as its own group. Edges between members are taken in order of decreasing weight (ties by
+    id), and each joins its two endpoints' groups unless the merged group would break a guardrail -- two taxa, two
+    ids of one enforced prefix, or no family in common. So the strongest evidence in the cluster is kept, a group
+    only ever grows along an edge (every group is connected), and a member none of whose edges can be kept stays
+    on its own rather than being put somewhere it has no evidence for. Every group is valid by construction.
 
-    Near-linear in the cluster's size. Each group keeps its guardrail state (branch
-    intersection, taxon, enforced prefixes present) so a node is checked against a
-    group in O(1), connectivity is scored only over the node's own neighbours, and
-    the earliest compatible group is found with a per-node-kind pointer that only
-    moves forward: a group only becomes more constrained as members join, so once it
-    rejects a kind of node it rejects that kind for good. (It used to rebuild and
-    re-validate every candidate group for every node -- O(n^2), which became
-    reachable once large one-id repairs stopped being capped.)
+    Growing in id order instead -- the previous approach -- could place a member before any of its neighbours, drop
+    it into the earliest group that allowed it, and so use up that group's one MONDO slot ahead of the MONDO id
+    the group was actually connected to (MONDO:1 -0.5- UMLS:C1 -0.5- MONDO:2 -1.0- DOID:7 came out as
+    [DOID:7, MONDO:1, UMLS:C1] + [MONDO:2], cutting the one strong link).
+
+    Near-linear: one sort of the cluster's edges, then union-find over groups that carry their guardrail state
+    (shared families, taxon, enforced prefixes present), so each merge check is O(1) and state merges small into
+    large.
     """
-    adjacency = adjacency or {}
     enforced = config.enforced_prefixes
-
-    def is_wildcard(m: str) -> bool:
-        if m not in info:
-            return True
-        ni = info[m]
-        return (
-            (ni.branches is ALL_FAMILIES or ni.branches == ALL_FAMILIES)
-            and ni.taxon is None
-            and ni.prefix not in (enforced | config.candidate_prefixes)
-        )
-
-    def kind_of(m: str) -> tuple[frozenset[str] | None, str | None, str | None]:
-        """(branches, or None for a wildcard; taxon; enforced prefix, or None)."""
+    member_set = set(members)
+    parent = {m: m for m in members}
+    size = dict.fromkeys(members, 1)
+    group_branches: dict[str, frozenset[str] | None] = {}  # None = unconstrained (only wildcards so far)
+    group_taxon: dict[str, str | None] = {}
+    group_prefixes: dict[str, set[str]] = {}
+    for m in members:
         ni = info.get(m)
         branches = ni.branches if ni is not None else ALL_FAMILIES
+        group_branches[m] = None if (branches is ALL_FAMILIES or branches == ALL_FAMILIES) else branches
+        group_taxon[m] = ni.taxon if ni is not None else None
         prefix = m.split(":", 1)[0]
-        return (
-            None if (branches is ALL_FAMILIES or branches == ALL_FAMILIES) else branches,
-            ni.taxon if ni is not None else None,
-            prefix if prefix in enforced else None,
-        )
+        group_prefixes[m] = {prefix} if prefix in enforced else set()
 
-    groups: list[list[str]] = []
-    group_branches: list[frozenset[str] | None] = []  # running intersection; None = no constraint yet
-    group_taxon: list[str | None] = []
-    group_prefixes: list[set[str]] = []
-    group_of: dict[str, int] = {}
-    earliest_open: dict[tuple, int] = {}  # node kind -> first group index that may still accept it
+    def find(m: str) -> str:
+        while parent[m] != m:
+            parent[m] = parent[parent[m]]
+            m = parent[m]
+        return m
 
-    def accepts(idx: int, branches: frozenset[str] | None, taxon: str | None, prefix: str | None) -> bool:
-        if prefix is not None and prefix in group_prefixes[idx]:
-            return False
-        if taxon is not None and group_taxon[idx] is not None and group_taxon[idx] != taxon:
-            return False
-        current = group_branches[idx]
-        if current is not None and not current:  # a member with no branches: nothing may join it
-            return False
-        if branches is not None:
-            if not branches:  # a node with no branches can't join anything
-                return False
-            if current is not None and not (current & branches):
-                return False
-        return True
+    # Each member pair once, whichever side's adjacency lists it.
+    pair_weights: dict[tuple[str, str], float] = {}
+    for a in members:
+        for b, weight in adjacency.get(a, {}).items():
+            if b in member_set and b != a:
+                pair = (a, b) if a < b else (b, a)
+                pair_weights[pair] = max(weight, pair_weights.get(pair, weight))
+    edges = sorted((-weight, a, b) for (a, b), weight in pair_weights.items())
+    for _neg_weight, a, b in edges:
+        root_a, root_b = find(a), find(b)
+        if root_a == root_b:
+            continue
+        taxon_a, taxon_b = group_taxon[root_a], group_taxon[root_b]
+        if taxon_a is not None and taxon_b is not None and taxon_a != taxon_b:
+            continue
+        if not group_prefixes[root_a].isdisjoint(group_prefixes[root_b]):
+            continue
+        branches_a, branches_b = group_branches[root_a], group_branches[root_b]
+        if branches_a is None:
+            merged_branches = branches_b
+        elif branches_b is None:
+            merged_branches = branches_a
+        else:
+            merged_branches = branches_a & branches_b
+        if merged_branches is not None and not merged_branches:
+            continue
+        if size[root_a] < size[root_b]:
+            root_a, root_b = root_b, root_a
+        parent[root_b] = root_a
+        size[root_a] += size[root_b]
+        group_branches[root_a] = merged_branches
+        group_taxon[root_a] = taxon_a if taxon_a is not None else taxon_b
+        group_prefixes[root_a] |= group_prefixes[root_b]
 
-    for node in sorted(members, key=lambda m: (is_wildcard(m), m)):
-        kind = kind_of(node)
-        branches, taxon, prefix = kind
-
-        # connectivity scores, over the node's neighbours only
-        scores: dict[int, float] = defaultdict(float)
-        for neighbour, weight in adjacency.get(node, {}).items():
-            idx = group_of.get(neighbour)
-            if idx is not None:
-                scores[idx] += weight
-
-        # the earliest group that accepts this kind of node (pointer only moves forward)
-        idx = earliest_open.get(kind, 0)
-        while idx < len(groups) and not accepts(idx, *kind):
-            idx += 1
-        earliest_open[kind] = idx
-
-        best_idx, best_score = -1, None
-        if idx < len(groups):
-            best_idx, best_score = idx, scores.get(idx, 0.0)
-        for candidate, score in scores.items():
-            if score > (best_score if best_score is not None else float("-inf")) or (
-                score == best_score and candidate < best_idx
-            ):
-                if accepts(candidate, *kind):
-                    best_idx, best_score = candidate, score
-
-        if best_idx < 0:
-            best_idx = len(groups)
-            groups.append([])
-            group_branches.append(None)
-            group_taxon.append(None)
-            group_prefixes.append(set())
-        groups[best_idx].append(node)
-        group_of[node] = best_idx
-        if branches is not None:
-            current = group_branches[best_idx]
-            group_branches[best_idx] = branches if current is None else current & branches
-        if taxon is not None:
-            group_taxon[best_idx] = taxon
-        if prefix is not None:
-            group_prefixes[best_idx].add(prefix)
-
-    return [sorted(g) for g in groups]
+    groups: dict[str, list[str]] = defaultdict(list)
+    for m in members:
+        groups[find(m)].append(m)
+    return sorted((sorted(group) for group in groups.values()), key=lambda group: group[0])
 
 
 def enforce_cluster(
@@ -259,8 +229,8 @@ def enforce_cluster(
     info: NodeInfoMap,
     config: GuardrailConfig,
     *,
+    adjacency: Mapping[str, Mapping[str, float]],
     splitter: Splitter | None = None,
-    adjacency: Mapping[str, Mapping[str, float]] | None = None,
 ) -> list[list[str]]:
     """Split a cluster until every part is guardrail-valid.
 
