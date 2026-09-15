@@ -38,6 +38,10 @@ SRI_NN_INFORES = "infores:sri-node-normalizer"
 # this follows the convention for unregistered ids: bare, like "translator-kg-open" or "pgs-catalog".
 KRAKEN_SOURCE_ID = "kraken"
 SAME_AS_PREDICATE = "biolink:same_as"
+# Predicate for the edges integration retains between two clusters that some source (or the normalizer) said were
+# equivalent but entity resolution kept apart. close_match, not same_as: we decided they are NOT the same entity, so
+# asserting same_as would contradict our own clustering -- close_match records the relatedness without that claim.
+CROSS_CLUSTER_EQUIVALENCE_PREDICATE = "biolink:close_match"
 # Biolink KLAT values. For edges that report direct, dataset-specific statistical results (e.g. a feature's
 # association with an outcome in a model's cohort), statistical_association pairs with data_analysis_pipeline.
 # computational_model is for agents that generate broader conclusions/predictions (kept for such future edges).

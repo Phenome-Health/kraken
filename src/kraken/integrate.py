@@ -28,6 +28,7 @@ from kraken.entity_resolution.uncanonicalize import (
 )
 from kraken.schema import EdgeModel
 from kraken.utils.constants import (
+    CROSS_CLUSTER_EQUIVALENCE_PREDICATE,
     EDGE_AGENT_TYPE,
     EDGE_AGGREGATOR_KS,
     EDGE_ATTRIBUTES,
@@ -41,7 +42,6 @@ from kraken.utils.constants import (
     NODE_ID,
     NODE_PROVIDED_BY,
     NOT_PROVIDED,
-    SAME_AS_PREDICATE,
     SRI_NN_INFORES,
 )
 from kraken.utils.general import create_edge_key, to_list
@@ -210,8 +210,9 @@ def _orient(rep_a: str, rep_b: str, edge: dict, node_map: dict[str, str]) -> str
     return "undetermined"
 
 
-def _same_as_edge(subject: str, object_: str, primary_ks: str, aggregator_ks: list[str]) -> dict:
-    """A biolink same_as edge (symmetric: subject/object ordered so A~B and B~A collapse).
+def _cross_cluster_edge(subject: str, object_: str, primary_ks: str, aggregator_ks: list[str]) -> dict:
+    """A close_match edge between two clusters asserted equivalent but kept apart (symmetric: subject/object
+    ordered so A~B and B~A collapse). See CROSS_CLUSTER_EQUIVALENCE_PREDICATE for why not same_as.
 
     knowledge_level = knowledge_assertion (an asserted equivalence, not a prediction/
     statistic). agent_type = not_provided: these edges are synthesized from equiv-list
@@ -221,7 +222,7 @@ def _same_as_edge(subject: str, object_: str, primary_ks: str, aggregator_ks: li
     edge = {
         EDGE_SUBJECT: subject,
         EDGE_OBJECT: object_,
-        EDGE_PREDICATE: SAME_AS_PREDICATE,
+        EDGE_PREDICATE: CROSS_CLUSTER_EQUIVALENCE_PREDICATE,
         EDGE_PRIMARY_KS: primary_ks,
         EDGE_KNOWLEDGE_LEVEL: KNOWLEDGE_ASSERTION,
         EDGE_AGENT_TYPE: NOT_PROVIDED,
@@ -233,7 +234,7 @@ def _same_as_edge(subject: str, object_: str, primary_ks: str, aggregator_ks: li
 
 def _write_equivalence_edges(node_map: dict[str, str], config: KrakenConfig, keyed_file):
     """Retain the equivalence signal as real edges: for every asserted equivalence whose
-    two ids ended up in DIFFERENT clusters, emit a ``same_as`` edge between their
+    two ids ended up in DIFFERENT clusters, emit a ``close_match`` edge between their
     representatives (same-cluster assertions collapse to self-loops and are dropped).
     So e.g. TP53 protein-isoforms that don't merge into the main TP53 node stay LINKED
     to it. Two sources: each source's equiv-list (primary KS = that source) and the SRI
@@ -243,7 +244,7 @@ def _write_equivalence_edges(node_map: dict[str, str], config: KrakenConfig, key
     def emit(rep_a: str, rep_b: str, primary_ks: str, aggregator_ks: list[str]) -> int:
         if rep_a == rep_b:  # same cluster -> self-loop, skip
             return 0
-        edge = _same_as_edge(rep_a, rep_b, primary_ks, aggregator_ks)
+        edge = _cross_cluster_edge(rep_a, rep_b, primary_ks, aggregator_ks)
         keyed_file.write(f"{create_edge_key(edge)}{_EDGE_SORT_SEP}{json.dumps(edge)}\n")
         return 1
 
@@ -275,7 +276,7 @@ def _write_equivalence_edges(node_map: dict[str, str], config: KrakenConfig, key
                     written += emit(rep_a, rep_b, SRI_NN_INFORES, [])
     finally:
         nodenorm.close()
-    logging.info("Wrote %d cross-cluster same_as equivalence edges", written)
+    logging.info("Wrote %d cross-cluster close_match equivalence edges", written)
 
 
 def _sort_file_by_key(input_path: Path, output_path: Path, temp_dir: Path):

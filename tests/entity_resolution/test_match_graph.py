@@ -173,3 +173,20 @@ def test_close_match_without_a_primary_ks_falls_back_to_the_source_group():
     ev = [match_predicate_evidence("A:1", "B:1", "biolink:close_match", "kg2", w) for _ in range(3)]
     assert accumulate(ev, w)[("A:1", "B:1")] == w.close_match_weight
     assert ev[0][2] == w.source_group("kg2")
+
+
+def test_star_hub_is_the_head_not_the_lexically_smallest_id():
+    """Metformin's normalizer clique is over the cap, and CAS:1115-70-4 sorts first. As hub it anchored a
+    side node of branded products; the clique's canonical id must be the hub."""
+    w = ERWeights(clique_cap=3)
+    ids = ["CAS:1115-70-4", "CHEBI:6801", "RXCUI:1", "RXCUI:2", "UMLS:C1"]
+    ev = list(clique_evidence(ids, "nn", w, head="CHEBI:6801"))
+    assert len(ev) == len(ids) - 1
+    assert all("CHEBI:6801" in (a, b) for a, b, _g, _wt in ev)
+
+
+def test_star_hub_falls_back_to_lexically_smallest_without_a_usable_head():
+    w = ERWeights(clique_cap=3)
+    ids = ["B:1", "A:1", "C:1", "D:1"]
+    for head in (None, "NOT:IN_SET"):
+        assert all("A:1" in (a, b) for a, b, _g, _wt in clique_evidence(ids, "nn", w, head=head))

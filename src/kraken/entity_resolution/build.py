@@ -274,8 +274,8 @@ def _stage1b_normalizer_evidence_and_names(
     nodenorm.resolve(seeds)
     n_cliques = 0
     with open(evidence_path, "a") as ev:
-        for _canonical, members in nodenorm.iter_cliques():
-            for evidence in clique_evidence(members, "nn", weights):
+        for canonical, members in nodenorm.iter_cliques():
+            for evidence in clique_evidence(members, "nn", weights, head=canonical):
                 ev.write(_evidence_row(*evidence, kind="nn"))
             n_cliques += 1
     n_names = 0

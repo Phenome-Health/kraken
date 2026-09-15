@@ -43,12 +43,16 @@ def clique_evidence(
     """Emit evidence edges for one source's equivalency set.
 
     Up to ``clique_cap`` ids -> full clique (robust: survives to the accumulated
-    weight-vs-gamma threshold, all-or-nothing). Beyond the cap -> a star from the
-    lexically smallest id (a scale valve against N^2 edges on a pathological set).
+    weight-vs-gamma threshold, all-or-nothing). Beyond the cap -> a star (a scale valve against N^2 edges on
+    a pathological set) whose hub is ``head``: the node that listed the ids, or the normalizer's canonical id
+    for one of its cliques. The hub matters. A star's hub is where label propagation anchors the set, so an
+    arbitrary hub can carry real members off into a side community -- with the lexically smallest id as hub,
+    metformin hydrochloride's CAS (which happens to sort first) ended up representing a separate node of
+    metformin's branded products, and glucose lost its main CAS number the same way. Without a ``head``, the
+    lexically smallest id is used.
 
     For a prefix-capped source (``ERWeights.max_ids_per_prefix``), ids of any prefix the set holds more of
-    than the cap are BULK: each gets one ``bulk_prefix_weight`` edge to ``head`` (the node that listed them;
-    defaults to the lexically smallest non-bulk id) instead of joining the clique.
+    than the cap are BULK: each gets one ``bulk_prefix_weight`` edge to ``head`` instead of joining the clique.
     """
     ids = sorted({i for i in equivalent_ids if i})
     if len(ids) < 2:
@@ -78,10 +82,11 @@ def clique_evidence(
                 a, b = _ordered(ids[i], ids[j])
                 yield (a, b, group, weight)
     else:
-        hub = ids[0]
-        for other in ids[1:]:
-            a, b = _ordered(hub, other)
-            yield (a, b, group, weight)
+        hub = head if head in ids else ids[0]
+        for other in ids:
+            if other != hub:
+                a, b = _ordered(hub, other)
+                yield (a, b, group, weight)
 
 
 def alias_evidence(
