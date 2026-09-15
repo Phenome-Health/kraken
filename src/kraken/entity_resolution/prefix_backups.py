@@ -5,13 +5,15 @@ categories/taxon a source gave it, and only then these prefix guesses. A prefix 
 answer, so callers apply these AFTER source values -- never inside a facts lookup.
 """
 
+from kraken.utils.constants import ORGANISM_TAXON_CATEGORY
+
 # Unambiguous prefix -> Biolink category. Conservative on purpose; extend only as safe.
 PREFIX_CATEGORY: dict[str, str] = {
     "HGNC": "biolink:Gene",
     "NCBIGene": "biolink:Gene",
     "UniProtKB": "biolink:Protein",
     "PR": "biolink:Protein",
-    "NCBITaxon": "biolink:OrganismTaxon",
+    "NCBITaxon": ORGANISM_TAXON_CATEGORY,
     "CHEBI": "biolink:ChemicalEntity",
     "PUBCHEM.COMPOUND": "biolink:SmallMolecule",
     "KEGG.COMPOUND": "biolink:SmallMolecule",

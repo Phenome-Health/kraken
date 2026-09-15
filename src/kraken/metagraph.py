@@ -22,6 +22,9 @@ from kraken.utils.constants import (
     NODE_CATEGORIES,
     NODE_EQUIVALENT_IDS,
     NODE_ID,
+    NODE_NAME,
+    NODE_TAXON,
+    ORGANISM_TAXON_CATEGORY,
 )
 from kraken.utils.kg_io import stream_edges_from_jsonl, stream_nodes_from_jsonl
 
@@ -69,6 +72,11 @@ class MetagraphStats:
 
         self.node_categories = Counter()  # category -> count
         self.node_prefixes = Counter()  # prefix --> count
+        self.node_taxa = Counter()  # taxon -> count of nodes with that taxon
+        self.nodes_without_taxon = 0
+        # Organism names for the taxa, taken from the graph's own OrganismTaxon nodes (each of their ids -> name),
+        # so a reader sees "Homo sapiens" and not just NCBITaxon:9606.
+        self.taxon_names: dict[str, str] = {}
         self.total_nodes = 0
 
         self.total_edges = 0
@@ -96,6 +104,8 @@ class MetagraphStats:
                 "total_edges": self.total_edges,
                 "unique_node_categories": len(self.node_categories),
                 "unique_node_prefixes": len(self.node_prefixes),
+                "unique_node_taxa": len(self.node_taxa),
+                "nodes_without_taxon": self.nodes_without_taxon,
                 "unique_edge_predicates": len(self.edge_predicates),
                 "unique_primary_knowledge_sources": len(self.primary_knowledge_sources),
                 "unique_aggregator_knowledge_sources": len(self.aggregator_knowledge_sources),
@@ -106,6 +116,10 @@ class MetagraphStats:
             },
             "node_categories": dict(self.node_categories.most_common()),
             "node_prefixes": dict(self.node_prefixes.most_common()),
+            "node_taxa": {
+                taxon: {"name": self.taxon_names.get(taxon), "count": count}
+                for taxon, count in self.node_taxa.most_common()
+            },
             "edge_predicates": dict(self.edge_predicates.most_common()),
             "primary_knowledge_sources": dict(self.primary_knowledge_sources.most_common()),
             "aggregator_knowledge_sources": dict(self.aggregator_knowledge_sources.most_common()),
@@ -145,6 +159,15 @@ def generate_metagraph_streaming(
         for equiv_id in node[NODE_EQUIVALENT_IDS]:
             prefix = equiv_id.split(":")[0]
             stats.node_prefixes[prefix] += 1
+
+        taxon = node.get(NODE_TAXON)
+        if taxon:
+            stats.node_taxa[taxon] += 1
+        else:
+            stats.nodes_without_taxon += 1
+        if ORGANISM_TAXON_CATEGORY in categories and node.get(NODE_NAME):
+            for equiv_id in node[NODE_EQUIVALENT_IDS]:
+                stats.taxon_names[equiv_id] = node[NODE_NAME]
 
         stats.total_nodes += 1
 

@@ -6,6 +6,7 @@ PROJECT_ROOT = Path(__file__).parents[3]
 
 
 ROOT_CATEGORY = "biolink:NamedThing"
+ORGANISM_TAXON_CATEGORY = "biolink:OrganismTaxon"
 ROOT_PREDICATE = "biolink:related_to"
 
 BIOLINK_PREFIX = "biolink"
