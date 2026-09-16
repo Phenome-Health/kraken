@@ -382,7 +382,7 @@ def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
         ev.write(_evidence_row(a, b, group, weight, kind="match:kg2"))
 
 
-def _stage1c_append_name_similarity(names_path: Path, evidence_path: Path, weights: ERWeights, temp_dir: Path) -> None:
+def _stage1b_append_name_similarity(names_path: Path, evidence_path: Path, weights: ERWeights, temp_dir: Path) -> None:
     """Group CURIEs by normalized name (external sort) and append name-similarity
     clique evidence for each group within the size cap. Bounded memory: one name
     group at a time."""
@@ -903,9 +903,9 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         )
 
         t = time.perf_counter()
-        _stage_banner("ER STAGE 1c -- adding name-similarity match evidence")
-        _stage1c_append_name_similarity(names_path, evidence_path, weights, temp_dir)
-        _stage_banner(f"ER STAGE 1c DONE ({time.perf_counter() - t:.1f}s)")
+        _stage_banner("ER STAGE 1b -- adding name-similarity match evidence")
+        _stage1b_append_name_similarity(names_path, evidence_path, weights, temp_dir)
+        _stage_banner(f"ER STAGE 1b DONE ({time.perf_counter() - t:.1f}s)")
 
         t = time.perf_counter()
         _stage_banner("ER STAGE 2 -- accumulating + tau-filtering weighted match pairs")
