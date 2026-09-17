@@ -92,26 +92,46 @@ def _by_pair(evidence):
     return {(a, b): wt for a, b, _g, wt in evidence}
 
 
+def _pair(a: str, b: str) -> tuple[str, str]:
+    """Evidence pairs are emitted in sorted order."""
+    return (a, b) if a < b else (b, a)
+
+
 def test_bulk_prefix_ids_get_only_a_weak_link_to_the_listing_node():
     """TP53's shape: a few good ids plus hundreds from one prefix. The few merge; the bulk only links to TP53."""
     w = ERWeights()
     reactome = [f"REACT:R-HSA-{i}" for i in range(w.max_ids_per_prefix["kg2"] + 1)]
     ids = ["NCBIGene:7157", "HGNC:11998", "NCIT:C17359", *reactome]
     ev = _by_pair(clique_evidence(ids, "kg2", w, head="NCBIGene:7157"))
-    assert ev[("HGNC:11998", "NCIT:C17359")] == w.equivalency_weight("kg2")  # core: full weight, full clique
+    for core in ("HGNC:11998", "NCIT:C17359"):  # core: full weight, to the listing node (a star, not a clique)
+        assert ev[_pair("NCBIGene:7157", core)] == w.equivalency_weight("kg2")
+    assert _pair("HGNC:11998", "NCIT:C17359") not in ev
     for r in reactome:
         assert ev[("NCBIGene:7157", r)] == w.bulk_prefix_weight < w.tau  # bulk: one weak edge to the head
         assert ("HGNC:11998", r) not in ev and ("NCIT:C17359", r) not in ev
     assert not any(a.startswith("REACT:") and b.startswith("REACT:") for a, b in ev)  # never bulk-to-bulk
 
 
-def test_a_long_list_with_no_bulk_prefix_merges_whole():
-    """Type 2 diabetes's shape: 26 ids, none of one prefix in bulk -- all of it keeps full weight."""
+def test_an_aggregator_list_is_a_star_from_the_listing_node_however_small():
+    """An aggregator's list is ONE claim about ONE node. As a clique it is a dense community that label
+    propagation prefers over the curated cliques inside it -- which is how kg2's heart list split the heart in
+    two, and how its metformin list fused metformin with its hydrochloride."""
     w = ERWeights()
     ids = [f"P{i}:{i}" for i in range(26)]
-    ev = list(clique_evidence(ids, "kg2", w))
+    ev = _by_pair(clique_evidence(ids, "kg2", w, head="P0:0"))
+    assert len(ev) == 25  # a star, not 26*25/2
+    assert all("P0:0" in pair for pair in ev)
+    assert set(ev.values()) == {w.equivalency_weight("kg2")}
+
+
+def test_a_curated_source_list_stays_a_full_clique():
+    """Babel's cliques and the native curated lists are every-member-vouches-for-every-other, so they stay
+    cliques (up to clique_cap) -- that mutual support is what an aggregator list must not imitate."""
+    w = ERWeights()
+    ids = [f"P{i}:{i}" for i in range(26)]
+    ev = list(clique_evidence(ids, "babel", w, head="P0:0"))
     assert len(ev) == 26 * 25 // 2
-    assert {wt for _a, _b, _g, wt in ev} == {w.equivalency_weight("kg2")}
+    assert {wt for _a, _b, _g, wt in ev} == {w.equivalency_weight("babel")}
 
 
 def test_up_to_the_cap_is_not_bulk():

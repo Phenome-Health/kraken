@@ -46,6 +46,8 @@ def test_cross_cluster_equivalence_becomes_close_match_self_loops_dropped(tmp_pa
     assert edge["primary_knowledge_source"] == "infores:some-source"
     assert edge["knowledge_level"] == "knowledge_assertion"
     assert edge["agent_type"] == "not_provided"  # synthesized edge -> agent unknown
+    # KRAKEN is the aggregator that produced the edge, as on every directly ingested edge
+    assert edge["aggregator_knowledge_source"] == ["kraken"]
 
 
 def _write_kg2(tmp_path, edges):

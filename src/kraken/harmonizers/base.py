@@ -40,6 +40,7 @@ from kraken.utils.constants import (
     NOT_PROVIDED,
     ORIGINAL_OBJECT_ATTR,
     ORIGINAL_SUBJECT_ATTR,
+    TAXON_BEARING_CATEGORIES,
     UNRELIABLE_PUBLICATION_PRIMARY_KS,
 )
 from kraken.utils.general import clean_text, is_empty, to_list
@@ -148,6 +149,9 @@ class BaseHarmonizer(ABC):
     # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
     exclude_from_list_parsing: set[str] = set()
 
+    # Counted by create_node; a class default so it exists even on a bare instance (see log_taxon_report).
+    taxa_dropped_off_non_gene_nodes: int = 0
+
     def __init__(self, biolink_client: BiolinkClient, source_id: str, auto_source_exclusions: set[str] | None = None):
         self.source_infores = source_id  # from build_config; the source's provenance id (infores or bare id)
         # The manual class-level list plus whatever build_config's drop_from_other_sources flags add
@@ -167,6 +171,7 @@ class BaseHarmonizer(ABC):
         self.stripped_publications_count = 0
         self.multi_taxon_node_count = 0
         self.multi_taxon_examples: list[str] = []
+        self.taxa_dropped_off_non_gene_nodes = 0
         self.name_override_count = 0
 
         self.core_node_props = (
@@ -499,6 +504,14 @@ class BaseHarmonizer(ABC):
         if len(entry["examples"]) < MAX_UNNORMALIZED_EXAMPLES:
             entry["examples"].append(curie)
 
+    def log_taxon_report(self) -> None:
+        """Report taxa dropped from nodes that aren't genes or proteins (see TAXON_BEARING_CATEGORIES)."""
+        if self.taxa_dropped_off_non_gene_nodes:
+            logging.info(
+                f"{self.source_name}: dropped the taxon from {self.taxa_dropped_off_non_gene_nodes} nodes that are "
+                f"neither gene nor protein (it guards ortholog merges, and elsewhere only blocks correct ones)"
+            )
+
     def log_normalization_report(self) -> None:
         """Report every curie biomapper2 could not fully normalize -- a work queue, not a failure log.
 
@@ -652,6 +665,11 @@ class BaseHarmonizer(ABC):
         # untaxoned nodes are wildcards for taxon-based merge guards, so entity resolution can still take the
         # right taxon from a source that knows it. Counted below so the source problem stays visible.
         distinct_taxa = sorted({value for value in to_list(taxon) if value})
+        # A taxon is kept only where it guards against ortholog merges (see TAXON_BEARING_CATEGORIES); on a
+        # disease, phenotype or chemical it only blocks merges that should happen.
+        if distinct_taxa and not (TAXON_BEARING_CATEGORIES & set(leaf_categories)):
+            self.taxa_dropped_off_non_gene_nodes += 1
+            distinct_taxa = []
         if len(distinct_taxa) == 1:
             node[NODE_TAXON] = distinct_taxa[0]
         elif distinct_taxa:

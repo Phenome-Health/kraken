@@ -42,17 +42,28 @@ def clique_evidence(
 ) -> Iterator[Evidence]:
     """Emit evidence edges for one source's equivalency set.
 
-    Up to ``clique_cap`` ids -> full clique (robust: survives to the accumulated
-    weight-vs-gamma threshold, all-or-nothing). Beyond the cap -> a star (a scale valve against N^2 edges on
-    a pathological set) whose hub is ``head``: the node that listed the ids, or Babel's preferred id
-    for one of its cliques. The hub matters. A star's hub is where label propagation anchors the set, so an
-    arbitrary hub can carry real members off into a side community -- with the lexically smallest id as hub,
-    metformin hydrochloride's CAS (which happens to sort first) ended up representing a separate node of
-    metformin's branded products, and glucose lost its main CAS number the same way. Without a ``head``, the
-    lexically smallest id is used.
+    A CURATED source's set (Babel's cliques, RefMet, NCBI Gene, ...) becomes a full clique up to
+    ``clique_cap`` ids -- robust, since every member vouches for every other -- and a star beyond it, purely as
+    a scale valve against N^2 edges.
+
+    An AGGREGATOR's set (``ERWeights.aggregator_list_sources``) is ALWAYS a star, however small. Its list is one
+    claim by one source about one node, not n(n-1)/2 independent ones, and as a clique it behaves like a dense
+    community that label propagation prefers over the curated cliques inside it: kg2's 14-id heart list
+    (79k-edge cliques at 400 ids) tore the heart in two, keeping FMA:7088 and ChEMBL's heart targets apart from
+    UBERON:0000948, and its metformin list fused metformin with its hydrochloride and combination products. As a
+    star, each listed id hangs off the listing node alone, so it settles into whichever curated clique actually
+    claims it and only stays attached when nothing else does.
+
+    The hub is ``head``: the node that listed the ids (an aggregator's own canonical id), or Babel's preferred id
+    for one of its cliques. The hub matters -- it is where label propagation anchors the set, so an arbitrary hub
+    can carry real members off into a side community. With the lexically smallest id as hub, metformin
+    hydrochloride's CAS (which happens to sort first) ended up representing a separate node of metformin's
+    branded products, and glucose lost its main CAS number the same way. Without a ``head``, the lexically
+    smallest id is used.
 
     For a prefix-capped source (``ERWeights.max_ids_per_prefix``), ids of any prefix the set holds more of
-    than the cap are BULK: each gets one ``bulk_prefix_weight`` edge to ``head`` instead of joining the clique.
+    than the cap are BULK: each gets one ``bulk_prefix_weight`` edge to ``head`` rather than the source's full
+    weight.
     """
     ids = sorted({i for i in equivalent_ids if i})
     if len(ids) < 2:
@@ -75,7 +86,7 @@ def clique_evidence(
             ids = core
     if len(ids) < 2:
         return
-    if len(ids) <= weights.clique_cap:
+    if len(ids) <= weights.clique_cap and source not in weights.aggregator_list_sources:
         n = len(ids)
         for i in range(n):
             for j in range(i + 1, n):

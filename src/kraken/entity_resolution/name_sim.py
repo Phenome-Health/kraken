@@ -8,7 +8,8 @@ Name-similarity edges catch entities with no equivalency at all. Rules:
 * **Primary names only** — synonyms must not enter the graph (NCBI Gene curates
   cleavage products as gene aliases; LOINC attaches ``'Point in time'`` to 97k
   codes).
-* Cap group size, keep a stoplist, drop very short and purely numeric names.
+* Cap group size, keep a stoplist, drop very short and purely numeric names,
+  and drop names that are just an identifier (see IDENTIFIER_LIKE_NAME).
 * Weighting is handled in ``weights.py`` (well below any single-source
   equivalency), not here.
 """
@@ -41,6 +42,14 @@ DEFAULT_STOPLIST: frozenset[str] = frozenset(
 )
 
 
+# Names that are really an identifier. A dbSNP rsid names a POSITION, and every ClinGen allele at that position
+# is named after it -- 5.1M CAID and 5.0M DBSNP nodes are called "rs10154897" and the like. Matching on those is
+# identifier matching, not name matching: it glues every allele at a position into one cluster, which the CAID
+# one-id guardrail then has to take apart again (that split is what fills the build log). The allele/position
+# relationship is already carried properly, as ``member_of`` edges (see harmonizers/robokop.py).
+IDENTIFIER_LIKE_NAME = re.compile(r"^rs\d+$")
+
+
 def normalize_name(name: str | None) -> str:
     """Lowercase, strip accents, collapse punctuation/whitespace to single spaces."""
     if not name:
@@ -61,6 +70,8 @@ def is_droppable(normalized: str, *, min_length: int = 3, stoplist: frozenset[st
         return True
     # purely numeric (digits and spaces only)
     if all(ch.isdigit() or ch.isspace() for ch in normalized):
+        return True
+    if IDENTIFIER_LIKE_NAME.match(normalized):
         return True
     return False
 

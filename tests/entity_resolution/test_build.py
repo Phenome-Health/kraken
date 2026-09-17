@@ -777,3 +777,128 @@ def test_babel_evidence_regroups_stars_into_cliques_and_skips_drug_relations(tmp
         ("G:1", "P:1", "babel:gene_protein"),
     }
     assert {float(weight) for *_, weight, _kind in rows} == {ERWeights().equivalency_weight("babel")}
+
+
+def test_aggregator_pairs_babel_knows_both_ids_of_are_ignored(tmp_path):
+    """Where Babel knows both ids, it decides: either it already asserts the pair, or it deliberately keeps the two
+    apart (a compound vs its salt) and the aggregator -- which conflates drug with chemical -- doesn't get a vote.
+    A pair with an id Babel has never heard of is exactly what aggregators are for, and still counts."""
+    babel = _write_source_with_edges(
+        tmp_path,
+        "babel",
+        [
+            {"id": c, "categories": ["biolink:SmallMolecule"], "provided_by": ["infores:sri-node-normalizer"]}
+            for c in ("CHEBI:6801", "CHEBI:6802")
+        ],
+        [],  # two separate one-id cliques: metformin, and metformin hydrochloride
+    )
+    # kg2 lists the compound, its salt (both Babel ids) and a CHV id Babel doesn't know
+    kg2 = _write_source(
+        tmp_path,
+        "kg2",
+        [
+            {
+                "id": "CHEBI:6801",
+                "categories": ["biolink:SmallMolecule"],
+                "provided_by": ["infores:rtx-kg2"],
+                "equivalent_ids": ["CHEBI:6801", "CHEBI:6802", "CHV:0000008019"],
+            }
+        ],
+    )
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel, "kg2": kg2},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["CHEBI:6801"] != m["CHEBI:6802"], "an aggregator list re-merged a salt Babel keeps separate"
+    assert m["CHV:0000008019"] == m["CHEBI:6801"], "an id only the aggregator knows should still attach"
+
+
+def test_a_gene_and_protein_conflation_becomes_one_clique_not_two_joined_by_a_bridge(tmp_path):
+    """We treat a conflated gene and protein as one entity, so their two Babel cliques must become ONE clique.
+    Left as two cliques joined by the single conflation edge, clustering cuts that bridge -- which is how BRCA1
+    came out as HGNC + ENSG in one node and NCBIGene + its 22 proteins in another."""
+    import io
+
+    from kraken.entity_resolution.build import _write_babel_evidence
+    from kraken.entity_resolution.weights import ERWeights
+
+    def edge(subject, object_, relation=None):
+        row = {"subject": subject, "predicate": "biolink:same_as", "object": object_}
+        if relation:
+            row["attributes"] = {"infores:sri-node-normalizer": {"babel_relation": relation}}
+        return row
+
+    path = tmp_path / "edges.jsonl"
+    with jsonlines.open(path, "w") as writer:
+        writer.write_all(
+            [
+                edge("NCBIGene:672", "HGNC:1100"),  # the gene's clique
+                edge("NCBIGene:672", "ENSEMBL:ENSG00000012048"),
+                edge("UniProtKB:P38398", "ENSEMBL:ENSP00000418960"),  # the protein's clique, written separately
+                edge("NCBIGene:672", "UniProtKB:P38398", "gene_protein_conflation"),
+            ]
+        )
+    out = io.StringIO()
+    _write_babel_evidence(path, ERWeights(), out)
+    pairs = {(a, b) for a, b, _group, _weight, _kind in (line.split("\t") for line in out.getvalue().splitlines())}
+
+    # every pair across the two cliques, not just the gene hub to the protein hub
+    assert ("ENSEMBL:ENSG00000012048", "ENSEMBL:ENSP00000418960") in pairs
+    assert ("HGNC:1100", "UniProtKB:P38398") in pairs
+    members = ["NCBIGene:672", "HGNC:1100", "ENSEMBL:ENSG00000012048", "UniProtKB:P38398", "ENSEMBL:ENSP00000418960"]
+    assert len(pairs) == len(members) * (len(members) - 1) // 2  # one clique over all five ids
+
+
+def test_an_unmerged_node_keeps_its_category(tmp_path):
+    """Only ids that reach the match graph have an intrinsic category, so an id whose evidence never reached tau
+    used to be written out as NamedThing -- half the graph, including 2.1M taxa and 1.1M proteins. It keeps
+    Babel's type where Babel knows it, and its source's otherwise."""
+    babel = _write_source_with_edges(
+        tmp_path,
+        "babel",
+        [
+            {
+                "id": "CHEBI:16236",
+                "categories": ["biolink:SmallMolecule"],
+                "provided_by": ["infores:sri-node-normalizer"],
+                "name": "ethanol",
+            }
+        ],
+        [],
+    )
+    # kg2 types the same id from a conflated node, and carries one Babel has never heard of
+    kg2 = _write_source(
+        tmp_path,
+        "kg2",
+        [
+            {
+                "id": "CHEBI:16236",
+                "categories": ["biolink:Drug", "biolink:Disease"],
+                "provided_by": ["infores:rtx-kg2"],
+                "equivalent_ids": ["CHEBI:16236"],
+            },
+            {
+                "id": "WEIRD:1",
+                "categories": ["biolink:Pathway"],
+                "provided_by": ["infores:rtx-kg2"],
+                "equivalent_ids": ["WEIRD:1"],
+            },
+        ],
+    )
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel, "kg2": kg2},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    resolve_entities(config, biolink=None)
+    with jsonlines.open(config.integrated_nodes_path) as reader:
+        by_id = {member: n for n in reader for member in n["equivalent_ids"]}
+
+    # Babel's per-id type wins over the aggregator's conflated list, even though neither id ever merged
+    assert by_id["CHEBI:16236"]["categories"] == ["biolink:SmallMolecule"]
+    # an id Babel doesn't know keeps what its source said, rather than falling through to NamedThing
+    assert by_id["WEIRD:1"]["categories"] == ["biolink:Pathway"]

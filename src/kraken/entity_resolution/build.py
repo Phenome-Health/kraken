@@ -47,6 +47,7 @@ from kraken.entity_resolution.guardrails import (
     cluster_violations,
     enforce_cluster,
     ids_per_cluster_histogram,
+    log_one_id_repairs,
     log_oversized_clusters,
 )
 from kraken.entity_resolution.id_facts import IdFacts, IdFactsStore
@@ -184,8 +185,11 @@ def _stage1_write_evidence_and_facts(
             if ev_alias is not None:
                 ev.write(_evidence_row(*ev_alias, kind=f"alias:{source}"))
 
-    sources = sorted(config.all_harmonized_paths_resolved.items())
+    # Babel FIRST, so every other source's lists can be tested against what Babel knows (see below); the rest in
+    # a fixed order so a build is reproducible.
+    sources = sorted(config.all_harmonized_paths_resolved.items(), key=lambda kv: (kv[0] != "babel", kv[0]))
     babel_facts: list[tuple[str, IdFacts]] = []
+    dropped_known_pairs = 0
     with open(evidence_path, "w") as ev, open(names_path, "w") as nm:
         # Pass 1: every source's NODES (ids, equivalency lists, categories, taxa, names).
         for source, (nodes_path, _edges_path) in sources:
@@ -200,6 +204,9 @@ def _stage1_write_evidence_and_facts(
                         if len(babel_facts) >= BABEL_FACTS_BATCH:
                             facts.record(babel_facts)
                             babel_facts.clear()
+                    elif babel_facts:  # flush before the first non-Babel source, so ``facts`` is complete
+                        facts.record(babel_facts)
+                        babel_facts.clear()
                     node_ids.add(node_id)
                     seeds[node_id] = seeds.get(node_id, 0) | bit
                     source_provided_by[source].update(node.get(NODE_PROVIDED_BY) or ())
@@ -207,15 +214,28 @@ def _stage1_write_evidence_and_facts(
                     for equiv_id in equiv_ids:
                         seeds[equiv_id] = seeds.get(equiv_id, 0) | bit
                     # Equivalency-clique evidence from EVERY source, weighted per source:
-                    # native curated lists are strong (>=tau, merge on their own). The
-                    # canonicalized aggregators are PREFIX-CAPPED -- ids of a prefix a list holds
-                    # in bulk get only a weak link to the listing node, the rest merge (see
-                    # ERWeights.max_ids_per_prefix) -- and share the "babel_derived"
-                    # source group so their Babel echo counts once. The clean, current
-                    # cross-ontology backbone comes from Babel's own cliques (its edges, pass 2);
-                    # aggregator lists recover the mappings it doesn't know.
-                    for evidence in clique_evidence(equiv_ids, source, weights, head=node_id):
-                        ev.write(_evidence_row(*evidence, kind=f"equiv:{source}"))
+                    # native curated lists are strong (>=tau, merge on their own). An aggregator's list is a
+                    # STAR from this node and PREFIX-CAPPED (see match_graph.clique_evidence and
+                    # ERWeights.max_ids_per_prefix), and all of them share the "babel_derived" source group so
+                    # their Babel echo counts once.
+                    #
+                    # An aggregator pair BABEL KNOWS BOTH SIDES OF contributes nothing: either Babel already
+                    # asserts it (6.3M pairs -- redundant), or Babel deliberately keeps the two apart (564k
+                    # pairs), and there we trust Babel. The aggregators canonicalize with drug/chemical
+                    # conflation ON, so those 564k are overwhelmingly a compound fused with its salts, its
+                    # branded products and its combination products -- metformin with metformin hydrochloride
+                    # and Jentadueto, glucose with every stereoform. What an aggregator uniquely offers is the
+                    # ids Babel has never heard of (9.7M pairs), and those still count. Nothing is lost from the
+                    # graph: integration keeps every cross-cluster assertion as a close_match edge.
+                    aggregator_list = source in weights.aggregator_list_sources
+                    head_known = aggregator_list and facts.knows(node_id)
+                    for a, b, group, weight in clique_evidence(equiv_ids, source, weights, head=node_id):
+                        if aggregator_list:
+                            other = b if a == node_id else a
+                            if head_known and other != node_id and facts.knows(other):
+                                dropped_known_pairs += 1
+                                continue
+                        ev.write(_evidence_row(a, b, group, weight, kind=f"equiv:{source}"))
                     cats = node.get(NODE_CATEGORIES) or []
                     branches = families.branches(cats) if cats else ALL_FAMILIES
                     if cats and branches is not ALL_FAMILIES and len(branches) == 1:
@@ -238,6 +258,12 @@ def _stage1_write_evidence_and_facts(
         if babel_facts:
             facts.record(babel_facts)
             babel_facts.clear()
+        if dropped_known_pairs:
+            logging.info(
+                "entity_resolution: ignored %d aggregator equivalency pairs Babel knows both ids of "
+                "(Babel decides those; they survive as close_match edges)",
+                dropped_known_pairs,
+            )
 
         # Pass 2: every source's EDGES -- aliases (which need pass 1 complete) and match predicates.
         # Match-predicate (close/exact/same_as) edges are match-graph evidence, but
@@ -305,36 +331,76 @@ def _babel_relation(edge: dict) -> str | None:
     return None
 
 
-def _write_babel_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
-    """Equivalence evidence from Babel's same_as edges: each clique (a star from its preferred id) and each
-    gene/protein conflation (a star from the gene), regrouped by hub and weighted as ONE list with the hub as head,
-    so a clique within ``clique_cap`` is a full clique again rather than a star. Babel's other edges -- its
-    drug/chemical relations -- are deliberately not evidence: that conflation is off.
+def _conflated_hubs(edges_path: Path) -> dict[str, str]:
+    """``clique hub -> the hub the conflated group is anchored on``, from Babel's gene/protein conflation edges.
 
-    The harmonizer writes each hub's edges consecutively, so a group is one run of edges sharing subject and
-    relation; memory is bounded by the largest clique. Were a hub's edges ever split across runs, each run would
-    still be linked to the same hub -- only the within-run pairs would be missing.
+    Babel writes a gene's clique and its protein's clique separately, then one edge between their preferred ids.
+    Treated literally that is two cliques joined by a single bridge -- and a bridge is exactly what a clustering
+    step cuts: BRCA1 came out as HGNC + ENSG + OMIM in one node and NCBIGene + its 22 UniProtKB proteins in
+    another. We conflate gene and protein, so the two cliques are ONE clique; this map is how the two groups find
+    each other (union-find over the conflation edges, so a gene conflated with several proteins is one group).
+
+    Only hubs that take part in a conflation are held, so this is a few million entries, not one per Babel id.
     """
-    current: tuple[str, str | None] | None = None
+    parent: dict[str, str] = {}
+
+    def find(hub: str) -> str:
+        parent.setdefault(hub, hub)
+        while parent[hub] != hub:
+            parent[hub] = parent[parent[hub]]
+            hub = parent[hub]
+        return hub
+
+    for edge in stream_edges_from_jsonl(edges_path):
+        if _babel_relation(edge) != GENE_PROTEIN_CONFLATION_RELATION:
+            continue
+        gene, protein = find(edge.get(EDGE_SUBJECT)), find(edge.get(EDGE_OBJECT))
+        if gene != protein:
+            parent[protein] = gene  # anchor the conflated group on the gene's hub
+    return {hub: find(hub) for hub in parent}
+
+
+def _write_babel_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
+    """Equivalence evidence from Babel's same_as edges: each clique, and each gene/protein conflation MERGED INTO
+    the gene's clique (see ``_conflated_hubs``), weighted as ONE list with the hub as head -- so a group within
+    ``clique_cap`` is a full clique. Babel's other edges -- its drug/chemical relations -- are deliberately not
+    evidence: that conflation is off.
+
+    The harmonizer writes each hub's edges consecutively, so an unconflated clique is one run of edges sharing a
+    subject and is emitted as it streams. A conflated group's two cliques are written in different places (one per
+    compendium), so those are accumulated by anchor hub and emitted at the end; memory is bounded by the
+    gene/protein ids that take part in a conflation, not by Babel.
+    """
+    anchor_of = _conflated_hubs(edges_path)
+    logging.info("entity_resolution: %d Babel clique hubs are gene/protein conflations", len(anchor_of))
+    conflated: dict[str, set[str]] = defaultdict(set)
+    current: str | None = None
     members: list[str] = []
 
     def flush() -> None:
         if current is None or not members:
             return
-        hub, relation = current
-        kind = "babel:gene_protein" if relation == GENE_PROTEIN_CONFLATION_RELATION else "babel"
-        for evidence in clique_evidence([hub, *members], "babel", weights, head=hub):
-            ev.write(_evidence_row(*evidence, kind=kind))
+        anchor = anchor_of.get(current)
+        if anchor is not None:  # part of a conflated group: hold it until every clique of the group is in
+            conflated[anchor].update(members)
+            conflated[anchor].add(current)
+            return
+        for evidence in clique_evidence([current, *members], "babel", weights, head=current):
+            ev.write(_evidence_row(*evidence, kind="babel"))
 
     for edge in stream_edges_from_jsonl(edges_path):
         if edge.get(EDGE_PREDICATE) != SAME_AS_PREDICATE:
             continue
-        key = (edge.get(EDGE_SUBJECT), _babel_relation(edge))
-        if key != current:
+        subject = edge.get(EDGE_SUBJECT)
+        if subject != current:
             flush()
-            current, members = key, []
+            current, members = subject, []
         members.append(edge.get(EDGE_OBJECT))
     flush()
+
+    for anchor, group in conflated.items():
+        for evidence in clique_evidence([anchor, *sorted(group)], "babel", weights, head=anchor):
+            ev.write(_evidence_row(*evidence, kind="babel:gene_protein"))
 
 
 # subclass_of / superclass_of between the same pair signals the co-occurring close_match
@@ -577,6 +643,7 @@ def _stage3_cluster(
     curie_to_cluster: dict[str, int] = {}
     all_clusters: list[list[str]] = []
     next_cluster_id = 0
+    repairs: Counter = Counter()  # one-id repairs, reported once at the end rather than per cluster
 
     for comp in range(n_components):
         node_idx = node_order[comp_node_starts[comp] : comp_node_ends[comp]]
@@ -604,7 +671,9 @@ def _stage3_cluster(
             checked: list[list[str]] = []
             for cluster in raw_clusters:
                 checked.extend(
-                    enforce_cluster(cluster, info, guardrail_config, splitter=None, adjacency=adjacency)
+                    enforce_cluster(
+                        cluster, info, guardrail_config, adjacency=adjacency, splitter=None, repairs=repairs
+                    )
                 )
             raw_clusters = checked
 
@@ -614,6 +683,7 @@ def _stage3_cluster(
             all_clusters.append(cluster)
             next_cluster_id += 1
 
+    log_one_id_repairs(repairs, guardrail_config)
     log_oversized_clusters(all_clusters, guardrail_config)
     return curie_to_cluster, ids_per_cluster_histogram(all_clusters), bare_names, mg_categories
 
@@ -675,6 +745,26 @@ def _stage4_materialize(
         info = facts.get(curie)
         return info.taxa[0] if info and info.taxa else None
 
+    def node_category(curie: str, source_categories: list[str] | None) -> list[str]:
+        """The categories to write on a HARMONIZED node: its intrinsic one, else Babel's, else what its source
+        said, else the bare-id chain.
+
+        Only ids that reached the match graph have an intrinsic category, and an id whose evidence never reached
+        tau doesn't -- so taking ``mg_categories`` alone silently dropped the type of every unmerged node, half
+        the graph: 2.1M NCBITaxon ids Babel calls OrganismTaxon, 1.1M UniProtKB proteins, 169k RefMet small
+        molecules, all written out as NamedThing. Babel comes before the source's own list for the same reason
+        ``mg_categories`` does: an aggregator's list is conflated, Babel's per-id type is not.
+        """
+        cats = mg_categories.get(curie)
+        if cats:
+            return sorted(cats)
+        info = facts.get(curie)
+        if info and info.categories:
+            return sorted(info.categories)
+        if source_categories:
+            return sorted(source_categories)
+        return bare_category(curie)
+
     def bare_category(curie: str) -> list[str]:
         cats = mg_categories.get(curie)  # computed in stage 3 for match-graph ids
         if cats:
@@ -708,10 +798,10 @@ def _stage4_materialize(
                     node_id = node.get(NODE_ID)
                     if not node_id:
                         continue
-                    # Replace the (possibly conflated) source category list with this
-                    # id's single intrinsic category, so the merged node's categories
-                    # are the union of its members' true types, not conflation leftovers.
-                    node[NODE_CATEGORIES] = sorted(mg_categories.get(node_id, ()))
+                    # Replace the (possibly conflated) source category list with this id's single intrinsic
+                    # category, so the merged node's categories are the union of its members' true types, not
+                    # conflation leftovers.
+                    node[NODE_CATEGORIES] = node_category(node_id, node.get(NODE_CATEGORIES))
                     # Taxon: Babel wins; else keep the source taxon already on the dict; else
                     # the single-species prefix backup (last resort, never before source).
                     babel_taxon = taxon_of(node_id)

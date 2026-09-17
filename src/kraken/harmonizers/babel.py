@@ -26,10 +26,12 @@ filtered by a rule that looks only at the clique itself -- never at what other s
 doesn't depend on build order:
   * Gene / Protein cliques from organisms of no biomedical interest: kept only if a clique taxon is in
     ncbigene_taxon_allowlist.py (after rolling up to species -- the same list NCBI Gene is scoped by).
-  * SmallMolecule / MolecularMixture cliques made only of structure-registry ids (PubChem, InChIKey, CAS, ChEMBL):
-    ~117M structures no curated vocabulary names -- vendor compounds, screening libraries, patent examples. Kept
-    only if some other identifier (HMDB, ChEBI, UNII, MeSH, DrugBank, ...) is present: 1.9M of SmallMolecule's
-    232M ids. Counting CAS or ChEMBL as curation instead would keep 10M or 21M.
+  * SmallMolecule / MolecularMixture cliques made only of a deposited structure and its hash (PubChem, InChIKey):
+    ~97M of them. Kept if ANY other identifier is present -- CAS or ChEMBL included -- which leaves 20.9M of
+    SmallMolecule's 232M ids. Those two registries count as curation despite being bulk, because an id Babel
+    DROPS is one Babel has no opinion about, and entity resolution defers to Babel only for ids it knows (see
+    build._stage1_write_evidence_and_facts). Dropping them handed those ids back to the aggregators' conflated
+    lists, which is how Jentadueto (a CAS+InChIKey+PubChem clique) ended up merged into metformin.
   * Publication: excluded entirely (PMIDs aren't entities we resolve).
 And in every compendium, a clique that is ONE identifier with no label and no taxon is dropped: it says nothing
 beyond "this id exists" (2.5M of them are nameless Ensembl genes of unknown organism). An id like that which
@@ -75,10 +77,9 @@ TAXDUMP_FILENAME = "taxdump.tar.gz"
 EXCLUDED_COMPENDIA = frozenset({"Publication"})
 TAXON_FILTERED_COMPENDIA = frozenset({"Gene", "Protein"})
 STRUCTURE_FILTERED_COMPENDIA = frozenset({"SmallMolecule", "MolecularMixture"})
-# Identifiers assigned to structures wholesale -- every deposited compound (PubChem, InChIKey), every registered
-# substance (CAS), every compound in a medicinal-chemistry paper or assay (ChEMBL) -- so on their own they say
-# nothing about whether anyone curates the entity.
-STRUCTURE_ONLY_PREFIXES = frozenset({"PUBCHEM.COMPOUND", "INCHIKEY", "CAS", "CHEMBL.COMPOUND"})
+# A deposited structure and the hash of that structure: every compound in PubChem has both, so a clique holding
+# only these says nothing beyond "this structure was deposited somewhere".
+STRUCTURE_ONLY_PREFIXES = frozenset({"PUBCHEM.COMPOUND", "INCHIKEY"})
 
 # --- Edges ---
 # Babel's drug/chemical relations (RxNorm's, via UMLS) read subject -> object: "doxepin 100 MG Oral Capsule

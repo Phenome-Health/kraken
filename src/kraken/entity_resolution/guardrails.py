@@ -231,8 +231,12 @@ def enforce_cluster(
     *,
     adjacency: Mapping[str, Mapping[str, float]],
     splitter: Splitter | None = None,
+    repairs: Counter | None = None,
 ) -> list[list[str]]:
     """Split a cluster until every part is guardrail-valid.
+
+    ``repairs`` (optional) tallies one-id repairs by prefix for the caller to report; see
+    ``log_one_id_repairs``.
 
     Tries ``splitter`` first if provided; otherwise (or if it fails to reduce the
     cluster) falls back to ``greedy_valid_partition``. Terminates because both
@@ -243,17 +247,16 @@ def enforce_cluster(
     if not violations:
         return [members]
 
-    # Surface large one-id repairs: they mean many distinct entities were merged upstream.
-    if "one_id" in violations:
-        n_ids = _max_offending_id_count(members, config.enforced_prefixes)
-        if n_ids > config.one_id_repair_log_threshold:
-            logging.warning(
-                "one_id violation with %d ids of a single prefix; splitting the cluster (%d members) -- "
-                "a repair this large usually means an upstream conflation (members=%s...)",
-                n_ids,
-                len(members),
-                members[:6],
-            )
+    # Tally one-id repairs rather than logging each: a build does millions of them (every ClinGen allele that
+    # shares a position with another), and the per-cluster warnings drowned the log. The caller reports the
+    # totals, and the biggest repairs -- which are the ones that mean an upstream conflation -- by prefix.
+    if "one_id" in violations and repairs is not None:
+        prefix, n_ids = _max_offending_id_count(members, config.enforced_prefixes)
+        if prefix is not None:
+            repairs[prefix] += 1
+            if n_ids > config.one_id_repair_log_threshold:
+                repairs[f"{prefix}{LARGE_REPAIR_SUFFIX}"] += 1
+                repairs[f"{prefix}{WORST_REPAIR_SUFFIX}"] = max(repairs[f"{prefix}{WORST_REPAIR_SUFFIX}"], n_ids)
 
     sub: list[list[str]] | None = None
     if splitter is not None:
@@ -272,17 +275,41 @@ def enforce_cluster(
         if part == members:  # no progress; avoid infinite recursion
             result.append(part)
         else:
-            result.extend(enforce_cluster(part, info, config, splitter=splitter, adjacency=adjacency))
+            result.extend(enforce_cluster(part, info, config, adjacency=adjacency, splitter=splitter, repairs=repairs))
     return result
 
 
-def _max_offending_id_count(members: Iterable[str], enforced_prefixes: frozenset[str]) -> int:
+def _max_offending_id_count(members: Iterable[str], enforced_prefixes: frozenset[str]) -> tuple[str | None, int]:
+    """The enforced prefix this cluster holds most ids of, and how many."""
     by_prefix: Counter[str] = Counter()
     for m in members:
         p = m.split(":", 1)[0]
         if p in enforced_prefixes:
             by_prefix[p] += 1
-    return max(by_prefix.values(), default=0)
+    if not by_prefix:
+        return None, 0
+    prefix, count = by_prefix.most_common(1)[0]
+    return prefix, count
+
+
+# Keys ``enforce_cluster`` adds to its ``repairs`` tally alongside the per-prefix count.
+LARGE_REPAIR_SUFFIX = " (over the log threshold)"
+WORST_REPAIR_SUFFIX = " (most ids in one cluster)"
+
+
+def log_one_id_repairs(repairs: Counter, config: GuardrailConfig) -> None:
+    """Report one-id repairs once, by prefix, rather than once per cluster."""
+    prefixes = sorted(p for p in repairs if not p.endswith((LARGE_REPAIR_SUFFIX, WORST_REPAIR_SUFFIX)))
+    for prefix in prefixes:
+        large = repairs[f"{prefix}{LARGE_REPAIR_SUFFIX}"]
+        worst = repairs[f"{prefix}{WORST_REPAIR_SUFFIX}"]
+        message = f"entity_resolution: split {repairs[prefix]} clusters holding more than one {prefix} id"
+        if large:
+            message += (
+                f"; {large} of them held over {config.one_id_repair_log_threshold} (worst: {worst}) -- "
+                f"a repair that large usually means an upstream conflation"
+            )
+        logging.info(message)
 
 
 # ---- instrumentation (plan: emit before promoting a candidate rule) ----

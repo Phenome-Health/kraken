@@ -172,27 +172,44 @@ def test_splitter_used_when_it_reduces():
         assert not cluster_violations(part, info, cfg)
 
 
-def test_large_one_id_violation_is_repaired_and_logged(caplog):
+def test_large_one_id_violation_is_repaired_and_reported(caplog):
     """k ids of a one-entity-per-id prefix means k merged entities, however large k is.
 
     This used to be capped: past 3 ids the cluster was left intact, which shipped the worst conflations
-    (a 2.1.1 cluster with 247 RefMet ids) unrepaired. Large repairs are now carried out, and logged."""
+    (a 2.1.1 cluster with 247 RefMet ids) unrepaired. Large repairs are now carried out, and tallied for the
+    caller to report -- per-cluster warnings drowned the log, since a build does millions of these."""
+    from collections import Counter
+
+    from kraken.entity_resolution.guardrails import log_one_id_repairs
+
     cfg = GuardrailConfig(enforced_prefixes=frozenset({"HGNC"}), one_id_repair_log_threshold=3)
     info = {f"HGNC:{i}": _ni(f"HGNC:{i}", ("biolink:Gene",)) for i in range(6)}
-    with caplog.at_level("WARNING"):
-        parts = enforce_cluster(list(info), info, cfg, adjacency=_complete(list(info)))
+    repairs: Counter = Counter()
+    parts = enforce_cluster(list(info), info, cfg, adjacency=_complete(list(info)), repairs=repairs)
     assert len(parts) == 6
     assert all(not cluster_violations(part, info, cfg) for part in parts)
-    assert "one_id violation with 6 ids" in caplog.text
+    assert repairs["HGNC"] == 1  # one cluster repaired, however many ids it held
+
+    with caplog.at_level("INFO"):
+        log_one_id_repairs(repairs, cfg)
+    assert "split 1 clusters holding more than one HGNC id" in caplog.text
+    assert "worst: 6" in caplog.text
 
 
-def test_small_one_id_repair_is_not_logged(caplog):
+def test_a_small_one_id_repair_is_counted_but_not_called_out(caplog):
+    from collections import Counter
+
+    from kraken.entity_resolution.guardrails import log_one_id_repairs
+
     cfg = GuardrailConfig(enforced_prefixes=frozenset({"HGNC"}), one_id_repair_log_threshold=3)
     info = {f"HGNC:{i}": _ni(f"HGNC:{i}", ("biolink:Gene",)) for i in range(2)}
-    with caplog.at_level("WARNING"):
-        parts = enforce_cluster(list(info), info, cfg, adjacency=_complete(list(info)))
+    repairs: Counter = Counter()
+    parts = enforce_cluster(list(info), info, cfg, adjacency=_complete(list(info)), repairs=repairs)
     assert len(parts) == 2
-    assert "one_id violation" not in caplog.text
+    assert repairs["HGNC"] == 1
+    with caplog.at_level("INFO"):
+        log_one_id_repairs(repairs, cfg)
+    assert "upstream conflation" not in caplog.text  # only repairs over the threshold are called out
 
 
 def test_histogram():

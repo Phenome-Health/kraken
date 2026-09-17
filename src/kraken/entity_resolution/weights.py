@@ -195,6 +195,12 @@ class ERWeights(BaseModel):
 
     # ---- lookups ----
 
+    @property
+    def aggregator_list_sources(self) -> set[str]:
+        """Sources whose equivalency lists are aggregator lists: prefix-capped, and emitted as a STAR from the
+        listing node rather than a clique (see match_graph.clique_evidence)."""
+        return set(self.max_ids_per_prefix)
+
     def source_group(self, source: str) -> str:
         """Group id used for source-group de-correlation; independent sources get their own."""
         return self._source_to_group.get(source, f"src:{source}")

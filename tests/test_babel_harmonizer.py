@@ -152,12 +152,17 @@ def test_structure_only_chemical_cliques_are_dropped(tmp_path):
                     "biolink:SmallMolecule",
                     [_identifier("PUBCHEM.COMPOUND:1", "some structure"), _identifier("INCHIKEY:AAA")],
                 ),
+                # CAS and ChEMBL count as curation: these cliques are the combination products and assay
+                # compounds the aggregators conflate, so Babel must know them to keep them apart
+                _clique(
+                    "biolink:SmallMolecule",
+                    [_identifier("PUBCHEM.COMPOUND:2", "a registered structure"), _identifier("CAS:338392-03-3")],
+                ),
                 _clique(
                     "biolink:SmallMolecule",
                     [
-                        _identifier("PUBCHEM.COMPOUND:2", "a screening compound"),
-                        _identifier("CHEMBL.COMPOUND:CHEMBL349809"),
-                        _identifier("CAS:338392-03-3"),
+                        _identifier("PUBCHEM.COMPOUND:46861711", "Linagliptin; METformin Hydrochloride"),
+                        _identifier("CHEMBL.COMPOUND:CHEMBL4879149"),
                     ],
                 ),
                 _clique(
@@ -167,7 +172,14 @@ def test_structure_only_chemical_cliques_are_dropped(tmp_path):
             ]
         },
     )
-    assert set(nodes) == {"CHEBI:6801", "PUBCHEM.COMPOUND:4091"}
+    assert set(nodes) == {
+        "CHEBI:6801",
+        "PUBCHEM.COMPOUND:4091",
+        "PUBCHEM.COMPOUND:2",
+        "CAS:338392-03-3",
+        "PUBCHEM.COMPOUND:46861711",
+        "CHEMBL.COMPOUND:CHEMBL4879149",
+    }
 
 
 def test_drug_chemical_relations_are_typed_edges_with_close_match_only_where_no_relation_connects(tmp_path):

@@ -44,3 +44,16 @@ def test_name_similarity_edges_and_cap():
     # oversized group skipped
     big = {"x": [f"N:{i}" for i in range(50)]}
     assert list(name_similarity_edges(big, group_cap=40)) == []
+
+
+def test_an_rsid_is_an_identifier_not_a_name():
+    """5.1M CAID and 5.0M DBSNP nodes are named "rs10154897" and the like -- an rsid names the POSITION, so every
+    allele there shares it. Matching on that is identifier matching: it glued every allele at a position together,
+    and the CAID guardrail then split them all apart again (which is what filled the build log). The real
+    allele/position link is carried as `member_of` edges."""
+    from kraken.entity_resolution.name_sim import is_droppable, normalize_name
+
+    assert is_droppable(normalize_name("rs10154897"))
+    assert is_droppable(normalize_name("RS10154897"))
+    assert not is_droppable(normalize_name("rs1 variant of BRCA1"))  # a real name that merely mentions one
+    assert not is_droppable(normalize_name("metformin"))

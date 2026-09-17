@@ -102,3 +102,34 @@ def test_example_names_the_node_and_its_taxa(harmonizer):
     example = harmonizer.multi_taxon_examples[0]
     assert "NCBIGene:117063" in example
     assert "NCBITaxon:10090" in example and "NCBITaxon:10116" in example
+
+
+def test_taxon_is_kept_only_on_genes_and_proteins(harmonizer):
+    """Taxon exists to stop orthologs merging, which is a gene/protein problem. On a disease or phenotype it only
+    blocks merges that should happen -- Babel taxons MP phenotypes as Mammalia and MONDO diseases as human, so the
+    mouse-phenotype term for atrial fibrillation could never join the disease it names."""
+
+    def categories_for(curie, categories):
+        node = harmonizer.create_node(
+            curie=curie, categories=categories, provided_by="infores:test", taxon="NCBITaxon:9606"
+        )
+        return node.get(NODE_TAXON)
+
+    assert categories_for("NCBIGene:1", ["biolink:Gene"]) == "NCBITaxon:9606"
+    assert categories_for("UniProtKB:P1", ["biolink:Protein"]) == "NCBITaxon:9606"
+    assert categories_for("ENSEMBL:ENST1", ["biolink:Transcript"]) == "NCBITaxon:9606"  # a gene product is the gene
+    assert categories_for("MONDO:1", ["biolink:Disease"]) is None
+    assert categories_for("MP:0008543", ["biolink:PhenotypicFeature"]) is None
+    assert categories_for("CHEBI:1", ["biolink:SmallMolecule"]) is None
+    assert harmonizer.taxa_dropped_off_non_gene_nodes == 3
+
+
+def test_a_gene_node_with_several_categories_keeps_its_taxon(harmonizer):
+    """One gene/protein category is enough -- a node typed both Gene and Protein (our conflation) is still one."""
+    node = harmonizer.create_node(
+        curie="NCBIGene:1",
+        categories=["biolink:Gene", "biolink:Protein"],
+        provided_by="infores:test",
+        taxon="NCBITaxon:10090",
+    )
+    assert node[NODE_TAXON] == "NCBITaxon:10090"

@@ -47,6 +47,23 @@ KNOWLEDGE_ASSERTION = "knowledge_assertion"
 # this follows the convention for unregistered ids: bare, like "translator-kg-open" or "pgs-catalog".
 KRAKEN_SOURCE_ID = "kraken"
 SAME_AS_PREDICATE = "biolink:same_as"
+# The only categories a `taxon` is kept on (see BaseHarmonizer.create_node). Taxon exists to stop ORTHOLOGS
+# merging -- a dog TP53 with the human one -- which is a gene/protein problem. Elsewhere it is noise that blocks
+# correct merges: Babel taxons HP phenotypes and MONDO diseases as human and MP phenotypes as Mammalia, so the
+# mouse-phenotype term for atrial fibrillation can never join the disease it names, and sits in the graph as an
+# edgeless duplicate. Gene products are included because they ARE the gene/protein (a transcript of a dog gene is
+# a dog transcript); nothing else is.
+TAXON_BEARING_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "biolink:Gene",
+        "biolink:Protein",
+        "biolink:GeneProduct",
+        "biolink:Transcript",
+        "biolink:RNAProduct",
+        "biolink:Polypeptide",
+        "biolink:ProteinIsoform",
+    }
+)
 CLOSE_MATCH_PREDICATE = "biolink:close_match"
 # Predicate for the edges integration retains between two clusters that some source (Babel included) said were
 # equivalent but entity resolution kept apart. close_match, not same_as: we decided they are NOT the same entity, so

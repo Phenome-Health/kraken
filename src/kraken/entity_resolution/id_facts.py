@@ -45,6 +45,10 @@ class IdFactsStore:
         )
         self._db.commit()
 
+    def knows(self, curie: str) -> bool:
+        """Whether Babel has this identifier at all (cheaper than ``get`` -- no row is read)."""
+        return self._db.execute("SELECT 1 FROM facts WHERE curie = ?", (curie,)).fetchone() is not None
+
     def get(self, curie: str) -> IdFacts | None:
         row = self._db.execute("SELECT label, categories, taxa FROM facts WHERE curie = ?", (curie,)).fetchone()
         if row is None:

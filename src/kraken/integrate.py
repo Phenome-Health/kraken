@@ -37,6 +37,7 @@ from kraken.utils.constants import (
     EDGE_PRIMARY_KS,
     EDGE_SUBJECT,
     KNOWLEDGE_ASSERTION,
+    KRAKEN_SOURCE_ID,
     NODE_EQUIVALENT_IDS,
     NODE_ID,
     NODE_PROVIDED_BY,
@@ -228,7 +229,9 @@ def _cross_cluster_edge(subject: str, object_: str, primary_ks: str, aggregator_
     knowledge_level = knowledge_assertion (an asserted equivalence, not a prediction/
     statistic). agent_type = not_provided: these edges are synthesized from equiv-list
     co-membership, so the agent that originally asserted the equivalence is unknown (it
-    varies by source), and we don't claim one."""
+    varies by source), and we don't claim one. KRAKEN is recorded as the last aggregator in the chain, as it is
+    on every directly ingested edge (see BaseHarmonizer.create_edge) -- the source asserted the equivalence, but
+    the EDGE only exists because our entity resolution kept the two ids apart."""
     subject, object_ = sorted((subject, object_))
     edge = {
         EDGE_SUBJECT: subject,
@@ -238,8 +241,7 @@ def _cross_cluster_edge(subject: str, object_: str, primary_ks: str, aggregator_
         EDGE_KNOWLEDGE_LEVEL: KNOWLEDGE_ASSERTION,
         EDGE_AGENT_TYPE: NOT_PROVIDED,
     }
-    if aggregator_ks:
-        edge[EDGE_AGGREGATOR_KS] = list(aggregator_ks)
+    edge[EDGE_AGGREGATOR_KS] = list(dict.fromkeys([*aggregator_ks, KRAKEN_SOURCE_ID]))
     return edge
 
 

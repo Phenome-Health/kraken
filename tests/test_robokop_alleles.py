@@ -84,3 +84,74 @@ def test_smiles_attribute_becomes_a_smiles_equivalent_id(monkeypatch):
         "PUBCHEM.COMPOUND:213039",
         "SMILES:CC(C)CN(C[C@@H](O)[C@H](CC1=CC=CC=C1)NC(=O)O[C@H]1CO[C@H]2OCC[C@@H]12)S(=O)(=O)C1=CC=C(N)C=C1",
     }
+
+
+# --------------------------------------------------------------------------------------
+# Naming an allele by the change it makes
+# --------------------------------------------------------------------------------------
+
+
+def _named(monkeypatch, name, hgvs, curie="CAID:CA675382683"):
+    node = _harmonizer(monkeypatch)._harmonize_node(
+        {"id": curie, "name": name, "category": ["biolink:SequenceVariant"], "equivalent_identifiers": [curie],
+         "hgvs": hgvs}
+    )
+    return node
+
+
+def test_an_allele_is_named_by_its_change(monkeypatch):
+    """All three alleles at rs7944541 are called "rs7944541" by ROBOKOP, as is the position itself. The change
+    each one makes is what tells them apart, and it's in their HGVS expressions."""
+    node = _named(monkeypatch, "rs7944541", ["HGVS:NC_000011.8:g.30011186G>A", "HGVS:NC_000011.10:g.30011186G>A"])
+    assert node["name"] == "rs7944541 G>A"
+    assert node["attributes"]["infores:robokop-kg"]["original_name"] == "rs7944541"
+    # append-only: a search for the rsid still finds the allele
+    assert "rs7944541" in node["name"]
+
+
+def test_alleles_at_one_position_get_distinct_names(monkeypatch):
+    names = {
+        _named(monkeypatch, "rs7944541", [f"HGVS:NC_000011.8:g.30011186{change}"], curie=f"CAID:CA{i}")["name"]
+        for i, change in enumerate(("G>A", "G>T", "G>C"))
+    }
+    assert names == {"rs7944541 G>A", "rs7944541 G>T", "rs7944541 G>C"}
+
+
+def test_indels_and_duplications_are_read_too(monkeypatch):
+    assert _named(monkeypatch, "rs1", ["HGVS:NC_000011.8:g.30011186delA"])["name"] == "rs1 DELA"
+    assert _named(monkeypatch, "rs2", ["HGVS:NC_000011.8:g.123_124insAT"])["name"] == "rs2 INSAT"
+    assert _named(monkeypatch, "rs3", ["HGVS:NC_000011.8:g.30011186dupT"])["name"] == "rs3 DUPT"
+
+
+def test_an_allele_with_no_readable_change_is_still_marked_as_one(monkeypatch):
+    """No HGVS, or assemblies that disagree on the change -- either way it must not stay confusable with the
+    POSITION node, which keeps the bare rsid."""
+    assert _named(monkeypatch, "rs7944541", [])["name"] == "rs7944541 allele"
+    assert _named(monkeypatch, "rs7944541", ["not an hgvs expression"])["name"] == "rs7944541 allele"
+    disagreeing = ["HGVS:NC_000011.8:g.30011186G>A", "HGVS:NC_000011.10:g.30011186G>T"]
+    assert _named(monkeypatch, "rs7944541", disagreeing)["name"] == "rs7944541 allele"
+
+
+def test_a_name_that_is_not_a_bare_rsid_is_left_alone(monkeypatch):
+    """Only the rsid naming is confusing; a real name (or an already-suffixed one) is kept as it is."""
+    assert _named(monkeypatch, "BRCA1 c.68_69delAG", ["HGVS:NC_000017.10:g.41276045delCT"])["name"] == (
+        "BRCA1 c.68_69delAG"
+    )
+    assert _named(monkeypatch, "rs7944541 G>A", ["HGVS:NC_000011.8:g.30011186G>A"])["name"] == "rs7944541 G>A"
+
+
+def test_only_alleles_are_renamed(monkeypatch):
+    """A gene that happened to be named like an rsid, or a DBSNP position node, must not be touched."""
+    node = _named(monkeypatch, "rs7944541", ["HGVS:NC_000011.8:g.30011186G>A"], curie="NCBIGene:1")
+    assert node["name"] == "rs7944541"
+    assert "attributes" not in node or "original_name" not in node["attributes"].get("infores:robokop-kg", {})
+
+
+def test_the_new_name_is_usable_for_name_similarity(monkeypatch):
+    """A bare rsid is dropped by name-similarity (it names a position, not an entity); the allele's new name is a
+    real name and must survive -- that's what lets two sources' records for the SAME allele find each other."""
+    from kraken.entity_resolution.name_sim import is_droppable, normalize_name
+
+    node = _named(monkeypatch, "rs7944541", ["HGVS:NC_000011.8:g.30011186G>A"])
+    assert not is_droppable(normalize_name(node["name"]))
+    assert is_droppable(normalize_name("rs7944541"))  # the position node's name stays droppable

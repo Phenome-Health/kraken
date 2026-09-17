@@ -210,6 +210,7 @@ class KrakenBuildOrchestrator:
             # harmonizer, because the single-file harmonizers override harmonize() -- so this is the
             # one place that runs for every source.
             harmonizer.log_normalization_report()
+            harmonizer.log_taxon_report()
 
             if self.config.zip_inputs_after:
                 zip_files(self.config.all_source_input_paths_resolved[source_name])
