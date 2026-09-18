@@ -1,9 +1,11 @@
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import KG2_INFORES, OBJ_ASPECT_QUALIFIER, OBJ_DIRECTION_QUALIFIER
+from kraken.utils.constants import (
+    OBJ_ASPECT_QUALIFIER,
+    OBJ_DIRECTION_QUALIFIER,
+)
 
 
 class KG2Harmonizer(BaseHarmonizer):
-    source_infores = KG2_INFORES
     is_aggregator = True
 
     # Node property config

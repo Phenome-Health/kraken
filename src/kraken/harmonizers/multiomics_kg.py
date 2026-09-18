@@ -1,10 +1,8 @@
+from kraken.config import get_source_id
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import MULTIOMICS_KG_INFORES
 
 
 class MultiomicsKGHarmonizer(BaseHarmonizer):
-    source_infores = MULTIOMICS_KG_INFORES
-
     # Node property config
     category_prop = "category"
     equivalent_ids_prop = ""
@@ -13,5 +11,5 @@ class MultiomicsKGHarmonizer(BaseHarmonizer):
 
     # Edge property config
     publications_prop = "publication"
-    primary_ks_default_value = MULTIOMICS_KG_INFORES
     supporting_sources_default_value = "infores:pubmed-central"
+    primary_ks_default_value = get_source_id("multiomics-kg")

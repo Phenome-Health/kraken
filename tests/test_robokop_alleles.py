@@ -1,0 +1,162 @@
+"""ROBOKOP lists an allele's dbSNP rsid as an equivalent id of its CAID node, but an rsid names a POSITION and
+each CAID one ALLELE at it (rs7944541 is carried by three CAIDs). So the rsid is moved out of equivalent_ids
+and emitted as an `allele member_of position` edge, with one node per position."""
+
+import json
+
+from kraken.harmonizers import base
+from kraken.harmonizers.robokop import ALLELE_TO_POSITION_PREDICATE, POSITION_CATEGORY, RobokopHarmonizer
+from tests.helpers import PassthroughNormalizer
+
+
+class _StubBiolink:
+    version = "4.2.5"
+
+    def filter_to_leaf_categories(self, categories):
+        return list(categories)
+
+
+def _harmonizer(monkeypatch) -> RobokopHarmonizer:
+    """A real RobokopHarmonizer (so __init__ sets up all its state), minus the network: biomapper2's
+    Normalizer is swapped for a pass-through stub."""
+    monkeypatch.setattr(base, "Normalizer", lambda **_kwargs: PassthroughNormalizer())
+    return RobokopHarmonizer(_StubBiolink(), "infores:robokop-kg")
+
+
+def _write(path, rows):
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+
+def _read(path):
+    return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+
+def test_rsid_becomes_a_membership_edge_not_an_equivalent_id(tmp_path, monkeypatch):
+    alleles = ["CAID:CA675382683", "CAID:CA1961200538", "CAID:CA220112499"]
+    nodes_in = [
+        {
+            "id": a,
+            "name": "rs7944541",
+            "category": ["biolink:SequenceVariant"],
+            "equivalent_identifiers": [a, "DBSNP:rs7944541", f"HGVS:NC_000011.10:g.{i}A>G"],
+        }
+        for i, a in enumerate(alleles)
+    ] + [{"id": "NCBIGene:1", "name": "g", "category": ["biolink:Gene"], "equivalent_identifiers": ["NCBIGene:1"]}]
+    _write(tmp_path / "n.jsonl", nodes_in)
+    _write(tmp_path / "e.jsonl", [])
+
+    _harmonizer(monkeypatch).harmonize(
+        tmp_path / "nodes.jsonl",
+        tmp_path / "edges.jsonl",
+        nodes_input=tmp_path / "n.jsonl",
+        edges_input=tmp_path / "e.jsonl",
+    )
+    nodes = {n["id"]: n for n in _read(tmp_path / "nodes.jsonl")}
+    edges = _read(tmp_path / "edges.jsonl")
+
+    for a in alleles:
+        assert "DBSNP:rs7944541" not in nodes[a]["equivalent_ids"]  # the position is no longer "the allele"
+        assert any(e.startswith("HGVS:") for e in nodes[a]["equivalent_ids"])  # but the allele's HGVS still is
+
+    # exactly one position node, however many alleles sit at it
+    assert [n for n in nodes if n.startswith("DBSNP:")] == ["DBSNP:rs7944541"]
+    assert nodes["DBSNP:rs7944541"]["categories"] == [POSITION_CATEGORY]
+
+    membership = [e for e in edges if e["predicate"] == ALLELE_TO_POSITION_PREDICATE]
+    assert sorted(e["subject"] for e in membership) == sorted(alleles)
+    assert {e["object"] for e in membership} == {"DBSNP:rs7944541"}
+
+    assert nodes["NCBIGene:1"]["equivalent_ids"] == ["NCBIGene:1"]  # non-allele nodes untouched
+
+
+def test_smiles_attribute_becomes_a_smiles_equivalent_id(monkeypatch):
+    node = _harmonizer(monkeypatch)._harmonize_node(
+        {
+            "id": "CHEBI:367163",
+            "name": "Darunavir",
+            "category": ["biolink:SmallMolecule"],
+            "equivalent_identifiers": ["CHEBI:367163", "PUBCHEM.COMPOUND:213039"],
+            "smiles": "CC(C)CN(C[C@@H](O)[C@H](CC1=CC=CC=C1)NC(=O)O[C@H]1CO[C@H]2OCC[C@@H]12)S(=O)(=O)C1=CC=C(N)C=C1",
+        }
+    )
+    assert set(node["equivalent_ids"]) == {
+        "CHEBI:367163",
+        "PUBCHEM.COMPOUND:213039",
+        "SMILES:CC(C)CN(C[C@@H](O)[C@H](CC1=CC=CC=C1)NC(=O)O[C@H]1CO[C@H]2OCC[C@@H]12)S(=O)(=O)C1=CC=C(N)C=C1",
+    }
+
+
+# --------------------------------------------------------------------------------------
+# Naming an allele by the change it makes
+# --------------------------------------------------------------------------------------
+
+
+def _named(monkeypatch, name, hgvs, curie="CAID:CA675382683"):
+    node = _harmonizer(monkeypatch)._harmonize_node(
+        {
+            "id": curie,
+            "name": name,
+            "category": ["biolink:SequenceVariant"],
+            "equivalent_identifiers": [curie],
+            "hgvs": hgvs,
+        }
+    )
+    return node
+
+
+def test_an_allele_is_named_by_its_change(monkeypatch):
+    """All three alleles at rs7944541 are called "rs7944541" by ROBOKOP, as is the position itself. The change
+    each one makes is what tells them apart, and it's in their HGVS expressions."""
+    node = _named(monkeypatch, "rs7944541", ["HGVS:NC_000011.8:g.30011186G>A", "HGVS:NC_000011.10:g.30011186G>A"])
+    assert node["name"] == "rs7944541 G>A"
+    assert node["attributes"]["infores:robokop-kg"]["original_name"] == "rs7944541"
+    # append-only: a search for the rsid still finds the allele
+    assert "rs7944541" in node["name"]
+
+
+def test_alleles_at_one_position_get_distinct_names(monkeypatch):
+    names = {
+        _named(monkeypatch, "rs7944541", [f"HGVS:NC_000011.8:g.30011186{change}"], curie=f"CAID:CA{i}")["name"]
+        for i, change in enumerate(("G>A", "G>T", "G>C"))
+    }
+    assert names == {"rs7944541 G>A", "rs7944541 G>T", "rs7944541 G>C"}
+
+
+def test_indels_and_duplications_are_read_too(monkeypatch):
+    assert _named(monkeypatch, "rs1", ["HGVS:NC_000011.8:g.30011186delA"])["name"] == "rs1 DELA"
+    assert _named(monkeypatch, "rs2", ["HGVS:NC_000011.8:g.123_124insAT"])["name"] == "rs2 INSAT"
+    assert _named(monkeypatch, "rs3", ["HGVS:NC_000011.8:g.30011186dupT"])["name"] == "rs3 DUPT"
+
+
+def test_an_allele_with_no_readable_change_is_still_marked_as_one(monkeypatch):
+    """No HGVS, or assemblies that disagree on the change -- either way it must not stay confusable with the
+    POSITION node, which keeps the bare rsid."""
+    assert _named(monkeypatch, "rs7944541", [])["name"] == "rs7944541 allele"
+    assert _named(monkeypatch, "rs7944541", ["not an hgvs expression"])["name"] == "rs7944541 allele"
+    disagreeing = ["HGVS:NC_000011.8:g.30011186G>A", "HGVS:NC_000011.10:g.30011186G>T"]
+    assert _named(monkeypatch, "rs7944541", disagreeing)["name"] == "rs7944541 allele"
+
+
+def test_a_name_that_is_not_a_bare_rsid_is_left_alone(monkeypatch):
+    """Only the rsid naming is confusing; a real name (or an already-suffixed one) is kept as it is."""
+    assert _named(monkeypatch, "BRCA1 c.68_69delAG", ["HGVS:NC_000017.10:g.41276045delCT"])["name"] == (
+        "BRCA1 c.68_69delAG"
+    )
+    assert _named(monkeypatch, "rs7944541 G>A", ["HGVS:NC_000011.8:g.30011186G>A"])["name"] == "rs7944541 G>A"
+
+
+def test_only_alleles_are_renamed(monkeypatch):
+    """A gene that happened to be named like an rsid, or a DBSNP position node, must not be touched."""
+    node = _named(monkeypatch, "rs7944541", ["HGVS:NC_000011.8:g.30011186G>A"], curie="NCBIGene:1")
+    assert node["name"] == "rs7944541"
+    assert "attributes" not in node or "original_name" not in node["attributes"].get("infores:robokop-kg", {})
+
+
+def test_the_new_name_is_usable_for_name_similarity(monkeypatch):
+    """A bare rsid is dropped by name-similarity (it names a position, not an entity); the allele's new name is a
+    real name and must survive -- that's what lets two sources' records for the SAME allele find each other."""
+    from kraken.entity_resolution.name_sim import is_droppable, normalize_name
+
+    node = _named(monkeypatch, "rs7944541", ["HGVS:NC_000011.8:g.30011186G>A"])
+    assert not is_droppable(normalize_name(node["name"]))
+    assert is_droppable(normalize_name("rs7944541"))  # the position node's name stays droppable

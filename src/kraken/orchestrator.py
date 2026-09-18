@@ -7,6 +7,7 @@ import logging
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,20 +15,22 @@ import yaml
 
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
+from kraken.harmonizers.babel import BabelHarmonizer
 from kraken.harmonizers.bio_age import BioAgeHarmonizer
 from kraken.harmonizers.bio_bmi import BioBMIHarmonizer
 from kraken.harmonizers.cdes import CDEHarmonizer
 from kraken.harmonizers.clingen import ClinGenHarmonizer
+from kraken.harmonizers.ctkg import CTKGHarmonizer
+from kraken.harmonizers.dakg import DAKGHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
 from kraken.harmonizers.loinc import LoincHarmonizer
 from kraken.harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
-from kraken.harmonizers.molepro import MoleProHarmonizer
 from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
+from kraken.harmonizers.ncbigene import NCBIGeneHarmonizer
 from kraken.harmonizers.pgs_catalog import PGSCatalogHarmonizer
 from kraken.harmonizers.refmet import RefMetHarmonizer
 from kraken.harmonizers.robokop import RobokopHarmonizer
-from kraken.harmonizers.spoke import SpokeHarmonizer
 from kraken.harmonizers.translator_kg_open import TranslatorKGOpenHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
 from kraken.integrate import integrate_sources
@@ -39,16 +42,22 @@ from kraken.utils.logging_config import setup_logging
 from kraken.validator import KrakenValidator
 
 
+def harmonization_order(sources: Iterable[str]) -> list[str]:
+    """The order to harmonize sources in: alphabetical, except Babel last, since it reads the others' output."""
+    return sorted(sources, key=lambda source: (source == "babel", source))
+
+
 class KrakenBuildOrchestrator:
     """Main orchestrator for building the KRAKEN knowledge graph"""
 
     HARMONIZERS = {
         "kg2": KG2Harmonizer,
         "robokop": RobokopHarmonizer,
-        "molepro": MoleProHarmonizer,
+        "ctkg": CTKGHarmonizer,
+        "dakg": DAKGHarmonizer,
         "microbiome-kg": MicrobiomeKGHarmonizer,
+        "ncbigene": NCBIGeneHarmonizer,
         "multiomics-kg": MultiomicsKGHarmonizer,
-        "spoke": SpokeHarmonizer,
         "umls": UMLSHarmonizer,
         "lipidmaps": LipidMapsHarmonizer,
         "loinc": LoincHarmonizer,
@@ -59,6 +68,7 @@ class KrakenBuildOrchestrator:
         "pgs-catalog": PGSCatalogHarmonizer,
         "bio-bmi": BioBMIHarmonizer,
         "bio-age": BioAgeHarmonizer,
+        "babel": BabelHarmonizer,
     }
 
     def __init__(self):
@@ -165,7 +175,7 @@ class KrakenBuildOrchestrator:
     def _harmonize_sources(self):
         """Harmonize all sources to KRAKEN's Biolink-style semantic layer/schema"""
         logging.info("-------------------------- HARMONIZING SOURCES -----------------------------------------------")
-        for source_name in self.config.sources_to_use:
+        for source_name in harmonization_order(self.config.sources_to_use):
             self._harmonize_source(source_name)
 
     def _harmonize_source(self, source_name: str):
@@ -182,8 +192,22 @@ class KrakenBuildOrchestrator:
         # Create output directory if it doesn't exist
         nodes_output.parent.mkdir(parents=True, exist_ok=True)
 
-        # Instantiate our harmonizer
-        harmonizer = self.HARMONIZERS[source_name](self.biolink_client)
+        # Instantiate our harmonizer (its provenance id comes from build_config: sources.<name>.source_id),
+        # telling it which other sources' edges to drop because we ingest those directly
+        # (build_config: sources.<other>.drop_from_other_sources).
+        extra_arguments = {}
+        if source_name == "babel":
+            # Babel decides which structure-only cliques to keep by what the other sources reference, so it reads
+            # their harmonized nodes (and is harmonized last -- see harmonization_order).
+            extra_arguments["other_sources_nodes"] = self.config.harmonized_nodes_paths_of_build_sources(
+                other_than=source_name
+            )
+        harmonizer = self.HARMONIZERS[source_name](
+            self.biolink_client,
+            source_id=source_config.source_id,
+            auto_source_exclusions=self.config.auto_source_exclusions(source_name),
+            **extra_arguments,
+        )
 
         if not self.config.options.validation_only:
             # Unzip input files as needed
@@ -196,6 +220,11 @@ class KrakenBuildOrchestrator:
                 nodes_input=source_config.nodes_input_resolved,
                 edges_input=source_config.edges_input_resolved,
             )
+            # Report the curies biomapper2 couldn't fully normalize. Driven from here, not from the
+            # harmonizer, because the single-file harmonizers override harmonize() -- so this is the
+            # one place that runs for every source.
+            harmonizer.log_normalization_report()
+            harmonizer.log_taxon_report()
 
             if self.config.zip_inputs_after:
                 zip_files(self.config.all_source_input_paths_resolved[source_name])
@@ -228,7 +257,6 @@ class KrakenBuildOrchestrator:
             )
 
         if not self.config.options.validation_only:
-
             if self.config.create_metagraphs:
                 generate_metagraph_for_source(
                     nodes_path=self.config.integrated_nodes_path,
@@ -245,7 +273,6 @@ class KrakenBuildOrchestrator:
         logging.info("------------------------------ POST-PROCESSING -----------------------------------------------")
 
         if self.config.post_processing:
-
             if self.config.post_processing.test_export:
                 logging.info("Generating test files for this kraken build..")
                 test_export_config = self.config.post_processing.test_export

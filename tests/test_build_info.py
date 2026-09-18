@@ -50,7 +50,7 @@ def test_write_build_info_produces_valid_file(tmp_path, monkeypatch):
         kraken_version = "2026.06.0"
         biolink_version = "4.2.5"
         sources_to_use = {"umls", "kg2"}  # a SET — must be serialized as sorted list
-        kg_label = "kraken-no-spoke"
+        kg_label = "kraken-lite"
         steps = type("S", (), {"harmonize": True, "integrate": True, "postprocess": False})()
         integrated_dir = tmp_path
 
@@ -61,5 +61,5 @@ def test_write_build_info_produces_valid_file(tmp_path, monkeypatch):
     written = json.loads((tmp_path / "build_info.json").read_text())
     BuildInfo.model_validate(written)  # raises if invalid
     assert written["sources"] == ["kg2", "umls"]  # sorted
-    assert written["kg_label"] == "kraken-no-spoke"
+    assert written["kg_label"] == "kraken-lite"
     assert written["steps_run"]["postprocess"] is False

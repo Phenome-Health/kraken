@@ -12,8 +12,8 @@ import requests
 
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.harmonizers.pgs_gene_annotator import ENSEMBL_GTF_URL, GeneAnnotator
-from kraken.utils.constants import DATA_ANALYSIS_PIPELINE, PGS_CATALOG_SOURCE_ID, STATISTICAL_ASSOCIATION
+from kraken.harmonizers.helpers.pgs_gene_annotator import ENSEMBL_GTF_URL, GeneAnnotator
+from kraken.utils.constants import DATA_ANALYSIS_PIPELINE, STATISTICAL_ASSOCIATION
 from kraken.utils.kg_io import save_to_jsonl
 
 # --- v1 selection knobs ---
@@ -36,8 +36,11 @@ TOP_N_VARIANTS_FOR_EDGES = 10_000
 TOP_N_GENES_PER_PGS = 500
 
 # --- PLACEHOLDER Biolink types (pending a types review; each is a single swappable constant) ---
-# There is no clean Biolink class for a polygenic score; InformationContentEntity is a stand-in.
-PGS_NODE_CATEGORY = "biolink:Attribute"  # a PGS is a measurable characteristic of a person (TODO(types): revisit)
+# There is no clean Biolink class for a polygenic score. The node is the score *definition*
+# (a published, catalogued, reusable scoring model with a PGS accession), i.e. an information
+# artifact, so we type it as InformationContentEntity rather than Attribute (which describes a
+# per-person value, not the model). No more-specific Biolink subtype fits without over-committing.
+PGS_NODE_CATEGORY = "biolink:InformationContentEntity"
 TRAIT_STUB_CATEGORY = "biolink:NamedThing"  # minimal stub; real category arrives when ontology sources merge in
 GENE_CATEGORY = "biolink:Gene"  # gene endpoints; emitted as ENSEMBL:<ENSG>, merge into graph gene nodes via ER
 VARIANT_CATEGORY = "biolink:SequenceVariant"  # variant endpoints (rsID-bearing variants only)
@@ -76,10 +79,8 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
     constants (pending a types review); each is a single swappable constant.
     """
 
-    source_infores = PGS_CATALOG_SOURCE_ID
-
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
+    def __init__(self, biolink_client: BiolinkClient, source_id: str, **kwargs):
+        super().__init__(biolink_client, source_id, **kwargs)
         self._curie_cache: dict[tuple[str, str], list[str]] = {}  # (vocab, local id) -> normalized curie(s)
 
     def harmonize(
@@ -468,7 +469,9 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
         key = (vocab, local_id)
         if key in self._curie_cache:
             return self._curie_cache[key]
-        resolved, _, _ = self.normalizer.get_curies({vocab: local_id}, stop_on_invalid_id=False, log_warnings=False)
+        resolved, _, _ = self.normalizer.get_curies(
+            {vocab: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+        )
         curies = list(resolved)
         if not curies:
             logging.warning(f"{self.source_name}: could not normalize id {vocab}:{local_id}; dropping it.")

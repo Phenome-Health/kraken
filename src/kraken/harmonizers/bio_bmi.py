@@ -6,7 +6,6 @@ from pathlib import Path
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.utils.constants import (
-    BIOLOGICAL_BMI_SOURCE_ID,
     DATA_ANALYSIS_PIPELINE,
     STATISTICAL_ASSOCIATION,
 )
@@ -15,8 +14,11 @@ from kraken.utils.kg_io import save_to_jsonl
 PAPER = "PMID:36941332"  # Watanabe et al., Nat Med 2023 -- doi:10.1038/s41591-023-02248-0
 
 # --- Biolink types / minted ids (each a single swappable constant) ---
-# A biological-BMI score is a measurable characteristic of a person, so Attribute.
-NODE_CATEGORY = "biolink:Attribute"
+# Biological BMI is a computed multi-omic predictive score, not a direct lab
+# observation, so ClinicalMeasurement (Biolink: "results from a laboratory observation
+# from a subject") doesn't fit. Typed InformationContentEntity — a defined, computed
+# predictive score/model artifact — consistent with the PGS score node.
+NODE_CATEGORY = "biolink:InformationContentEntity"
 CORRELATE_STUB_CATEGORY = "biolink:NamedThing"  # physiological-feature endpoints; real type arrives on merge
 # Coefficient sign selects the predicate (correlation direction IS the predicate, so no qualifier needed):
 POSITIVELY_CORRELATED = "biolink:positively_correlated_with"  # feature -> higher biological BMI
@@ -56,10 +58,8 @@ class BioBMIHarmonizer(BaseHarmonizer):
     Node/edge Biolink types are single swappable module-level constants -- see above.
     """
 
-    source_infores = BIOLOGICAL_BMI_SOURCE_ID
-
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
+    def __init__(self, biolink_client: BiolinkClient, source_id: str, **kwargs):
+        super().__init__(biolink_client, source_id, **kwargs)
         self._curie_cache: dict[str, str | None] = {}  # raw curie -> normalized curie (or None)
 
     def harmonize(
@@ -203,7 +203,9 @@ class BioBMIHarmonizer(BaseHarmonizer):
         if raw_id in self._curie_cache:
             return self._curie_cache[raw_id]
         prefix, _, local = raw_id.partition(":")
-        resolved, _, _ = self.normalizer.get_curies({prefix: local}, stop_on_invalid_id=False, log_warnings=False)
+        resolved, _, _ = self.normalizer.get_curies(
+            {prefix: local}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+        )
         curie = next(iter(resolved), None)
         if not curie:
             logging.warning(f"{self.source_name}: could not normalize {raw_id!r}; dropping it.")

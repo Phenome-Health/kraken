@@ -23,6 +23,9 @@ class BiolinkClient:
         self.knowledge_levels = set(kl_enum.permissible_values.keys())
         at_enum = self.toolkit.view.schema.enums.get("AgentTypeEnum")
         self.agent_types = set(at_enum.permissible_values.keys())
+        # Proper ancestors per category. Memoized because every harmonized node asks, and the toolkit walk is by
+        # far the slowest step of create_node over a large source (Babel alone is tens of millions of nodes).
+        self._proper_ancestors: dict[str, frozenset[str]] = {}
 
     def filter_to_leaf_categories(self, categories: str | list[str] | set[str]) -> list[str]:
         """Remove ancestral categories, keeping only the most specific (leaf) categories"""
@@ -30,7 +33,12 @@ class BiolinkClient:
         all_proper_ancestors = set()
 
         for category in categories:
-            proper_ancestors = set(self.toolkit.get_ancestors(category, formatted=True, mixin=True, reflexive=False))
+            proper_ancestors = self._proper_ancestors.get(category)
+            if proper_ancestors is None:
+                proper_ancestors = frozenset(
+                    self.toolkit.get_ancestors(category, formatted=True, mixin=True, reflexive=False)
+                )
+                self._proper_ancestors[category] = proper_ancestors
             all_proper_ancestors |= proper_ancestors
 
         return list(categories - all_proper_ancestors)

@@ -10,10 +10,9 @@ from typing import Any
 import requests
 from bs4 import BeautifulSoup
 
-from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.schema import NodeModel
-from kraken.utils.constants import CLINGEN_INFORES, KNOWLEDGE_ASSERTION, MANUAL_AGENT
+from kraken.utils.constants import KNOWLEDGE_ASSERTION, MANUAL_AGENT
 from kraken.utils.general import create_edge_key
 from kraken.utils.kg_io import save_to_jsonl
 
@@ -27,11 +26,6 @@ class ClinGenHarmonizer(BaseHarmonizer):
     Processes gene-disease and variant-disease associations from the
     ACMG Clinical Genome Resource (ClinGen) Actionability Working Group.
     """
-
-    source_infores = CLINGEN_INFORES
-
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
 
     def harmonize(
         self,
@@ -161,7 +155,9 @@ class ClinGenHarmonizer(BaseHarmonizer):
             sys.exit(1)
 
         # Normalize disease identifiers to standard curies
-        disease_curies_dict, _, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True)
+        disease_curies_dict, _, _ = self.normalizer.get_curies(
+            id_dict, stop_on_invalid_id=True, fuzzy_match_vocab=False
+        )
 
         if disease_curies_dict:
             disease_curie = list(sorted(disease_curies_dict.keys(), reverse=True))[
@@ -192,7 +188,7 @@ class ClinGenHarmonizer(BaseHarmonizer):
         id_dict = {"omim": gene_omim}
 
         # Normalize to standard gene identifiers (HGNC, NCBIGene, etc.)
-        gene_curies_dict, _, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True)
+        gene_curies_dict, _, _ = self.normalizer.get_curies(id_dict, stop_on_invalid_id=True, fuzzy_match_vocab=False)
 
         if gene_curies_dict:
             gene_curie = list(gene_curies_dict.keys())[0]

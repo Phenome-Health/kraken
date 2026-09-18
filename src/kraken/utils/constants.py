@@ -6,31 +6,27 @@ PROJECT_ROOT = Path(__file__).parents[3]
 
 
 ROOT_CATEGORY = "biolink:NamedThing"
+ORGANISM_TAXON_CATEGORY = "biolink:OrganismTaxon"
 ROOT_PREDICATE = "biolink:related_to"
 
 BIOLINK_PREFIX = "biolink"
 INFORES_PREFIX = "infores"
+# A chemical structure as a curie, e.g. "SMILES:O=C(O)CCCO". biomapper2 canonicalizes the local part (RDKit), so one
+# structure is one id whichever source it came from.
+SMILES_PREFIX = "SMILES"
+# Edge attribute naming the Babel relation an edge came from (harmonizers/babel.py). Several relations share each
+# Biolink predicate -- Babel's clique edges and its gene/protein conflation edges are both same_as -- so entity
+# resolution reads this to tell them apart.
+BABEL_RELATION_ATTRIBUTE = "babel_relation"
+GENE_PROTEIN_CONFLATION_RELATION = "gene_protein_conflation"
+DRUG_CHEMICAL_CONFLATION_RELATION = "drug_chemical_conflation"
 
-SPOKE_INFORES: str = f"{INFORES_PREFIX}:spoke"
-KG2_INFORES: str = f"{INFORES_PREFIX}:rtx-kg2"
-ROBOKOP_INFORES: str = f"{INFORES_PREFIX}:robokop-kg"
-MOLEPRO_INFORES: str = f"{INFORES_PREFIX}:molepro"
-MICROBIOME_KG_INFORES: str = f"{INFORES_PREFIX}:multiomics-microbiome"
-MULTIOMICS_KG_INFORES: str = f"{INFORES_PREFIX}:multiomics-multiomics"
-UMLS_MTH_INFORES: str = f"{INFORES_PREFIX}:umls-metathesaurus"
-REFMET_INFORES: str = f"{INFORES_PREFIX}:refmet"
-CLINGEN_INFORES = f"{INFORES_PREFIX}:clingen"
+# Every KRAKEN source's own identity (the id recorded as provenance / provided_by) lives in build_config.yaml
+# under `sources.<name>.source_id` -- that is the single source of truth, and cross-source references derive
+# from it (e.g. primary-KS exclusions resolve build_config keys to source_ids in the orchestrator). The only
+# infores constant kept here is for a source we do NOT directly ingest, so it has no build_config entry:
+#   * HMDB_INFORES -- the unreliable-publications set below.
 HMDB_INFORES: str = f"{INFORES_PREFIX}:hmdb"
-LOINC_INFORES: str = f"{INFORES_PREFIX}:loinc"
-
-
-# Some sources do not (yet) have registered infores curies; use bare source IDs for those
-NIH_CDE_SOURCE_ID: str = "nih-cde"
-TRANSLATOR_SOURCE_ID: str = "translator-kg-open"
-LIPIDMAPS_ID: str = "lipidmaps"
-BIOLOGICAL_BMI_SOURCE_ID: str = "biological-bmi"  # multiomic BMI models (Watanabe et al. 2023; a paper, not a DB)
-BIO_AGE_SOURCE_ID: str = "biological-age"  # multiomic biological-age models (Earls et al. 2019; a paper, not a DB)
-PGS_CATALOG_SOURCE_ID: str = "pgs-catalog"
 
 # Primary knowledge sources whose edge publication lists are unreliable, so we drop publications from their
 # edges during harmonization. (HMDB copies a disease's entire reference list onto every metabolite it links to
@@ -42,7 +38,37 @@ KNOWN_INVALID = "KNOWN_INVALID"
 
 NOT_PROVIDED = "not_provided"
 MANUAL_AGENT = "manual_agent"
+AUTOMATED_AGENT = "automated_agent"
 KNOWLEDGE_ASSERTION = "knowledge_assertion"
+# KRAKEN's own provenance id, recorded as the aggregator_knowledge_source on every edge from a source we
+# ingest DIRECTLY (see BaseHarmonizer.create_edge). Without it, an edge we took straight from NCBI Gene is
+# indistinguishable from the same edge as kg2 or ROBOKOP re-published it -- and once the two merge, the
+# direct ingest leaves no trace. KRAKEN has no registered infores (checked against the live registry), so
+# this follows the convention for unregistered ids: bare, like "translator-kg-open" or "pgs-catalog".
+KRAKEN_SOURCE_ID = "kraken"
+SAME_AS_PREDICATE = "biolink:same_as"
+# The only categories a `taxon` is kept on (see BaseHarmonizer.create_node). Taxon exists to stop ORTHOLOGS
+# merging -- a dog TP53 with the human one -- which is a gene/protein problem. Elsewhere it is noise that blocks
+# correct merges: Babel taxons HP phenotypes and MONDO diseases as human and MP phenotypes as Mammalia, so the
+# mouse-phenotype term for atrial fibrillation can never join the disease it names, and sits in the graph as an
+# edgeless duplicate. Gene products are included because they ARE the gene/protein (a transcript of a dog gene is
+# a dog transcript); nothing else is.
+TAXON_BEARING_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "biolink:Gene",
+        "biolink:Protein",
+        "biolink:GeneProduct",
+        "biolink:Transcript",
+        "biolink:RNAProduct",
+        "biolink:Polypeptide",
+        "biolink:ProteinIsoform",
+    }
+)
+CLOSE_MATCH_PREDICATE = "biolink:close_match"
+# Predicate for the edges integration retains between two clusters that some source (Babel included) said were
+# equivalent but entity resolution kept apart. close_match, not same_as: we decided they are NOT the same entity, so
+# asserting same_as would contradict our own clustering -- close_match records the relatedness without that claim.
+CROSS_CLUSTER_EQUIVALENCE_PREDICATE = CLOSE_MATCH_PREDICATE
 # Biolink KLAT values. For edges that report direct, dataset-specific statistical results (e.g. a feature's
 # association with an outcome in a model's cohort), statistical_association pairs with data_analysis_pipeline.
 # computational_model is for agents that generate broader conclusions/predictions (kept for such future edges).
@@ -66,7 +92,7 @@ NODE_CATEGORIES = NodeModel.categories.name
 NODE_PROVIDED_BY = NodeModel.provided_by.name
 NODE_SYNONYMS = NodeModel.synonyms.name
 NODE_EQUIVALENT_IDS = NodeModel.equivalent_ids.name
-NODE_TAXA = NodeModel.taxa.name
+NODE_TAXON = NodeModel.taxon.name
 NODE_DESCRIPTION = NodeModel.description.name
 NODE_CHEMICAL_FORMULA = NodeModel.chemical_formula.name
 NODE_EXACT_MASS = NodeModel.exact_mass.name
@@ -86,3 +112,10 @@ EDGE_QUALIFIERS = EdgeModel.qualifiers.name
 EDGE_PUBLICATIONS = EdgeModel.publications.name
 EDGE_PUBLICATIONS_INFO = EdgeModel.publications_info.name
 EDGE_ATTRIBUTES = EdgeModel.attributes.name
+
+# A canonicalizing aggregator (robokop, translator-kg-open, the multiomics KGs) stores each edge on
+# its Babel-canonical endpoints and keeps the id it started from in these per-source attributes. Both
+# the harmonizers (which normalize the prefixes) and entity resolution (which treats the original ->
+# canonical pairing as equivalence evidence) read them, so the names live here rather than in either.
+ORIGINAL_SUBJECT_ATTR = "original_subject"
+ORIGINAL_OBJECT_ATTR = "original_object"

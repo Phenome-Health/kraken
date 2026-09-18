@@ -90,6 +90,8 @@ def to_list(item: Any) -> list[Any]:
 
 
 def is_empty(value: Any) -> bool:
+    if isinstance(value, float) and value != value:  # NaN (e.g. from pandas-exported sources) counts as empty
+        return True
     if isinstance(value, str) and value.lower() in NONE_STRINGS:
         return True
     elif value or isinstance(value, Number):

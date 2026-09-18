@@ -1,5 +1,5 @@
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -8,6 +8,7 @@ import jsonlines
 from biomapper2.core.normalizer import Normalizer
 
 from kraken.biolink_client import BiolinkClient
+from kraken.harmonizers.helpers.name_overrides import ORIGINAL_NAME_ATTRIBUTE, apply_name_override
 from kraken.utils.constants import (
     EDGE_AGENT_TYPE,
     EDGE_AGGREGATOR_KS,
@@ -22,6 +23,7 @@ from kraken.utils.constants import (
     EDGE_SUBJECT,
     EDGE_SUPPORTING_SOURCES,
     INFORES_PREFIX,
+    KRAKEN_SOURCE_ID,
     NODE_ATTRIBUTES,
     NODE_CATEGORIES,
     NODE_CHEMICAL_FORMULA,
@@ -33,33 +35,47 @@ from kraken.utils.constants import (
     NODE_PROVIDED_BY,
     NODE_PUBLICATIONS,
     NODE_SYNONYMS,
-    NODE_TAXA,
+    NODE_TAXON,
     NODE_URLS,
     NOT_PROVIDED,
+    ORIGINAL_OBJECT_ATTR,
+    ORIGINAL_SUBJECT_ATTR,
+    TAXON_BEARING_CATEGORIES,
     UNRELIABLE_PUBLICATION_PRIMARY_KS,
 )
 from kraken.utils.general import clean_text, is_empty, to_list
 from kraken.utils.kg_io import (
     fix_repeated_prefix,
-    split_curie,
     stream_edges_from_jsonl,
     stream_edges_from_tsv,
     stream_nodes_from_jsonl,
     stream_nodes_from_tsv,
 )
 
+# How many multi-taxon nodes to name individually in the run summary before merely counting the rest.
+MAX_MULTI_TAXON_EXAMPLES = 5
+
+# How many example curies to keep per prefix biomapper2 couldn't normalize (see
+# log_normalization_report) -- enough to recognize the id format when adding it to biomapper2.
+MAX_UNNORMALIZED_EXAMPLES = 3
+# How many prefixes log_normalization_report lists individually per failure kind before summarizing the rest.
+MAX_REPORTED_PREFIXES = 20
+
 # TRAPI-style edge provenance: an edge carrying this field lists its knowledge sources as objects of
 # {resource_id, resource_role}, which we parse instead of the flat primary_ks/supporting_sources props.
 TRAPI_SOURCES_FIELD = "sources"
 TRAPI_SOURCE_ROLES = {"primary_knowledge_source", "aggregator_knowledge_source", "supporting_data_source"}
+# The roles that make an edge "this source's" for exclusion purposes. A supporting_data_source is
+# deliberately NOT one: it contributed underlying data, not the assertion, so excluding on it would
+# drop edges that source never published (e.g. every edge built on a ChEMBL measurement).
+EXCLUDABLE_TRAPI_SOURCE_ROLES = {"primary_knowledge_source", "aggregator_knowledge_source"}
 
 
 class BaseHarmonizer(ABC):
     """Base class for harmonizing knowledge graph sources into KRAKEN format"""
 
-    @property
-    @abstractmethod
-    def source_infores(self) -> str: ...
+    # ``source_infores`` is set per-instance in __init__ from the build_config ``source_id`` (the single
+    # source of truth for a source's identity), so it is no longer a class attribute defined per subclass.
 
     @property
     def source_name(self) -> str:
@@ -87,6 +103,7 @@ class BaseHarmonizer(ABC):
     object_prop: str = EDGE_OBJECT
     predicate_prop: str = EDGE_PREDICATE
     primary_ks_prop: str = EDGE_PRIMARY_KS
+    aggregator_ks_prop: str = EDGE_AGGREGATOR_KS  # read only by the exclusion filter (see _edge_knowledge_sources)
     knowledge_level_prop: str = EDGE_KNOWLEDGE_LEVEL
     agent_type_prop: str = EDGE_AGENT_TYPE
     supporting_sources_prop: str = EDGE_SUPPORTING_SOURCES
@@ -113,8 +130,16 @@ class BaseHarmonizer(ABC):
     category_overrides: dict[str, str] = dict()
     agent_type_overrides: dict[str, dict[str, str]] = dict()  # Organized by primary KS
 
-    # Primary knowledge sources to skip (these edges will NOT be included)
-    primary_ks_exclusions: set = set()
+    # Knowledge sources to skip: an edge naming ANY of these as its primary OR aggregator knowledge
+    # source is not included. Both roles count, because an edge that merely passed THROUGH a source we
+    # exclude is just as second-hand as one it asserted -- and we get the real thing from that source's
+    # own ingest. Given by infores id; a source with no build_config entry (e.g. "infores:ubergraph")
+    # is written out literally.
+    #
+    # This is the MANUAL list, for sources we don't ingest ourselves. For one we do, set
+    # ``drop_from_other_sources`` on it in build_config instead and every other source picks it up
+    # automatically (see config.auto_source_exclusions) -- no need to work out which KGs re-publish it.
+    source_exclusions: set = set()
 
     # Drop edges asserting a negation (negated=true). KRAKEN has no way to represent negation, so ingesting
     # such an edge would wrongly read as a positive assertion. Applies to all sources; set False to keep them.
@@ -124,16 +149,30 @@ class BaseHarmonizer(ABC):
     # Properties that should NOT be parsed from delimiter-separated strings (relevant for TSVs only)
     exclude_from_list_parsing: set[str] = set()
 
-    def __init__(self, biolink_client: BiolinkClient):
+    # Counted by create_node; a class default so it exists even on a bare instance (see log_taxon_report).
+    taxa_dropped_off_non_gene_nodes: int = 0
+
+    def __init__(self, biolink_client: BiolinkClient, source_id: str, auto_source_exclusions: set[str] | None = None):
+        self.source_infores = source_id  # from build_config; the source's provenance id (infores or bare id)
+        # The manual class-level list plus whatever build_config's drop_from_other_sources flags add
+        # for this source. Shadows the class attribute deliberately, so the filter has one thing to read.
+        self.source_exclusions = set(self.source_exclusions) | set(auto_source_exclusions or ())
         self.biolink = biolink_client
         # Set up biomapper2's normalizer, so we can normalize curies as needed
         self.normalizer = Normalizer(biolink_version=self.biolink.version)
         self.unrecognized_vocabs = set()
         self.prefixes_with_invalid_ids = defaultdict(int)
-        self.invalid_curies = set()
         self.normalized_id_map = dict()
+        # Curies biomapper2 could NOT fully normalize, for the end-of-run report (see
+        # log_normalization_report): prefix -> {"count": distinct curies, "examples": [...]}
+        self.unrecognized_vocab_prefixes: dict[str, dict[str, Any]] = {}
+        self.invalid_id_prefixes: dict[str, dict[str, Any]] = {}
         self.unrecognized_source_roles = set()
         self.stripped_publications_count = 0
+        self.multi_taxon_node_count = 0
+        self.multi_taxon_examples: list[str] = []
+        self.taxa_dropped_off_non_gene_nodes = 0
+        self.name_override_count = 0
 
         self.core_node_props = (
             {
@@ -211,19 +250,19 @@ class BaseHarmonizer(ABC):
                 count += 1
         logging.info("Finished harmonizing nodes")
 
-        if self.invalid_curies:
-            logging.warning(
-                f"A total of {len(self.invalid_curies)} nodes had IDs that are not curies (left them as they are). "
-                f"First 50 are: {list(self.invalid_curies)[:10]}"
+        if self.name_override_count:
+            logging.info(
+                f"Appended a type to {self.name_override_count} node names whose vocabulary names them after "
+                f"what they're about rather than what they are (see harmonizers/name_overrides.py); the "
+                f"original name is kept in the '{ORIGINAL_NAME_ATTRIBUTE}' attribute"
             )
-        if self.unrecognized_vocabs:
+        if self.multi_taxon_node_count:
             logging.warning(
-                f"biomapper2 failed to recognize {len(self.unrecognized_vocabs)} vocabs: {self.unrecognized_vocabs}"
-            )
-        if self.prefixes_with_invalid_ids:
-            logging.warning(
-                f"some IDs failed validation in biomapper2 (left them as they are) - counts by prefix are: "
-                f"{dict(sorted(self.prefixes_with_invalid_ids.items(), key=lambda x: x[1], reverse=True))}"
+                f"{self.multi_taxon_node_count} nodes named more than one taxon and were left WITHOUT one "
+                f"(node.taxon is single-valued, and choosing between them would be arbitrary). This means the "
+                f"source conflates distinct entities under a single id. Examples: {self.multi_taxon_examples}. "
+                f"Untaxoned nodes are wildcards for taxon-based merge guards, so entity resolution can still "
+                f"pick up the right taxon from a source that knows it."
             )
 
         return count
@@ -239,9 +278,8 @@ class BaseHarmonizer(ABC):
                 if self.drop_negated_edges and edge.get(self.negated_prop):
                     negated_count += 1
                     continue
-                # Skip edges from primary knowledge sources marked for exclusion
-                primary_kses = set(to_list(edge.get(self.primary_ks_prop)))
-                if self.primary_ks_exclusions and primary_kses.issubset(self.primary_ks_exclusions):
+                # Skip edges naming an excluded source as primary OR aggregator knowledge source
+                if self.source_exclusions & self._edge_knowledge_sources(edge):
                     excluded_count += 1
                 else:
                     # Add this edge
@@ -258,10 +296,36 @@ class BaseHarmonizer(ABC):
             )
         if excluded_count:
             logging.info(
-                f"Excluded {excluded_count} edges that came from these primary "
-                f"knowledge sources: {self.primary_ks_exclusions}."
+                f"Excluded {excluded_count} edges naming one of these knowledge sources as their "
+                f"primary or aggregator knowledge source: {sorted(self.source_exclusions)}."
             )
         return count
+
+    def _edge_knowledge_sources(self, edge: dict[str, Any]) -> set[str]:
+        """Every source this edge names as its primary OR aggregator knowledge source, read the way
+        _harmonize_edge reads them: from a TRAPI ``sources`` list when the edge has one, else from
+        the flat primary_ks / aggregator_ks properties.
+
+        Returns an EMPTY set when the edge names none, which the exclusion filter then can't match
+        -- an edge whose provenance we cannot read is kept, never dropped. Testing the other way
+        round is a trap worth remembering: ``set().issubset(anything)`` is True, so the previous
+        ``issubset`` form silently excluded EVERY edge of a source whose provenance it failed to
+        read. That is what emptied translator-kg-open (TRAPI ``sources``, no flat primary_ks
+        property) of all 19.8M of its edges.
+        """
+        if edge.get(TRAPI_SOURCES_FIELD):
+            sources = edge[TRAPI_SOURCES_FIELD]
+            if isinstance(sources, list):
+                # Malformed entries are not validated here -- _harmonize_edge is where a bad
+                # `sources` list raises; this stays a pure filter and just reads what's there.
+                return {
+                    source["resource_id"]
+                    for source in sources
+                    if isinstance(source, dict)
+                    and source.get("resource_role") in EXCLUDABLE_TRAPI_SOURCE_ROLES
+                    and source.get("resource_id")
+                }
+        return set(to_list(edge.get(self.primary_ks_prop))) | set(to_list(edge.get(self.aggregator_ks_prop)))
 
     def _collect_node_attributes(self, node: dict[str, Any]) -> dict[str, Any]:
         attributes = {}
@@ -296,7 +360,8 @@ class BaseHarmonizer(ABC):
             if new_synonyms:
                 synonyms |= set(new_synonyms)
 
-        # Collect taxon CURIE(s) from any configured taxon field(s), unioned
+        # Collect taxon CURIE(s) from any configured taxon field(s). Several fields can carry one, and a
+        # source occasionally names more than one taxon; create_node reduces them to the single `taxon` value.
         taxa = set()
         for taxon_prop in self.taxon_props:
             taxa |= set(to_list(node.get(taxon_prop)))
@@ -315,7 +380,7 @@ class BaseHarmonizer(ABC):
             chemical_formula=node.get(self.chemical_formula_prop),
             exact_mass=node.get(self.exact_mass_prop),
             publications=node.get(self.publications_prop),
-            taxa=taxa,
+            taxon=taxa,
             attributes=self._collect_node_attributes(node),
         )
 
@@ -384,6 +449,7 @@ class BaseHarmonizer(ABC):
             )
             aggregator_ks = self.source_infores if self.is_aggregator else None
         attributes, qualifiers = self._collect_edge_attributes_and_qualifiers(edge)
+        self._normalize_original_endpoints(attributes)
 
         # Drop publications from sources whose publication lists are unreliable (see the constant's docstring)
         primary_ks_id = primary_ks[0] if isinstance(primary_ks, list) else primary_ks
@@ -408,6 +474,91 @@ class BaseHarmonizer(ABC):
             qualifiers=qualifiers,
             attributes=attributes,
         )
+
+    def _normalize_original_endpoints(self, attributes: dict[str, Any]) -> None:
+        """Normalize an aggregator's stored original_subject/original_object, in place.
+
+        Entity resolution treats these as real ids -- they seed the match graph and edges are
+        remapped through them -- so they go through exactly the same normalization as every other
+        curie. Translator, for one, writes ``Ensembl:ENSG00000099864`` while the node set uses
+        ``ENSEMBL:``; left alone those are two different ids and the edge finds no node.
+        """
+        # Only an aggregator's originals are ids it canonicalized away from. A source that isn't one (the
+        # multiomics KGs) uses these attributes for the raw text it mapped from -- normalizing that as a
+        # curie produced thousands of bogus one-curie "vocabularies" in the normalization report.
+        if not self.is_aggregator:
+            return
+        for attr in (ORIGINAL_SUBJECT_ATTR, ORIGINAL_OBJECT_ATTR):
+            value = attributes.get(attr)
+            if isinstance(value, str) and value:
+                attributes[attr] = self.normalize_curie(value)
+
+    @staticmethod
+    def _record_unnormalized(tally: dict[str, dict[str, Any]], prefix: str, curie: str) -> None:
+        """Count one DISTINCT curie we couldn't fully normalize, keeping a few examples.
+
+        Distinct, not total occurrences -- callers reach here only on a cache miss.
+        """
+        entry = tally.setdefault(prefix, {"count": 0, "examples": []})
+        entry["count"] += 1
+        if len(entry["examples"]) < MAX_UNNORMALIZED_EXAMPLES:
+            entry["examples"].append(curie)
+
+    def log_taxon_report(self) -> None:
+        """Report taxa dropped from nodes that aren't genes or proteins (see TAXON_BEARING_CATEGORIES)."""
+        if self.taxa_dropped_off_non_gene_nodes:
+            logging.info(
+                f"{self.source_name}: dropped the taxon from {self.taxa_dropped_off_non_gene_nodes} nodes that are "
+                f"neither gene nor protein (it guards ortholog merges, and elsewhere only blocks correct ones)"
+            )
+
+    def log_normalization_report(self) -> None:
+        """Report every curie biomapper2 could not fully normalize -- a work queue, not a failure log.
+
+        Nothing here was dropped: an id biomapper2 can't handle is kept exactly as the source wrote
+        it, so no data is lost. What IS lost is standardization, and that has teeth -- until
+        biomapper2 knows a vocabulary we can't normalize how it is spelled, so the same entity
+        arriving from two sources that spell it differently stays two separate ids, and an edge
+        remapped through one can't find the node built from the other. (``Ensembl:`` vs ``ENSEMBL:``
+        was exactly this, and it cost 19M edges.)
+
+        Called by the orchestrator once per source, after harmonize() -- not from _harmonize_nodes /
+        _harmonize_edges, since the single-file harmonizers override harmonize() and call neither.
+        """
+        for tally, headline, remedy in (
+            (
+                self.unrecognized_vocab_prefixes,
+                "does not recognize the vocabulary of",
+                "Adding these vocabs to biomapper2 would let their ids be standardized",
+            ),
+            (
+                self.invalid_id_prefixes,
+                "recognized the vocabulary but rejected the local id of",
+                "Either the source's ids are malformed, or biomapper2's validator for these vocabs is too strict",
+            ),
+        ):
+            if not tally:
+                continue
+            total = sum(entry["count"] for entry in tally.values())
+            logging.warning(
+                f"{self.source_name}: biomapper2 {headline} {total} distinct curies across "
+                f"{len(tally)} prefix{'' if len(tally) == 1 else 'es'} (kept as-is, NOT dropped). {remedy}:"
+            )
+            ranked = sorted(tally.items(), key=lambda kv: -kv[1]["count"])
+            for prefix, entry in ranked[:MAX_REPORTED_PREFIXES]:
+                logging.warning(f"    {prefix!r}: {entry['count']} distinct curies, e.g. {entry['examples']}")
+            # A long tail is usually not many vocabularies but ids that aren't curies at all -- free-text
+            # labels whose text before the first colon masquerades as a prefix (multiomics-kg's Olink assay
+            # names, "TAP1:Q03518:OID31289:v1", produced ~5,400 one-curie "prefixes"). Summarize it.
+            rest = ranked[MAX_REPORTED_PREFIXES:]
+            if rest:
+                rest_curies = sum(entry["count"] for _prefix, entry in rest)
+                examples = [entry["examples"][0] for _prefix, entry in rest[:MAX_UNNORMALIZED_EXAMPLES]]
+                logging.warning(
+                    f"    ...and {len(rest)} more prefixes covering {rest_curies} distinct curies"
+                    f"{' (mostly one curie each -- likely not curies at all)' if rest_curies <= 2 * len(rest) else ''}"
+                    f", e.g. {examples}"
+                )
 
     def _stream_nodes(self, input_path: Path | str):
         suffix = Path(input_path).suffix.lower()
@@ -440,21 +591,37 @@ class BaseHarmonizer(ABC):
         chemical_formula: str | list[str] | None = None,
         exact_mass: float | None = None,
         publications: str | list[str] = None,
-        taxa: str | list[str] | set[str] | None = None,
+        taxon: str | list[str] | set[str] | None = None,
         attributes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not (curie and categories and provided_by):
             raise ValueError(
-                f"Node is missing required field(s): curie={curie}, "
-                f"categories={categories}, provided_by={provided_by}"
+                f"Node is missing required field(s): curie={curie}, categories={categories}, provided_by={provided_by}"
             )
         if attributes is None:
             attributes = {}
 
         # Assemble the node, with properties in a specific order (for convenient review)
         curie_normalized = self.normalize_curie(curie)
+
+        # Categories are resolved before the name because name overrides key on them
+        categories_cleaned = [fix_repeated_prefix(category) for category in to_list(categories)]
+        categories = [self.category_overrides.get(category, category) for category in categories_cleaned]
+        leaf_categories = self.biolink.filter_to_leaf_categories(categories)
+
         node = {NODE_ID: curie_normalized}
         if name:
+            # Say what the node IS for vocabularies that name it after what it's about ("Parkinson disease"
+            # for a KEGG pathway). Applied BEFORE the synonym auto-add below, so the synonym picks up the
+            # renamed form -- deliberately not the bare name, which would rank this node alongside the real
+            # disease. Since overrides only append, the original is still a substring for text search, and
+            # it's kept verbatim in attributes. A synonym a harmonizer passes explicitly is left alone.
+            overridden_name = apply_name_override(curie_normalized, leaf_categories, name)
+            if overridden_name != name:
+                attributes[ORIGINAL_NAME_ATTRIBUTE] = name
+                self.name_override_count += 1
+                name = overridden_name
+
             node[NODE_NAME] = clean_text(name)
             # Make sure node's name is in our synonyms list
             if synonyms:
@@ -462,10 +629,7 @@ class BaseHarmonizer(ABC):
             else:
                 synonyms = [name]
 
-        # Clean categories and override as applicable
-        categories_cleaned = [fix_repeated_prefix(category) for category in to_list(categories)]
-        categories = [self.category_overrides.get(category, category) for category in categories_cleaned]
-        node[NODE_CATEGORIES] = self.biolink.filter_to_leaf_categories(categories)
+        node[NODE_CATEGORIES] = leaf_categories
 
         if urls:
             node[NODE_URLS] = to_list(urls)
@@ -495,8 +659,23 @@ class BaseHarmonizer(ABC):
         equivalent_ids_final = list(cleaned_equiv_ids | {curie_normalized})
         node[NODE_EQUIVALENT_IDS] = equivalent_ids_final
 
-        if taxa:
-            node[NODE_TAXA] = list(dict.fromkeys(to_list(taxa)))  # list so taxa union-merge across sources
+        # `taxon` is single-valued (per Biolink). A node naming several taxa means the source has conflated
+        # distinct entities under one id -- translator labels the human gene CDH5 as both human and mouse.
+        # There's no way to tell which is meant, so such a node gets NO taxon rather than an arbitrary pick:
+        # untaxoned nodes are wildcards for taxon-based merge guards, so entity resolution can still take the
+        # right taxon from a source that knows it. Counted below so the source problem stays visible.
+        distinct_taxa = sorted({value for value in to_list(taxon) if value})
+        # A taxon is kept only where it guards against ortholog merges (see TAXON_BEARING_CATEGORIES); on a
+        # disease, phenotype or chemical it only blocks merges that should happen.
+        if distinct_taxa and not (TAXON_BEARING_CATEGORIES & set(leaf_categories)):
+            self.taxa_dropped_off_non_gene_nodes += 1
+            distinct_taxa = []
+        if len(distinct_taxa) == 1:
+            node[NODE_TAXON] = distinct_taxa[0]
+        elif distinct_taxa:
+            self.multi_taxon_node_count += 1
+            if len(self.multi_taxon_examples) < MAX_MULTI_TAXON_EXAMPLES:
+                self.multi_taxon_examples.append(f"{curie_normalized} {distinct_taxa}")
 
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
@@ -574,8 +753,15 @@ class BaseHarmonizer(ABC):
 
         if supporting_sources:
             edge[EDGE_SUPPORTING_SOURCES] = supporting_sources
+        # For a source we ingest directly (not an aggregator itself), KRAKEN is the aggregator that brought
+        # the edge in -- recorded last, as the final hop of the retrieval chain. This is what tells a
+        # directly ingested edge apart from the same edge re-published by kg2 or ROBOKOP, including after
+        # the two merge. Aggregator sources already record themselves in their own place in the chain.
+        aggregator_ks = to_list(aggregator_ks)
+        if not self.is_aggregator:
+            aggregator_ks = list(dict.fromkeys(aggregator_ks + [KRAKEN_SOURCE_ID]))
         if aggregator_ks:
-            edge[EDGE_AGGREGATOR_KS] = to_list(aggregator_ks)  # Convert to list so these will merge
+            edge[EDGE_AGGREGATOR_KS] = aggregator_ks  # A list, so these will merge
         if publications:
             edge[EDGE_PUBLICATIONS] = to_list(publications)
         if publications_info:
@@ -587,37 +773,48 @@ class BaseHarmonizer(ABC):
         return edge
 
     def normalize_curie(self, curie: str) -> str:
-        # TODO: Eventually run all curies through biomapper, but some bug fixes are needed first
-        # TODO: Temporarily we'll just run it on molepro's known problem curies
-        if ":" in curie and curie.split(":")[0].upper() in {"CHEMBL.COMPOUND", "CHEMBL.TARGET", "UNII", "KEGG"}:
-            # Returned the cached mapping if we've seen this curie before
-            if curie in self.normalized_id_map:
-                return self.normalized_id_map[curie]
+        """The curie as biomapper2 spells it: standard prefix for its vocabulary, local id validated
+        and cleaned. EVERY curie KRAKEN ingests comes through here -- node ids, equivalency lists,
+        edge endpoints, and the original endpoints an aggregator records -- so that one entity is
+        one id no matter which source it arrived from.
 
-            try:
-                prefix, local_id = split_curie(curie)
-            except Exception:
-                self.invalid_curies.add(curie)
-                self.normalized_id_map[curie] = curie
-                return curie
-
-            # Molepro and probably others sometimes mistakenly use KEGG prefix
-            #   instead of kEGG.COMPOUND... let biomapper choose between these
-            if prefix.lower() == "kegg":
-                prefix = ("kegg", "kegg.compound", "kegg.target")
-
-            normalized_curie_dict, invalid_id_dict, unrecognized_vocabs = self.normalizer.get_curies(
-                local_ids_dict={prefix: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
-            )
-            # Record curies it failed on
-            self.unrecognized_vocabs |= unrecognized_vocabs
-            if invalid_id_dict:
-                for prefix, invalid_ids in invalid_id_dict.items():
-                    self.prefixes_with_invalid_ids[prefix] += len(invalid_ids)
-
-            # If it failed to normalize the curie, just return the original curie, unedited
-            final_curie = list(normalized_curie_dict.keys())[0] if normalized_curie_dict else curie
-            self.normalized_id_map[curie] = final_curie  # Cache our mapping
-            return final_curie
-        else:
+        Nothing is ever dropped. A vocabulary biomapper2 doesn't know, or a local id it rejects,
+        comes back exactly as the source wrote it; both are tallied for log_normalization_report,
+        which is the work queue for teaching biomapper2 about them.
+        """
+        if ":" not in curie:
             return curie
+        # Return the cached mapping if we've seen this curie before
+        cached = self.normalized_id_map.get(curie)
+        if cached is not None:
+            return cached
+
+        # Split on the FIRST colon only -- not split_curie, which rejects a curie carrying more than
+        # one. Some local ids legitimately contain colons (an HGVS expression is
+        # "HGVS:NC_000021.9:g.25840043C>G"); we only need to know where the prefix ends.
+        prefix, local_id = curie.split(":", 1)
+        vocab: str | tuple[str, ...] = prefix
+        # Some sources sometimes mistakenly use the KEGG prefix
+        #   instead of KEGG.COMPOUND... let biomapper choose between these
+        if prefix.lower() == "kegg":
+            vocab = ("kegg", "kegg.compound", "kegg.target")
+
+        normalized_curie_dict, invalid_id_dict, unrecognized_vocabs = self.normalizer.get_curies(
+            local_ids_dict={vocab: local_id}, stop_on_invalid_id=False, log_warnings=False, fuzzy_match_vocab=False
+        )
+        if normalized_curie_dict:
+            final_curie = list(normalized_curie_dict.keys())[0]
+        else:
+            # Keep the id as-is, and record WHY it couldn't be normalized so the report can
+            # distinguish "we've never heard of this vocabulary" from "we know it and this id is
+            # wrong for it" -- different fixes, so they're counted separately.
+            final_curie = curie
+            if unrecognized_vocabs:
+                self.unrecognized_vocabs |= unrecognized_vocabs
+                self._record_unnormalized(self.unrecognized_vocab_prefixes, prefix, curie)
+            else:
+                self.prefixes_with_invalid_ids[prefix] += 1
+                self._record_unnormalized(self.invalid_id_prefixes, prefix, curie)
+
+        self.normalized_id_map[curie] = final_curie  # Cache our mapping
+        return final_curie

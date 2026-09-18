@@ -5,16 +5,12 @@ from typing import Any
 
 from rdkit import Chem
 
-from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import LIPIDMAPS_ID
 from kraken.utils.kg_io import save_to_jsonl
 
 
 class LipidMapsHarmonizer(BaseHarmonizer):
     """Harmonizer for LIPID MAPS SDF files"""
-
-    source_infores = LIPIDMAPS_ID
 
     attribute_props = {"CATEGORY", "MAIN_CLASS", "SUB_CLASS", "CLASS_LEVEL4", "INCHI"}
     equiv_id_props = {
@@ -28,9 +24,6 @@ class LipidMapsHarmonizer(BaseHarmonizer):
         "PLANTFA_ID",
         "SMILES",
     }
-
-    def __init__(self, biolink_client: BiolinkClient):
-        super().__init__(biolink_client)
 
     def harmonize(
         self,
@@ -68,13 +61,17 @@ class LipidMapsHarmonizer(BaseHarmonizer):
         properties = molecule.GetPropsAsDict()
 
         # Transform the 'canonical' ID into standard curie form
-        lm_curie_dict, _, _ = self.normalizer.get_curies({"LM_ID": properties["LM_ID"]}, stop_on_invalid_id=True)
+        lm_curie_dict, _, _ = self.normalizer.get_curies(
+            {"LM_ID": properties["LM_ID"]}, stop_on_invalid_id=True, fuzzy_match_vocab=False
+        )
         lm_curie, lm_iri = next(iter(lm_curie_dict.items()))
 
         # Grab all xrefs and transform into standardized curies
         equivalent_ids = {lm_curie}
         equiv_curies_dict, _, _ = self.normalizer.get_curies(
-            {prop: properties[prop] for prop in self.equiv_id_props if properties.get(prop)}, stop_on_invalid_id=False
+            {prop: properties[prop] for prop in self.equiv_id_props if properties.get(prop)},
+            stop_on_invalid_id=False,
+            fuzzy_match_vocab=False,
         )
         if equiv_curies_dict:
             equivalent_ids |= set(equiv_curies_dict)

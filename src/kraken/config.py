@@ -2,13 +2,35 @@
 Configuration models for KRAKEN build system
 """
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Self
 
+import yaml
 from pydantic import BaseModel, Field, model_validator
 
 from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.general import to_list
+
+BUILD_CONFIG_PATH = Path(f"{PROJECT_ROOT}/config/build_config.yaml")
+
+
+@lru_cache(maxsize=1)
+def _configured_source_ids() -> dict[str, str]:
+    """Map of build_config source name -> its configured ``source_id``, read once from build_config.yaml."""
+    with open(BUILD_CONFIG_PATH) as f:
+        config_dict = yaml.safe_load(f)
+    return {name: source["source_id"] for name, source in config_dict.get("sources", {}).items()}
+
+
+def get_source_id(source_name: str) -> str:
+    """The ``source_id`` (infores or bare id) configured for a build_config source, so code that needs to
+    name another source (e.g. a harmonizer's source_exclusions) reads the id from build_config -- the
+    single source of truth -- rather than restating the string."""
+    ids = _configured_source_ids()
+    if source_name not in ids:
+        raise KeyError(f"No source named {source_name!r} in {BUILD_CONFIG_PATH} (have: {sorted(ids)})")
+    return ids[source_name]
 
 
 class HarmonizationConfig(BaseModel):
@@ -18,11 +40,23 @@ class HarmonizationConfig(BaseModel):
 
 class IntegrationConfig(BaseModel):
     output_directory: str
-    primary_source: str
 
 
 class MetagraphConfig(BaseModel):
     output_directory: str
+
+
+class EntityResolutionConfig(BaseModel):
+    """Clustering-based entity resolution (opt-in; replaces integrate.py's node
+    merge). Default OFF — the legacy merge remains the build default until this is
+    validated. See src/kraken/entity_resolution/ and docs/entity_resolution_plan.md.
+
+    Curated inputs (branch families, prefix ranking, weights, ground truth) live at
+    fixed paths under config/entity_resolution/ and are loaded directly by the ER
+    modules — they are not build-config knobs.
+    """
+
+    enabled: bool = False
 
 
 class StepsConfig(BaseModel):
@@ -52,11 +86,21 @@ class PostProcessingConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
+    # The identifier recorded as this source's provenance (``provided_by`` / edge knowledge source): a
+    # registered Biolink infores CURIE where one exists (e.g. "infores:rtx-kg2"), otherwise a bare id we
+    # coin (e.g. "translator-kg-open"). Single source of truth for the source's identity.
+    source_id: str
     version: str | None = None  # version/release of the source that was ingested (e.g. "2.10.2", "june2025")
     input_file: str | None = None
     nodes_input: str | None = None
     edges_input: str | None = None
-    can_merge_existing_nodes: bool = False
+
+    # We ingest this source directly, so we do NOT want anyone else's second-hand copy of its edges:
+    # set this and EVERY other source drops the edges it carries that name this source as their
+    # primary OR aggregator knowledge source. Declaring it once, on the source itself, replaces
+    # hand-maintaining a source_exclusions set on each harmonizer that happens to re-publish it --
+    # which needed you to already know which other KGs carry it.
+    drop_from_other_sources: bool = False
 
     # Computed (set by KrakenConfig validator)
     input_file_resolved: Path | None = Field(default=None, init=False)
@@ -76,7 +120,7 @@ class SourceConfig(BaseModel):
 class KrakenConfig(BaseModel):
     biolink_version: str
     kraken_version: str
-    kg_label: str | None = None  # human-readable build name, e.g. "kraken-no-spoke"
+    kg_label: str | None = None  # human-readable build name, e.g. "kraken-lite"
     log_level: str = "INFO"
     base_path: str | None = None
     harmonization: HarmonizationConfig
@@ -85,6 +129,7 @@ class KrakenConfig(BaseModel):
     steps: StepsConfig
     options: OptionsConfig
     post_processing: PostProcessingConfig | None = None
+    entity_resolution: EntityResolutionConfig = Field(default_factory=EntityResolutionConfig)
     sources: dict[str, SourceConfig]
 
     # Computed field (not from yaml)
@@ -93,12 +138,6 @@ class KrakenConfig(BaseModel):
     @model_validator(mode="after")
     def validate_and_resolve_sources(self) -> Self:
         all_sources = set(self.sources.keys())
-
-        # Validate primary_source exists
-        if self.integration.primary_source not in all_sources:
-            raise ValueError(
-                f"primary_source '{self.integration.primary_source}' must exist under 'sources': {all_sources}"
-            )
 
         include_sources = set(to_list(self.options.include_sources))
         exclude_sources = set(to_list(self.options.exclude_sources))
@@ -158,6 +197,12 @@ class KrakenConfig(BaseModel):
     def integrated_debug_dir(self) -> Path:
         return self.integrated_dir / "debug"
 
+    # Entity-resolution outputs (curated inputs load from fixed config paths in
+    # the ER modules themselves). These resolve against base_path.
+    @property
+    def er_membership_path(self) -> Path:
+        return self.integrated_dir / f"kraken_membership_{self.kraken_version}.jsonl"
+
     @property
     def integrated_nodes_path(self) -> Path:
         return self.integrated_dir / f"kraken_nodes_{self.kraken_version}.jsonl"
@@ -174,6 +219,20 @@ class KrakenConfig(BaseModel):
         source versions that went into it.
         """
         return {source: self.sources[source].version for source in sorted(self.sources_to_use)}
+
+    def auto_source_exclusions(self, source_name: str) -> set[str]:
+        """Source ids ``source_name`` must drop edges for, from the ``drop_from_other_sources`` flags.
+
+        Every OTHER in-use source that sets the flag contributes its ``source_id``; the source's own
+        id is never included, so a source is always free to publish its own edges. Only sources
+        actually in this build count -- dropping a source's second-hand copies while its direct
+        ingest is switched off would silently delete those edges from the graph entirely.
+        """
+        return {
+            self.sources[other].source_id
+            for other in self.sources_to_use
+            if other != source_name and self.sources[other].drop_from_other_sources
+        }
 
     @property
     def create_metagraphs(self) -> bool:
@@ -192,6 +251,20 @@ class KrakenConfig(BaseModel):
                 self.harmonized_dir / source / "edges.jsonl",
             )
             for source in self.sources_to_use
+        }
+
+    def harmonized_nodes_paths_of_build_sources(self, *, other_than: str) -> dict[str, Path]:
+        """``source -> harmonized nodes file`` for every source a build integrates, except ``other_than``.
+
+        "Every source a build integrates" is every configured source that isn't EXCLUDED, regardless of
+        include_sources: a run often harmonizes one source at a time (include_sources: [babel]) and integrates
+        them all later, and a source that reads its peers' output must see the peers that will be integrated.
+        """
+        excluded = set(to_list(self.options.exclude_sources))
+        return {
+            source: self.harmonized_dir / source / "nodes.jsonl"
+            for source in sorted(self.sources)
+            if source != other_than and source not in excluded
         }
 
     @property

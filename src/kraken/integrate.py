@@ -1,13 +1,17 @@
-"""
-Entity resolution and graph integration functions
+"""Graph integration: clustering-based entity resolution + edge merging.
+
+Node resolution is handled by ``kraken.entity_resolution`` (see that package and
+``docs/entity_resolution_plan.md``): it clusters the match graph and writes the
+canonical nodes file, returning a ``node_id -> representative_curie`` map. Edges
+are then resolved through that map and merged by the existing order-independent
+external sort. The legacy ``primary_source`` / ``can_merge_existing_nodes`` node
+merge has been fully replaced.
 """
 
-import copy
 import json
 import logging
 import os
 import subprocess
-import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -16,188 +20,57 @@ import jsonlines
 
 from kraken.biolink_client import BiolinkClient
 from kraken.config import KrakenConfig
+from kraken.entity_resolution.build import resolve_entities
+from kraken.entity_resolution.uncanonicalize import (
+    kg2_pre_id_triples,
+    original_endpoints,
+)
 from kraken.schema import EdgeModel
 from kraken.utils.constants import (
+    CROSS_CLUSTER_EQUIVALENCE_PREDICATE,
     EDGE_AGENT_TYPE,
+    EDGE_AGGREGATOR_KS,
     EDGE_ATTRIBUTES,
     EDGE_KNOWLEDGE_LEVEL,
     EDGE_OBJECT,
+    EDGE_PREDICATE,
+    EDGE_PRIMARY_KS,
     EDGE_SUBJECT,
-    NODE_ATTRIBUTES,
-    NODE_CATEGORIES,
+    KNOWLEDGE_ASSERTION,
+    KRAKEN_SOURCE_ID,
     NODE_EQUIVALENT_IDS,
     NODE_ID,
-    NODE_SYNONYMS,
+    NODE_PROVIDED_BY,
     NOT_PROVIDED,
+    SAME_AS_PREDICATE,
 )
 from kraken.utils.general import create_edge_key, to_list
-from kraken.utils.kg_io import (
-    load_equivalency_mappings,
-    remove_file,
-    save_to_jsonl,
-    stream_edges_from_jsonl,
-    stream_nodes_from_jsonl,
-)
+from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 
 def integrate_sources(config: KrakenConfig, biolink: BiolinkClient):
-    """Merge harmonized sources using streaming approach"""
+    """Resolve entities into canonical nodes, then merge edges across all sources."""
+    # Babel is the equivalence backbone and the per-id name/category/taxon authority (see entity_resolution.build);
+    # without it entity resolution would still run, but quietly lose most cross-ontology merges.
+    if "babel" not in config.sources_to_use:
+        raise ValueError(
+            "Integration requires the 'babel' source: entity resolution takes its cliques and per-id names, "
+            "categories and taxa from it. Include babel (and harmonize it) before integrating."
+        )
+
     config.integrated_dir.mkdir(parents=True, exist_ok=True)
     config.integrated_debug_dir.mkdir(parents=True, exist_ok=True)
 
-    logging.info("Starting source integration...")
+    logging.info("Starting source integration (clustering-based entity resolution)...")
 
-    # Phase 1: Build base equivalency mappings from primary source
-    primary_source = config.integration.primary_source
-    primary_nodes_path, _ = config.all_harmonized_paths_resolved[primary_source]
-    logging.info(f"Loading equivalency mappings from primary source ({primary_source})")
-    equivalency_index = load_equivalency_mappings(primary_nodes_path)
-    assert equivalency_index
+    # Phase 1: cluster the match graph -> canonical nodes file + node_id -> representative map.
+    node_id_to_rep = resolve_entities(config, biolink)
+    assert node_id_to_rep, "entity resolution produced no nodes"
 
-    # Phase 2: Integrate all nodes, merging as we go
-    integrate_nodes(equivalency_index, config, biolink)
-
-    # Phase 3: Process all edges with node ID resolution (merge edges with the same key)
-    integrate_edges(equivalency_index, config)
+    # Phase 2: resolve edge endpoints through that map and merge duplicate edges.
+    integrate_edges(node_id_to_rep, config)
 
     logging.info(f"Integration complete! Unified KG saved to {config.integrated_dir}")
-
-
-def integrate_nodes(equivalency_index: dict[str, str], config: KrakenConfig, biolink: BiolinkClient):
-    # Load the primary source as our starting point
-    primary_source = config.integration.primary_source
-    logging.info(f"Loading {primary_source} nodes as starting point")
-    primary_nodes_path, _ = config.all_harmonized_paths_resolved[primary_source]
-    current_canonical_nodes = {
-        node[NODE_ID]: node for node in stream_nodes_from_jsonl(primary_nodes_path)
-    }  # canonical_id -> merged_node_data
-    assert current_canonical_nodes
-
-    # Figure out what order to integrate sources in (save ones not allowed to merge entities for last)
-    allowed_to_merge_existing = [
-        source_name
-        for source_name in config.sources_to_use
-        if config.sources[source_name].can_merge_existing_nodes and source_name != primary_source
-    ]
-    not_allowed_to_merge = [
-        source_name
-        for source_name in config.sources_to_use
-        if not config.sources[source_name].can_merge_existing_nodes and source_name != primary_source
-    ]
-    ordered_sources = allowed_to_merge_existing + not_allowed_to_merge
-    logging.info(f"Will integrate remaining sources into {primary_source} in this order: {ordered_sources}")
-
-    for source_name in ordered_sources:
-        nodes_file, edges_file = config.all_harmonized_paths_resolved[source_name]
-        source_allowed_to_merge_nodes = config.sources[source_name].can_merge_existing_nodes
-
-        # Set up logs for non-one-to-one mappings
-        one_to_many_log = config.integrated_debug_dir / f"{source_name}_one_to_many.jsonl"
-        one_to_zero_log = config.integrated_debug_dir / f"{source_name}_one_to_zero.jsonl"
-        remove_file(one_to_many_log)
-        remove_file(one_to_zero_log)
-
-        logging.info(f"Integrating nodes from {source_name} (can_merge_existing_nodes={source_allowed_to_merge_nodes})")
-
-        for node in stream_nodes_from_jsonl(nodes_file):
-            node_id = node[NODE_ID]
-            node_equiv_ids = node[NODE_EQUIVALENT_IDS]
-
-            if source_allowed_to_merge_nodes:
-                # Merge all pre-existing canonical nodes referenced by this node's equivalent IDs
-                canonical_ids_list = [
-                    equivalency_index[equiv_id] for equiv_id in node_equiv_ids if equivalency_index.get(equiv_id)
-                ]
-                canonical_ids = set(canonical_ids_list)
-
-                if not canonical_ids:
-                    # First time seeing this entity in any fashion
-                    canonical_id = node[NODE_ID]
-                    current_canonical_nodes[canonical_id] = node
-                    save_to_jsonl([node], one_to_zero_log, mode="a")
-                    # Update equivalency index appropriately
-                    for equiv_id in node[NODE_EQUIVALENT_IDS]:
-                        equivalency_index[equiv_id] = canonical_id
-                elif len(canonical_ids) == 1:
-                    # We have a one-to-one match; merge this node with its canonical node
-                    canonical_id = canonical_ids_list[0]
-                    existing_canonical_node = current_canonical_nodes[canonical_id]
-                    _ = merge_two_nodes(
-                        node, existing_canonical_node, equivalency_index, current_canonical_nodes, biolink
-                    )
-                else:
-                    # one-to-many match; merge all canonical nodes for this new node into majority canonical node
-                    canonical_id_counts = Counter(canonical_ids_list)
-                    most_common_canonical_id = canonical_id_counts.most_common(1)[0][0]
-                    other_canonical_ids = canonical_ids.difference({most_common_canonical_id})
-
-                    # Log this one-to-many mapping
-                    log_item = {
-                        "node_id": node_id,
-                        "majority_canonical_id": most_common_canonical_id,
-                        "other_canonical_ids": list(other_canonical_ids),
-                        "node": node,
-                    }
-                    save_to_jsonl([log_item], one_to_many_log, mode="a")
-
-                    most_common_canonical_node = current_canonical_nodes[most_common_canonical_id]
-                    other_canonical_nodes = [current_canonical_nodes[can_id] for can_id in other_canonical_ids]
-
-                    # Merge the new node with the majority canonical node
-                    merged_node = merge_two_nodes(
-                        node, most_common_canonical_node, equivalency_index, current_canonical_nodes, biolink
-                    )
-                    # Then iteratively merge the other canonical nodes into our merged node
-                    for other_existing_canonical_node in other_canonical_nodes:
-                        merged_node = merge_two_nodes(
-                            other_existing_canonical_node,
-                            merged_node,
-                            equivalency_index,
-                            current_canonical_nodes,
-                            biolink,
-                        )
-            else:
-                # Find the 'majority' canonical ID for this node (not allowed to merge pre-existing canonical nodes)
-                canonical_id, new_equiv_ids = find_majority_canonical_id(node, equivalency_index, one_to_many_log)
-
-                if canonical_id in current_canonical_nodes:
-                    # Merge with existing canonical node (where new node cannot override existing)
-                    # TODO: refine this depending on merging power of pre-existing source(s)?
-                    existing_canonical_node = current_canonical_nodes[canonical_id]
-                    _ = merge_two_nodes(
-                        node,
-                        existing_canonical_node,
-                        equivalency_index,
-                        current_canonical_nodes,
-                        biolink,
-                        new_equiv_ids=new_equiv_ids,
-                        new_can_dominate=False,
-                    )
-                else:
-                    # First time seeing this canonical entity
-                    current_canonical_nodes[node[NODE_ID]] = node
-                    save_to_jsonl([node], one_to_zero_log, mode="a")
-                    # Update equivalency index appropriately
-                    for equiv_id in node[NODE_EQUIVALENT_IDS]:
-                        equivalency_index[equiv_id] = canonical_id
-
-    logging.info(f"Formed {len(current_canonical_nodes)} merged nodes")
-
-    logging.info("Verifying we have disjoint equivalent_id sets..")
-    seen_ids = set()
-    for unified_node in current_canonical_nodes.values():
-        equiv_ids = set(unified_node[NODE_EQUIVALENT_IDS])
-        if equiv_ids.intersection(seen_ids):
-            logging.error(
-                f"Unified node {unified_node[NODE_ID]} has equiv IDs present on another unified node(s). "
-                f"Overlapping equiv IDs are: {equiv_ids.intersection(seen_ids)}. "
-                f"Unified node is: {unified_node}"
-            )
-            sys.exit(1)
-        seen_ids |= equiv_ids
-
-    # Save unified nodes
-    save_to_jsonl(current_canonical_nodes.values(), config.integrated_nodes_path, mode="w")
 
 
 # Field separator for the temporary key-sorted edge file. Safe because json.dumps escapes any tabs or
@@ -205,7 +78,7 @@ def integrate_nodes(equivalency_index: dict[str, str], config: KrakenConfig, bio
 _EDGE_SORT_SEP = "\t"
 
 
-def integrate_edges(equivalency_index: dict[str, str], config: KrakenConfig):
+def integrate_edges(node_map: dict[str, str], config: KrakenConfig):
     """Merge edges across ALL sources using a disk-based external sort.
 
     Edges sharing an edge key are merged into a single edge. Because aggregator_knowledge_source is not
@@ -216,12 +89,12 @@ def integrate_edges(equivalency_index: dict[str, str], config: KrakenConfig):
     key, sort that file on disk, then merge each run of same-key edges in a single streaming pass. Peak
     memory is therefore just one group of same-key edges, regardless of graph size.
     """
-    assert equivalency_index
+    assert node_map
 
     keyed_edges_path = config.integrated_dir / "edges_keyed.tmp.tsv"
     sorted_edges_path = config.integrated_dir / "edges_keyed_sorted.tmp.tsv"
     try:
-        _write_keyed_edges(equivalency_index, config, keyed_edges_path)
+        _write_keyed_edges(node_map, config, keyed_edges_path)
         _sort_file_by_key(keyed_edges_path, sorted_edges_path, temp_dir=config.integrated_dir)
         total_edges, num_merged = _merge_sorted_edges(sorted_edges_path, config)
         logging.info(f"Wrote {total_edges} integrated edges ({num_merged} merged from multiple source edges)")
@@ -230,16 +103,182 @@ def integrate_edges(equivalency_index: dict[str, str], config: KrakenConfig):
         remove_file(sorted_edges_path)
 
 
-def _write_keyed_edges(equivalency_index: dict[str, str], config: KrakenConfig, keyed_edges_path: Path):
+def _write_keyed_edges(node_map: dict[str, str], config: KrakenConfig, keyed_edges_path: Path):
     """Stream every source's edges to a temp file as '<edge_key>\\t<edge_json>' lines, resolving each
-    edge's subject/object to canonical IDs first so the keys reflect the integrated graph."""
-    with open(keyed_edges_path, "w") as keyed_file:
-        for source_name in config.sources_to_use:
-            logging.info(f"Writing keyed edges from {source_name}..")
-            _, edges_file = config.all_harmonized_paths_resolved[source_name]
-            for edge in stream_edges_from_jsonl(edges_file):
-                resolve_to_canonical(edge, equivalency_index)
-                keyed_file.write(f"{create_edge_key(edge)}{_EDGE_SORT_SEP}{json.dumps(edge)}\n")
+    edge's subject/object to canonical (representative) IDs first so the keys reflect the integrated graph.
+
+    Edges are remapped by their ORIGINAL endpoints (un-canonicalizing aggregators): a canonicalizing
+    aggregator stores Babel-canonical endpoints, but our clustering diverges from Babel, so mapping a
+    canonical endpoint would attach the edge to the wrong node. One stored edge can carry several
+    original subject/object pairs (e.g. kg2), so it fans out into several edges. Sources we can't
+    un-canonicalize fall back to their stored endpoints.
+
+    KG2's originals are NOT assumed to be listed in the stored edge's direction -- KG2 re-orients edges when it
+    normalizes an inverse relation, so ~12% of its original pairs run backwards (see ``_orient``). Other sources'
+    originals are taken in the order they're recorded."""
+    orphaned = self_loops = 0
+    orientation = Counter()
+    votes: dict[tuple[str, str], Counter] = defaultdict(Counter)  # (predicate, original relation) -> orientations
+    spool_path = keyed_edges_path.with_suffix(".undetermined.tmp")
+
+    def write(edge: dict, rep_subj: str, rep_obj: str) -> None:
+        nonlocal self_loops
+        if rep_subj == rep_obj:
+            self_loops += 1  # endpoints merged into one node -> self-loop, drop
+            return
+        resolved = {**edge, EDGE_SUBJECT: rep_subj, EDGE_OBJECT: rep_obj}
+        keyed_file.write(f"{create_edge_key(resolved)}{_EDGE_SORT_SEP}{json.dumps(resolved)}\n")
+
+    try:
+        with open(keyed_edges_path, "w") as keyed_file, open(spool_path, "w") as spool:
+            for source_name in config.sources_to_use:
+                logging.info(f"Writing keyed edges from {source_name}..")
+                _, edges_file = config.all_harmonized_paths_resolved[source_name]
+                for edge in stream_edges_from_jsonl(edges_file):
+                    if source_name == "babel" and edge.get(EDGE_PREDICATE) == SAME_AS_PREDICATE:
+                        # A Babel clique edge. Within one cluster it becomes a self-loop and is dropped below; one
+                        # that survives joins ids entity resolution kept apart, so it can't claim same_as.
+                        edge = {**edge, EDGE_PREDICATE: CROSS_CLUSTER_EQUIVALENCE_PREDICATE}
+                    # KG2's originals carry their relation (needed to settle undetermined orientations)
+                    triples = kg2_pre_id_triples(edge) if source_name == "kg2" else []
+                    if not triples:
+                        pairs = original_endpoints(edge, source_name)
+                        if pairs is None:  # canonicalized aggregator with no recoverable originals -> stored endpoints
+                            pairs = [(edge.get(EDGE_SUBJECT), edge.get(EDGE_OBJECT))]
+                        triples = [(subj, None, obj) for subj, obj in pairs]
+                    for subj_id, relation, obj_id in triples:
+                        rep_a, rep_b = node_map.get(subj_id), node_map.get(obj_id)
+                        if rep_a is None or rep_b is None:
+                            orphaned += 1  # an endpoint that never became a node -> skip this edge
+                            continue
+                        if source_name != "kg2":
+                            # Only KG2 re-orients edges relative to its recorded originals. ROBOKOP and
+                            # Translator write original_subject/original_object to match their own fields,
+                            # and a native source's endpoints are its own -- orienting those could only flip
+                            # a correct edge when an original happens to be clustered with the other end.
+                            write(edge, rep_a, rep_b)
+                            continue
+                        direction = _orient(rep_a, rep_b, edge, node_map)
+                        orientation[direction] += 1
+                        if direction == "undetermined":
+                            if relation is not None:  # decide after the pass, from how this relation oriented
+                                spool.write(json.dumps([edge, rep_a, rep_b, relation]) + "\n")
+                            else:
+                                write(edge, rep_a, rep_b)
+                            continue
+                        if relation is not None:
+                            votes[(edge.get(EDGE_PREDICATE), relation)][direction] += 1
+                        if direction == "swapped":
+                            write(edge, rep_b, rep_a)
+                        else:
+                            write(edge, rep_a, rep_b)
+
+            spool.close()
+            by_relation = Counter()
+            with open(spool_path) as undetermined:
+                for line in undetermined:
+                    edge, rep_a, rep_b, relation = json.loads(line)
+                    tally = votes.get((edge.get(EDGE_PREDICATE), relation))
+                    if tally and tally["swapped"] > tally["aligned"]:
+                        by_relation["swapped"] += 1
+                        write(edge, rep_b, rep_a)
+                    else:
+                        by_relation["aligned" if tally else "no evidence (kept original order)"] += 1
+                        write(edge, rep_a, rep_b)
+            _write_equivalence_edges(node_map, config, keyed_file)
+    finally:
+        remove_file(spool_path)
+
+    if orientation:
+        logging.info(
+            "Oriented KG2 original endpoints by which stored endpoint's cluster each lands in: "
+            "%d aligned, %d swapped (re-oriented), %d undetermined -> resolved by relation: %s",
+            orientation["aligned"],
+            orientation["swapped"],
+            orientation["undetermined"],
+            dict(by_relation),
+        )
+    if orphaned:
+        logging.warning("Skipped %d edge endpoints with no node mapping (orphans)", orphaned)
+    if self_loops:
+        logging.info("Dropped %d self-loop edges (endpoints merged into one node)", self_loops)
+
+
+def _orient(rep_a: str, rep_b: str, edge: dict, node_map: dict[str, str]) -> str:
+    """Which way an original pair runs relative to its stored edge: "aligned", "swapped", or "undetermined".
+
+    Decided by where the originals landed: an original in the stored SUBJECT's cluster is the subject. Clusters
+    rather than id equality, because the originals are different ids from the (Babel-canonical) stored endpoints.
+    Undetermined when neither original shares a cluster with either stored endpoint, or when the evidence points
+    both ways (e.g. the stored endpoints themselves share a cluster).
+    """
+    stored_subj, stored_obj = node_map.get(edge.get(EDGE_SUBJECT)), node_map.get(edge.get(EDGE_OBJECT))
+    aligned = rep_a == stored_subj or rep_b == stored_obj
+    swapped = rep_a == stored_obj or rep_b == stored_subj
+    if aligned and not swapped:
+        return "aligned"
+    if swapped and not aligned:
+        return "swapped"
+    return "undetermined"
+
+
+def _cross_cluster_edge(subject: str, object_: str, primary_ks: str, aggregator_ks: list[str]) -> dict:
+    """A close_match edge between two clusters asserted equivalent but kept apart (symmetric: subject/object
+    ordered so A~B and B~A collapse). See CROSS_CLUSTER_EQUIVALENCE_PREDICATE for why not same_as.
+
+    knowledge_level = knowledge_assertion (an asserted equivalence, not a prediction/
+    statistic). agent_type = not_provided: these edges are synthesized from equiv-list
+    co-membership, so the agent that originally asserted the equivalence is unknown (it
+    varies by source), and we don't claim one. KRAKEN is recorded as the last aggregator in the chain, as it is
+    on every directly ingested edge (see BaseHarmonizer.create_edge) -- the source asserted the equivalence, but
+    the EDGE only exists because our entity resolution kept the two ids apart."""
+    subject, object_ = sorted((subject, object_))
+    edge = {
+        EDGE_SUBJECT: subject,
+        EDGE_OBJECT: object_,
+        EDGE_PREDICATE: CROSS_CLUSTER_EQUIVALENCE_PREDICATE,
+        EDGE_PRIMARY_KS: primary_ks,
+        EDGE_KNOWLEDGE_LEVEL: KNOWLEDGE_ASSERTION,
+        EDGE_AGENT_TYPE: NOT_PROVIDED,
+    }
+    edge[EDGE_AGGREGATOR_KS] = list(dict.fromkeys([*aggregator_ks, KRAKEN_SOURCE_ID]))
+    return edge
+
+
+def _write_equivalence_edges(node_map: dict[str, str], config: KrakenConfig, keyed_file):
+    """Retain the equivalence signal as real edges: for every asserted equivalence whose
+    two ids ended up in DIFFERENT clusters, emit a ``close_match`` edge between their
+    representatives (same-cluster assertions collapse to self-loops and are dropped).
+    So e.g. TP53 protein-isoforms that don't merge into the main TP53 node stay LINKED
+    to it. These come from each source's equiv-lists (primary KS = that source); Babel's cliques are ordinary
+    same_as edges, turned into close_match in _write_keyed_edges."""
+    written = 0
+
+    def emit(rep_a: str, rep_b: str, primary_ks: str, aggregator_ks: list[str]) -> int:
+        if rep_a == rep_b:  # same cluster -> self-loop, skip
+            return 0
+        edge = _cross_cluster_edge(rep_a, rep_b, primary_ks, aggregator_ks)
+        keyed_file.write(f"{create_edge_key(edge)}{_EDGE_SORT_SEP}{json.dumps(edge)}\n")
+        return 1
+
+    # (1) each source's equiv lists (the source asserts node_id ~ each of its members)
+    for source_name in config.sources_to_use:
+        if source_name == "babel":
+            continue  # one node per id, so no lists: its equivalences are edges (see _write_keyed_edges)
+        nodes_file, _ = config.all_harmonized_paths_resolved[source_name]
+        for node in stream_nodes_from_jsonl(nodes_file):
+            node_id = node.get(NODE_ID)
+            rep_a = node_map.get(node_id)
+            if rep_a is None:
+                continue
+            provided = node.get(NODE_PROVIDED_BY) or [source_name]
+            primary_ks, aggregator_ks = provided[0], list(provided[1:])
+            for member in node.get(NODE_EQUIVALENT_IDS) or []:
+                rep_b = node_map.get(member)
+                if rep_b is not None:
+                    written += emit(rep_a, rep_b, primary_ks, aggregator_ks)
+
+    logging.info("Wrote %d cross-cluster close_match equivalence edges", written)
 
 
 def _sort_file_by_key(input_path: Path, output_path: Path, temp_dir: Path):
@@ -284,9 +323,7 @@ def _merge_sorted_edges(sorted_edges_path: Path, config: KrakenConfig) -> tuple[
 def _write_merged_group(group: list[dict], writer, mergers_writer) -> int:
     """Merge a group of same-key edges into a single edge and write it. Returns 1 if the group actually
     required merging (had more than one edge), else 0."""
-    merged_edge = group[0]
-    for other_edge in group[1:]:
-        merge_into_existing_edge(other_edge, merged_edge)
+    merged_edge = merge_edges(group)
     writer.write(merged_edge)
     if len(group) > 1:
         mergers_writer.write(merged_edge)
@@ -294,182 +331,123 @@ def _write_merged_group(group: list[dict], writer, mergers_writer) -> int:
     return 0
 
 
-def find_majority_canonical_id(
-    node: dict, equivalency_index: dict[str, str], one_to_many_log: Path
-) -> tuple[str, set[str]]:
-    """Find canonical ID for this node using equivalency mappings"""
-    # Tally up votes for the canonical node from all the equivalent ids
-    node_id = node["id"]
-    votes = defaultdict(list)
-    equiv_ids_without_mappings = set()
-    for equiv_id in node[NODE_EQUIVALENT_IDS]:
-        canonical_id_vote = equivalency_index.get(equiv_id)
-        if canonical_id_vote:
-            votes[canonical_id_vote].append(equiv_id)
-        else:
-            equiv_ids_without_mappings.add(equiv_id)
-    vote_tallies = {
-        canonical_id: len(corresponding_ids)
-        + (9 if node_id in corresponding_ids else 0)  # Favor the main node.id (10x the vote)
-        for canonical_id, corresponding_ids in votes.items()
-    }
-
-    if vote_tallies:
-        # Choose the node in the merged graph with the most 'votes' from the equivalent IDs
-        canonical_id = max(vote_tallies, key=vote_tallies.get)
-        new_equiv_ids = equiv_ids_without_mappings
-
-        # Log if we have a one-to-many mapping
-        if len(vote_tallies) > 1:
-            log_item = {
-                "node_id": node_id,
-                "majority_canonical_id": canonical_id,
-                "new_equiv_ids": list(new_equiv_ids),
-                "vote_tallies": vote_tallies,
-                "votes": votes,
-                "node": node,
-            }
-            save_to_jsonl([log_item], one_to_many_log, mode="a")
-    else:
-        # Can't find a node in the merged graph that this node corresponds to; add it as a new node
-        canonical_id = node_id
-        new_equiv_ids = set(node[NODE_EQUIVALENT_IDS])
-
-    return canonical_id, new_equiv_ids
+# Merging a group of same-key edges is done in ONE pass over the group, accumulating each property as it goes.
+# It used to fold edges in one at a time, rebuilding every list-valued property from scratch on each fold -- O(n^2)
+# in the group's size. That is invisible at the handful of edges a key normally has, but a single 417,750-edge group
+# (thousands of wrongly-merged pathways, all pointing at the same object) needed ~87 billion set insertions and
+# stalled integration for hours. The result is unchanged, except that merged lists now keep first-seen order
+# instead of the arbitrary order a set gave them.
 
 
-def merge_two_nodes(
-    new_node: dict,
-    existing_node: dict,
-    equivalency_index: dict[str, str],
-    current_canonical_nodes: dict[str, dict],
-    biolink: BiolinkClient,
-    new_equiv_ids: set[str] | None = None,
-    new_can_dominate: bool = True,
-) -> dict[str, Any]:
-    """Merge data from new node into existing node (edits in place)"""
-    merged_node = copy.deepcopy(existing_node)
+class _Union:
+    """The distinct values of a merged property, accumulated in first-seen order in amortized O(1) per value.
 
-    # Figure out whether the new node's values for singular properties should override existing node's
-    new_dominates = new_can_dominate and len(new_node[NODE_EQUIVALENT_IDS]) > len(existing_node[NODE_EQUIVALENT_IDS])
+    Unhashable values can't be de-duplicated, so they are all kept (as the old list merge did)."""
 
-    # Merge any equivalent IDs for this node as appropriate (not necessarily ALL equivalent_ids the source provides,
-    #    due to one-to-manys when using majority approach)
-    equiv_ids_to_merge = new_equiv_ids if new_equiv_ids is not None else set(new_node[NODE_EQUIVALENT_IDS])
-    merged_node[NODE_EQUIVALENT_IDS] = list(set(existing_node[NODE_EQUIVALENT_IDS]) | equiv_ids_to_merge)
+    __slots__ = ("_seen", "items")
 
-    # Only merge in new synonyms if this is a 'full' merge
-    if NODE_SYNONYMS in new_node and (not new_equiv_ids or len(new_equiv_ids) == len(new_node[NODE_EQUIVALENT_IDS])):
-        merge_property_into_existing(new_node, merged_node, NODE_SYNONYMS)
+    def __init__(self) -> None:
+        self._seen: set = set()
+        self.items: list = []
 
-    # Merge all other properties appropriately
-    for property_name, new_value in new_node.items():
-        if property_name not in {NODE_EQUIVALENT_IDS, NODE_SYNONYMS}:  # These are handled specially, above
-            merge_property_into_existing(new_node, merged_node, property_name, new_dominates)
-
-    # Filter out any non-leaf categories from the merged node
-    merged_node[NODE_CATEGORIES] = biolink.filter_to_leaf_categories(merged_node[NODE_CATEGORIES])
-
-    # Make sure our equivalency index is up to date with any new canonical mappings
-    updated_canonical_id = merged_node[NODE_ID]
-    for equiv_id in merged_node[NODE_EQUIVALENT_IDS]:
-        equivalency_index[equiv_id] = updated_canonical_id
-
-    # Make sure our canonical nodes map is up to date in light of any changes to canonical ids
-    if existing_node[NODE_ID] in current_canonical_nodes:
-        del current_canonical_nodes[existing_node[NODE_ID]]
-    if new_node[NODE_ID] in current_canonical_nodes:
-        del current_canonical_nodes[new_node[NODE_ID]]
-    current_canonical_nodes[updated_canonical_id] = merged_node
-
-    return merged_node
+    def add(self, value: Any) -> None:
+        for item in to_list(value):
+            try:
+                if item in self._seen:
+                    continue
+                self._seen.add(item)
+            except TypeError:
+                pass
+            self.items.append(item)
 
 
-def merge_into_existing_edge(new_edge: dict, existing_edge: dict):
-    # NOTE: If edges are being merged, they must match on all properties included in the edge key
+class _DictFold:
+    """A dict-valued property merged key by key (the one level of recursion the merge allows)."""
 
-    # Merge knowledge_level, favoring values that aren't not_provided
-    if existing_edge[EDGE_KNOWLEDGE_LEVEL] == NOT_PROVIDED:
-        existing_edge[EDGE_KNOWLEDGE_LEVEL] = new_edge[EDGE_KNOWLEDGE_LEVEL]
+    __slots__ = ("values",)
 
-    # Merge agent_type, favoring values that aren't not_provided
-    if existing_edge[EDGE_AGENT_TYPE] == NOT_PROVIDED:
-        existing_edge[EDGE_AGENT_TYPE] = new_edge[EDGE_AGENT_TYPE]
+    def __init__(self, first: dict) -> None:
+        self.values: dict[str, Any] = dict(first)
 
-    # Merge any other properties as applicable (note: props included in edge key must be identical)
-    for property_name, value in new_edge.items():
-        if property_name not in EdgeModel.key_properties() | {EDGE_KNOWLEDGE_LEVEL, EDGE_AGENT_TYPE}:
-            merge_property_into_existing(new_edge, existing_edge, property_name)
+    def add(self, value: dict) -> None:
+        for key, item in value.items():
+            self.values[key] = _fold(self.values.get(key), item, recursion_allowed=False, combine_flat_types=True)
 
 
-def resolve_to_canonical(edge: dict, equivalency_index: dict[str, str]):
-    subj_id = edge[EDGE_SUBJECT]
-    obj_id = edge[EDGE_OBJECT]
-    if subj_id in equivalency_index and obj_id in equivalency_index:
-        edge[EDGE_SUBJECT] = equivalency_index[edge[EDGE_SUBJECT]]
-        edge[EDGE_OBJECT] = equivalency_index[edge[EDGE_OBJECT]]
-    else:
-        logging.warning(f"Skipping orphan edge: Edge between {subj_id} and {obj_id} is missing equivalency mappings")
+def _fold(accumulated: Any, value: Any, *, recursion_allowed: bool = True, combine_flat_types: bool = False) -> Any:
+    """Fold one more edge's ``value`` into a property's running ``accumulated`` value. Returns the new accumulation.
 
-
-def merge_two_lists(list_a: list, list_b: list) -> list[Any]:
-    # Merges two lists, retaining distinct values if hashable or otherwise just concatenating
-    try:
-        return list(set(list_a) | set(list_b))
-    except Exception:
-        return list_a + list_b
-
-
-def merge_two_values(
-    value_a: Any, value_b: Any, recursion_allowed: bool = True, combine_flat_types: bool = False
-) -> Any:
-    if value_a is None:
-        return value_b
-    elif value_b is None:
-        return value_a
-    elif isinstance(value_a, dict) and isinstance(value_b, dict) and recursion_allowed:
-        # We recurse only on the top-level entries (no recursing beyond that, even if value is a dict)
-        prop_names = set(value_a.keys()) | set(value_b.keys())
-        merged_value = {
-            prop_name: merge_two_values(
-                value_a.get(prop_name), value_b.get(prop_name), recursion_allowed=False, combine_flat_types=True
-            )
-            for prop_name in prop_names
-        }
-        return merged_value
-    elif (
-        isinstance(value_a, (set, list, dict, tuple))
-        or isinstance(value_b, (set, list, dict, tuple))
+    The rules are the merge's long-standing ones: a missing value never replaces a present one; two dicts are merged
+    key by key (top level only, where every entry combines); anything list-like -- or any flat value inside such a
+    dict -- becomes the union of all values seen; otherwise the first value wins.
+    """
+    if value is None:
+        return accumulated
+    if accumulated is None:
+        return value
+    if isinstance(accumulated, _Union):
+        accumulated.add(value)
+        return accumulated
+    if isinstance(accumulated, _DictFold):
+        if isinstance(value, dict):
+            accumulated.add(value)
+            return accumulated
+        accumulated = _materialize(accumulated)
+    if isinstance(accumulated, dict) and isinstance(value, dict) and recursion_allowed:
+        fold = _DictFold(accumulated)
+        fold.add(value)
+        return fold
+    if (
+        isinstance(accumulated, (set, list, dict, tuple))
+        or isinstance(value, (set, list, dict, tuple))
         or combine_flat_types
     ):
-        value_a_list = to_list(value_a)
-        value_b_list = to_list(value_b)
-        return merge_two_lists(value_a_list, value_b_list)
-    else:
-        # First input node wins
-        return value_a
+        union = _Union()
+        union.add(accumulated)
+        union.add(value)
+        return union
+    return accumulated  # first flat value wins
 
 
-def merge_property_into_existing(
-    new_item: dict, existing_item: dict, property_name: str, new_dominates: bool = False
-) -> Any:
-    dominant_item, secondary_item = (new_item, existing_item) if new_dominates else (existing_item, new_item)
-    dominant_value = dominant_item.get(property_name)
-    secondary_value = secondary_item.get(property_name)
+def _materialize(accumulated: Any) -> Any:
+    if isinstance(accumulated, _Union):
+        return accumulated.items
+    if isinstance(accumulated, _DictFold):
+        return {key: _materialize(value) for key, value in accumulated.values.items()}
+    return accumulated
 
-    # Handle attributes slot specially so we can do nesting at the second level
-    if property_name == NODE_ATTRIBUTES or property_name == EDGE_ATTRIBUTES:
-        dominant_attributes = dominant_value if dominant_value else dict()
-        secondary_attributes = secondary_value if secondary_value else dict()
-        source_slots = set(dominant_attributes) | set(secondary_attributes)
-        merged_value = {
-            source_slot: merge_two_values(dominant_attributes.get(source_slot), secondary_attributes.get(source_slot))
-            for source_slot in source_slots
-        }
-    else:
-        merged_value = merge_two_values(dominant_value, secondary_value)
 
-    if property_name == NODE_ID and isinstance(merged_value, list):
-        raise ValueError(f"uh oh! ids were merged... shouldn't be possible. {dominant_value}, {secondary_value}")
+_EDGE_KEY_PROPERTIES = EdgeModel.key_properties()
 
-    existing_item[property_name] = merged_value
+
+def merge_edges(group: list[dict]) -> dict:
+    """Merge edges that share an edge key into one, in a single pass (linear in the group's total size).
+
+    Key properties are identical across the group by definition, so the first edge's are kept. knowledge_level and
+    agent_type take the first value that isn't not_provided. Attributes merge per source slot, and each slot's
+    entries union. Every other property follows ``_fold``.
+    """
+    first = group[0]
+    if len(group) == 1:
+        return first
+    accumulated: dict[str, Any] = {}
+    for edge in group:
+        for name, value in edge.items():
+            if name in _EDGE_KEY_PROPERTIES:
+                accumulated.setdefault(name, value)
+            elif name in (EDGE_KNOWLEDGE_LEVEL, EDGE_AGENT_TYPE):
+                if accumulated.get(name, NOT_PROVIDED) == NOT_PROVIDED:
+                    accumulated[name] = value
+            elif name == EDGE_ATTRIBUTES:
+                slots = accumulated.setdefault(name, {})
+                for source_slot, slot_value in (value or {}).items():
+                    slots[source_slot] = _fold(slots.get(source_slot), slot_value)
+            else:
+                accumulated[name] = _fold(accumulated.get(name), value)
+    merged = {}
+    for name, value in accumulated.items():
+        if name == EDGE_ATTRIBUTES:  # a plain dict of per-source accumulators, so materialize one level down
+            merged[name] = {source_slot: _materialize(slot_value) for source_slot, slot_value in value.items()}
+        else:
+            merged[name] = _materialize(value)
+    return merged
