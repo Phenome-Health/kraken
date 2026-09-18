@@ -93,8 +93,13 @@ def test_smiles_attribute_becomes_a_smiles_equivalent_id(monkeypatch):
 
 def _named(monkeypatch, name, hgvs, curie="CAID:CA675382683"):
     node = _harmonizer(monkeypatch)._harmonize_node(
-        {"id": curie, "name": name, "category": ["biolink:SequenceVariant"], "equivalent_identifiers": [curie],
-         "hgvs": hgvs}
+        {
+            "id": curie,
+            "name": name,
+            "category": ["biolink:SequenceVariant"],
+            "equivalent_identifiers": [curie],
+            "hgvs": hgvs,
+        }
     )
     return node
 

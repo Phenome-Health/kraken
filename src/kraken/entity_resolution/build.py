@@ -162,6 +162,7 @@ def _stage1_write_evidence_and_facts(
         mask = shared_masks.setdefault(mask, mask)
         seeds[curie] = mask
         return mask
+
     # per-source infores provided_by (so a retained bare id can carry real provenance).
     source_provided_by: dict[str, set[str]] = defaultdict(set)
 
@@ -696,9 +697,7 @@ def _stage3_cluster(
             # clustering, so incompatible things never merge in the first place (this
             # can also split the component for free). cluster_violations on the pair
             # covers all enforced guardrails: branch, one_id, taxon.
-            comp_edges = [
-                e for e in comp_edges if not cluster_violations([e[0], e[1]], info, guardrail_config)
-            ]
+            comp_edges = [e for e in comp_edges if not cluster_violations([e[0], e[1]], info, guardrail_config)]
             # Label propagation on the pruned component (no resolution parameter —
             # LP merges what's connected; the guardrails do the splitting).
             raw_clusters = label_propagation(member_curies, comp_edges, seed=seed)
@@ -823,7 +822,6 @@ def _stage4_materialize(
         if inferred:
             return [inferred]
         return ["biolink:NamedThing"]
-
 
     try:
         with jsonlines.open(keyed, "w") as writer:

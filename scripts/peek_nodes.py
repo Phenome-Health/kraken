@@ -61,14 +61,29 @@ class Style:
     def __call__(self, code: str, text: str) -> str:
         return f"\033[{code}m{text}\033[0m" if self.on else text
 
-    def bold(self, t): return self("1", t)
-    def dim(self, t): return self("2", t)
-    def cyan(self, t): return self("36", t)
-    def green(self, t): return self("32", t)
-    def yellow(self, t): return self("33", t)
-    def magenta(self, t): return self("35", t)
-    def red(self, t): return self("31", t)
-    def grey(self, t): return self("90", t)
+    def bold(self, t):
+        return self("1", t)
+
+    def dim(self, t):
+        return self("2", t)
+
+    def cyan(self, t):
+        return self("36", t)
+
+    def green(self, t):
+        return self("32", t)
+
+    def yellow(self, t):
+        return self("33", t)
+
+    def magenta(self, t):
+        return self("35", t)
+
+    def red(self, t):
+        return self("31", t)
+
+    def grey(self, t):
+        return self("90", t)
 
 
 def default_nodes_path() -> Path | None:

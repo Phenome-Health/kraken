@@ -23,9 +23,16 @@ pytest.importorskip("igraph")
 # equivalency list -- no independent high-weight source. This is the class of
 # merge that regressed to singletons when aggregator equivalency sat below tau.
 PARKINSON = [
-    "MONDO:0005180", "DOID:14330", "UMLS:C0030567", "MESH:D010300",
-    "SNOMEDCT:49049000", "NCIT:C26845", "medgen:10590", "ICD9:332",
-    "KEGG.DISEASE:05012", "MEDDRA:10061536",
+    "MONDO:0005180",
+    "DOID:14330",
+    "UMLS:C0030567",
+    "MESH:D010300",
+    "SNOMEDCT:49049000",
+    "NCIT:C26845",
+    "medgen:10590",
+    "ICD9:332",
+    "KEGG.DISEASE:05012",
+    "MEDDRA:10061536",
 ]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -276,10 +283,20 @@ def test_harmonized_member_babel_label_retained_as_synonym(tmp_path):
     """A HARMONIZED (non-bare) member's own Babel label is retained as a synonym on the merged node -- not just its
     source name (never throw away a label)."""
     ncbigene = [
-        {"id": "NCBIGene:1636", "categories": ["biolink:Gene"], "equivalent_ids": ["NCBIGene:1636"],
-         "provided_by": ["infores:ncbi-gene"], "name": "ACE"},
-        {"id": "HGNC:2707", "categories": ["biolink:Gene"], "equivalent_ids": ["HGNC:2707"],
-         "provided_by": ["infores:ncbi-gene"], "name": "ACE_symbol"},
+        {
+            "id": "NCBIGene:1636",
+            "categories": ["biolink:Gene"],
+            "equivalent_ids": ["NCBIGene:1636"],
+            "provided_by": ["infores:ncbi-gene"],
+            "name": "ACE",
+        },
+        {
+            "id": "HGNC:2707",
+            "categories": ["biolink:Gene"],
+            "equivalent_ids": ["HGNC:2707"],
+            "provided_by": ["infores:ncbi-gene"],
+            "name": "ACE_symbol",
+        },
     ]
     babel = [
         _babel_node("NCBIGene:1636", "biolink:Gene", "angiotensin converting enzyme"),

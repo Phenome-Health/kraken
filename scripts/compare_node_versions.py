@@ -77,8 +77,10 @@ def compare_one(label: str, wid: str, old: dict | None, new: dict | None, s: Sty
     if old and new:
         delta = len(new_m) - len(old_m)
         dcolor = s.green if delta == 0 else (s.yellow if delta > 0 else s.red)
-        print(f"  {s.dim('Δ')}    members {dcolor(f'{delta:+d}')}"
-              + (f"   {s.dim('(rep changed)')}" if old.get("id") != new.get("id") else ""))
+        print(
+            f"  {s.dim('Δ')}    members {dcolor(f'{delta:+d}')}"
+            + (f"   {s.dim('(rep changed)')}" if old.get("id") != new.get("id") else "")
+        )
 
         added = new_m - old_m
         removed = old_m - new_m
@@ -89,8 +91,10 @@ def compare_one(label: str, wid: str, old: dict | None, new: dict | None, s: Sty
         if not added and not removed:
             print(f"  {s.green('=')}    identical membership")
         if old_cats != new_cats:
-            print(f"  {s.magenta('!')}    categories changed: {s.red(', '.join(old_cats) or '—')} "
-                  f"{s.dim('→')} {s.green(', '.join(new_cats) or '—')}")
+            print(
+                f"  {s.magenta('!')}    categories changed: {s.red(', '.join(old_cats) or '—')} "
+                f"{s.dim('→')} {s.green(', '.join(new_cats) or '—')}"
+            )
 
 
 def main() -> None:

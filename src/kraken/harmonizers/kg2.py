@@ -26,4 +26,3 @@ class KG2Harmonizer(BaseHarmonizer):
     }
     # KG2 uses an invalid predicate for NCIT 'regimen_has_accepted_use_for_disease' edges - remap those
     predicate_overrides = {"biolink:drug_regulatory_status_world_wide": "biolink:treats_or_applied_or_studied_to_treat"}
-
