@@ -119,7 +119,7 @@ def _stage1_write_evidence_and_facts(
     names_path: Path,
     source_bits: dict[str, int],
     facts: IdFactsStore,
-) -> tuple[dict[str, set[str]], dict[str, str], set[str], dict[str, int], dict[str, set[str]]]:
+) -> tuple[dict[str, frozenset[str]], dict[str, str], set[str], dict[str, int], dict[str, set[str]]]:
     """One streaming pass over harmonized nodes+edges. Writes equivalency-clique
     (native sources only) and match-predicate evidence, writes
     ``normalized_name<TAB>curie`` rows for name similarity, and returns:
@@ -138,14 +138,44 @@ def _stage1_write_evidence_and_facts(
     Babel's nodes are also recorded into ``facts`` -- each id's own name, category and taxon -- which later stages
     treat as the source of truth for an id's category and taxon.
     """
-    inherited_cats: dict[str, set[str]] = {}
+    inherited_cats: dict[str, frozenset[str]] = {}
     node_taxon: dict[str, str] = {}
     node_ids: set[str] = set()
     # seeds: every id we've seen -> a bitmask of the sources that provided it (a node
     # id or an equiv-list member) -- the provenance for retaining EVERY id as a node (singleton if it never merges).
     seeds: dict[str, int] = {}
+
+    # Both maps above hold tens of millions of entries but only a few hundred distinct VALUES (category
+    # combinations, source combinations), so every value is interned and shared. A fresh set() per id cost
+    # ~200 bytes each, and a fresh int per mask another ~30 -- gigabytes at Babel's scale, which is what ran
+    # the 39.6M-id build out of memory.
+    shared_category_sets: dict[frozenset[str], frozenset[str]] = {}
+    shared_masks: dict[int, int] = {}
+
+    def inherit(curie: str, categories: frozenset[str]) -> None:
+        current = inherited_cats.get(curie)
+        merged = categories if current is None else current | categories
+        inherited_cats[curie] = shared_category_sets.setdefault(merged, merged)
+
+    def mark(curie: str, bits: int) -> int:
+        mask = seeds.get(curie, 0) | bits
+        mask = shared_masks.setdefault(mask, mask)
+        seeds[curie] = mask
+        return mask
     # per-source infores provided_by (so a retained bare id can carry real provenance).
     source_provided_by: dict[str, set[str]] = defaultdict(set)
+
+    def babel_categories(curie: str) -> frozenset[str] | None:
+        """What Babel's own node for ``curie`` contributes to inheritance -- read from ``facts`` on demand, since
+        the node pass doesn't store it per id. Same single-family rule as any other source's node."""
+        info = facts.get(curie)
+        if info is None or not info.categories:
+            return None
+        branches = families.branches(info.categories)
+        if branches is ALL_FAMILIES or len(branches) != 1:
+            return None
+        categories = frozenset(sys.intern(c) for c in info.categories)
+        return shared_category_sets.setdefault(categories, categories)
 
     def record_aliases(edge: dict, source: str, bit: int, ev) -> None:
         """Attach the ids an aggregator STARTED from that exist nowhere else in the graph.
@@ -169,14 +199,17 @@ def _stage1_write_evidence_and_facts(
             mask = seeds.get(original, 0)
             if mask and not mask & ALIAS_SEED_BIT:
                 continue  # already placed by some source's nodes or lists
-            seeds[original] = mask | bit | ALIAS_SEED_BIT
+            mark(original, bit | ALIAS_SEED_BIT)
             # The original inherits the canonical id's categories the same way an equiv-list member
             # does (the node pass). Without it, an id from a vocabulary Babel doesn't
             # know (HGVS, CAID) would fall through to NamedThing -- a guardrail wildcard -- so the
             # branch guardrail would go inert on exactly the ids this is introducing.
             canonical_cats = inherited_cats.get(canonical)
+            babel_cats = babel_categories(canonical)  # Babel's nodes aren't in inherited_cats (see the node pass)
+            if babel_cats:
+                canonical_cats = babel_cats if canonical_cats is None else canonical_cats | babel_cats
             if canonical_cats:
-                inherited_cats.setdefault(original, set()).update(canonical_cats)
+                inherit(original, canonical_cats)
             if is_coarser_than_canonical(original, canonical):
                 # e.g. a bare rsid (position) stored on one CAID (allele): seeded and typed above so the edge
                 # can remap onto the position it was asserted about, but never merged into that one allele.
@@ -208,11 +241,11 @@ def _stage1_write_evidence_and_facts(
                         facts.record(babel_facts)
                         babel_facts.clear()
                     node_ids.add(node_id)
-                    seeds[node_id] = seeds.get(node_id, 0) | bit
+                    mark(node_id, bit)
                     source_provided_by[source].update(node.get(NODE_PROVIDED_BY) or ())
                     equiv_ids = node.get(NODE_EQUIVALENT_IDS) or []
                     for equiv_id in equiv_ids:
-                        seeds[equiv_id] = seeds.get(equiv_id, 0) | bit
+                        mark(equiv_id, bit)
                     # Equivalency-clique evidence from EVERY source, weighted per source:
                     # native curated lists are strong (>=tau, merge on their own). An aggregator's list is a
                     # STAR from this node and PREFIX-CAPPED (see match_graph.clique_evidence and
@@ -236,13 +269,16 @@ def _stage1_write_evidence_and_facts(
                                 dropped_known_pairs += 1
                                 continue
                         ev.write(_evidence_row(a, b, group, weight, kind=f"equiv:{source}"))
+                    # Category inheritance. Not for Babel: its nodes carry each id's own type, which later stages
+                    # read from ``facts`` ahead of anything inherited, so recording it again here would only
+                    # cost memory -- one entry for every Babel id.
                     cats = node.get(NODE_CATEGORIES) or []
                     branches = families.branches(cats) if cats else ALL_FAMILIES
-                    if cats and branches is not ALL_FAMILIES and len(branches) == 1:
-                        interned = tuple(sys.intern(c) for c in cats)
-                        inherited_cats.setdefault(node_id, set()).update(interned)
+                    if source != "babel" and cats and branches is not ALL_FAMILIES and len(branches) == 1:
+                        interned = frozenset(sys.intern(c) for c in cats)
+                        inherit(node_id, interned)
                         for equiv_id in equiv_ids:
-                            inherited_cats.setdefault(equiv_id, set()).update(interned)
+                            inherit(equiv_id, interned)
                     taxon = node.get(NODE_TAXON)
                     if taxon:
                         node_taxon[node_id] = sys.intern(taxon)
@@ -535,21 +571,21 @@ def _stage3_cluster(
     weights: ERWeights,
     families: BranchFamilies,
     guardrail_config: GuardrailConfig,
-    inherited_cats: dict[str, set[str]],
+    inherited_cats: dict[str, frozenset[str]],
     node_taxon: dict[str, str],
     node_ids: set[str],
     facts: IdFactsStore,
     seed: int,
-) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, str], dict[str, tuple[str, ...]]]:
+) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, tuple[str, ...]]]:
     """Cluster the weighted pair graph. Returns ``curie -> cluster_id`` for every
-    CURIE appearing in a pair, the ids-per-prefix histogram, ``curie -> label`` for
-    bare ids, and ``curie -> single intrinsic category`` for every match-graph node.
+    CURIE appearing in a pair, the ids-per-prefix histogram, and ``curie -> single
+    intrinsic category`` for every match-graph node.
 
     Uses int codes (numpy) and scipy connected components; Leiden + guardrails run
     per non-trivial component so peak memory is bounded by the largest component.
     """
     if os.path.getsize(pairs_path) == 0:
-        return {}, {}, {}, {}
+        return {}, {}, {}
 
     df = pd.read_csv(pairs_path, sep=SEP, names=["a", "b", "w"], dtype={"a": str, "b": str, "w": "float32"})
     codes, uniques = pd.factorize(pd.concat([df["a"], df["b"]], ignore_index=True), sort=False)
@@ -594,14 +630,15 @@ def _stage3_cluster(
     # This keeps the branch guardrail from going inert on the huge fraction of ids
     # that only ever appear as equiv-list members, without re-importing Babel's
     # mis-typing (multi-family nodes never propagate in stage 1).
-    all_curies = [uniques[i] for i in range(num_nodes)]
-    logging.info("entity_resolution: looking up %d match-graph node categories/taxa", len(all_curies))
-    resolved = facts.resolve(all_curies)
+    # One Babel lookup per id as we go, rather than one dict of every match-graph id's facts, and the category
+    # tuples interned like stage 1's sets: tens of millions of entries, a few hundred distinct values.
+    logging.info("entity_resolution: looking up %d match-graph node categories/taxa", num_nodes)
     mg_categories: dict[str, tuple[str, ...]] = {}
     mg_taxon: dict[str, str] = {}
-    bare_names: dict[str, str] = {}
-    for curie in all_curies:
-        norm = resolved.get(curie)
+    shared_category_tuples: dict[tuple[str, ...], tuple[str, ...]] = {}
+    for code in range(num_nodes):
+        curie = uniques[code]
+        norm = facts.get(curie)
         cats = tuple(norm.categories) if norm and norm.categories else ()  # 1. Babel (source of truth)
         if not cats:
             inherited = inherited_cats.get(curie)  # 2. inherited from single-family source equiv-lists
@@ -615,21 +652,19 @@ def _stage3_cluster(
                 cats = (inferred,)
         if not cats:
             cats = ("biolink:NamedThing",)  # 4. untyped/ambiguous -> NamedThing (a guardrail wildcard)
-        mg_categories[curie] = cats
+        mg_categories[curie] = shared_category_tuples.setdefault(cats, cats)
         # Taxon precedence (mirrors category): 1. Babel (source of truth);
         # 2. the harmonized node's (source) taxon; 3. the single-species prefix backup
         # -- LAST, never before source; else untaxoned (a guardrail wildcard).
         taxa = norm.taxa if norm else ()
         if taxa:
-            mg_taxon[curie] = taxa[0]
+            mg_taxon[curie] = sys.intern(taxa[0])
         elif curie in node_taxon:
             mg_taxon[curie] = node_taxon[curie]
         else:
             inferred_taxon = infer_taxon(curie)
             if inferred_taxon:
                 mg_taxon[curie] = inferred_taxon
-        if norm and norm.label and curie not in node_ids:
-            bare_names[curie] = norm.label
 
     def info_provider(curie: str) -> NodeInfo:
         # Stamp the node with its resolved branch-FAMILY set (category -> family done
@@ -641,7 +676,10 @@ def _stage3_cluster(
         )
 
     curie_to_cluster: dict[str, int] = {}
-    all_clusters: list[list[str]] = []
+    # The ids-per-prefix histogram and the oversized clusters, tallied as clusters are made rather than by keeping
+    # every cluster (and then a sorted copy of every cluster) until the end.
+    histogram: dict[str, Counter] = defaultdict(Counter)
+    oversized: list[list[str]] = []
     next_cluster_id = 0
     repairs: Counter = Counter()  # one-id repairs, reported once at the end rather than per cluster
 
@@ -680,12 +718,16 @@ def _stage3_cluster(
         for cluster in raw_clusters:
             for curie in cluster:
                 curie_to_cluster[curie] = next_cluster_id
-            all_clusters.append(cluster)
+            for prefix, count in ids_per_cluster_histogram([cluster]).items():
+                for ids_of_prefix, clusters in count.items():
+                    histogram[prefix][ids_of_prefix] += clusters
+            if len(cluster) >= guardrail_config.oversized_cluster_log_threshold:
+                oversized.append(cluster)
             next_cluster_id += 1
 
     log_one_id_repairs(repairs, guardrail_config)
-    log_oversized_clusters(all_clusters, guardrail_config)
-    return curie_to_cluster, ids_per_cluster_histogram(all_clusters), bare_names, mg_categories
+    log_oversized_clusters(oversized, guardrail_config)
+    return curie_to_cluster, {prefix: dict(counts) for prefix, counts in histogram.items()}, mg_categories
 
 
 def _adjacency(edges: list[tuple[str, str, float]]) -> dict[str, dict[str, float]]:
@@ -709,7 +751,7 @@ def _stage4_materialize(
     seeds: dict[str, int],
     source_provided_by: dict[str, set[str]],
     source_bits: dict[str, int],
-    inherited_cats: dict[str, set[str]],
+    inherited_cats: dict[str, frozenset[str]],
     facts: IdFactsStore,
     ranking: PrefixRanking,
     families: BranchFamilies,
@@ -782,12 +824,6 @@ def _stage4_materialize(
             return [inferred]
         return ["biolink:NamedThing"]
 
-    # Inverse of curie_to_cluster: the canonical node's equivalent_ids must be its
-    # exact cluster membership, NOT the union of member source lists (which can
-    # contain ids the guardrails split into other clusters, breaking disjointness).
-    cluster_members: dict[int, list[str]] = defaultdict(list)
-    for curie, cid in curie_to_cluster.items():
-        cluster_members[cid].append(curie)
 
     try:
         with jsonlines.open(keyed, "w") as writer:
@@ -837,6 +873,13 @@ def _stage4_materialize(
                     if inferred_taxon:
                         synthetic[NODE_TAXON] = inferred_taxon
                 writer.write([key, synthetic])
+            # A canonical node's equivalent_ids must be its exact cluster membership, NOT the union of its members'
+            # source lists (which can hold ids the guardrails split into other clusters, breaking disjointness).
+            # Membership goes through the external sort alongside the nodes, as one marker per id, rather than as
+            # an in-memory inverse of curie_to_cluster -- a second copy of the whole match graph, held right when
+            # this stage runs out of memory.
+            for curie, cid in curie_to_cluster.items():
+                writer.write([f"c{cid}", {CLUSTER_MEMBER_MARKER: curie}])
         _external_sort(keyed, keyed_sorted, ["-k1,1"], temp_dir)
 
         with (
@@ -846,9 +889,11 @@ def _stage4_materialize(
             current_key: str | None = None
             members: list[dict] = []
 
-            def flush(group_key: str, group: list[dict]) -> None:
+            def flush(group_key: str, entries: list[dict]) -> None:
+                membership = [entry[CLUSTER_MEMBER_MARKER] for entry in entries if CLUSTER_MEMBER_MARKER in entry]
+                group = [entry for entry in entries if CLUSTER_MEMBER_MARKER not in entry]
                 if not group:
-                    return
+                    return  # a cluster of ids no source provided a node or list entry for: nothing to write
                 node = materialize_cluster(group, ranking, families, label_of=label_of)
                 # No drop rule: every id a source provided is kept (bare ids now carry
                 # real provenance, so nothing is provenance-less). A bare-only cluster
@@ -862,7 +907,7 @@ def _stage4_materialize(
                     node[NODE_CATEGORIES] = ["biolink:NamedThing"]
                 # equivalent_ids = exact cluster membership (guarantees disjointness)
                 if group_key.startswith("c"):
-                    node[NODE_EQUIVALENT_IDS] = sorted(cluster_members[int(group_key[1:])])
+                    node[NODE_EQUIVALENT_IDS] = sorted(membership)
                 else:  # singleton: the node's own id(s)
                     node[NODE_EQUIVALENT_IDS] = sorted({m[NODE_ID] for m in group})
                 out.write(node)
@@ -901,6 +946,8 @@ def _stage_banner(msg: str) -> None:
 # handful; a regression (the 56,515-member clusters of the first size-aware build) shows what caused it.
 OVERSIZED_EVIDENCE_REPORT_MIN_SIZE = 1000
 OVERSIZED_REPORT_FILENAME = "oversized_clusters.jsonl"
+# Key of the membership markers stage 4 sorts alongside the node dicts (not a node property).
+CLUSTER_MEMBER_MARKER = "__cluster_member__"
 # Babel's per-id facts for this ER run (see resolve_entities); a temp file, removed when ER finishes.
 BABEL_FACTS_FILENAME = "er_babel_facts.tmp.sqlite"
 OVERSIZED_REPORT_SAMPLE_IDS = 25
@@ -1004,7 +1051,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
 
         t = time.perf_counter()
         _stage_banner("ER STAGE 3 -- clustering (connected components -> label propagation -> guardrails)")
-        curie_to_cluster, histogram, _bare_names, mg_categories = _stage3_cluster(
+        curie_to_cluster, histogram, mg_categories = _stage3_cluster(
             pairs_path,
             weights,
             families,
@@ -1023,6 +1070,8 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         _report_oversized_cluster_evidence(
             evidence_path, curie_to_cluster, _debug_dir(config) / OVERSIZED_REPORT_FILENAME
         )
+
+        del node_taxon  # stage 3's alone; stage 4 is where memory is tightest
 
         t = time.perf_counter()
         _stage_banner(f"ER STAGE 4 -- materializing canonical nodes -> {config.integrated_nodes_path}")

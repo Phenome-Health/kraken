@@ -7,6 +7,7 @@ import logging
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,6 +40,11 @@ from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.kg_io import unzip_files, zip_files
 from kraken.utils.logging_config import setup_logging
 from kraken.validator import KrakenValidator
+
+
+def harmonization_order(sources: Iterable[str]) -> list[str]:
+    """The order to harmonize sources in: alphabetical, except Babel last, since it reads the others' output."""
+    return sorted(sources, key=lambda source: (source == "babel", source))
 
 
 class KrakenBuildOrchestrator:
@@ -169,7 +175,7 @@ class KrakenBuildOrchestrator:
     def _harmonize_sources(self):
         """Harmonize all sources to KRAKEN's Biolink-style semantic layer/schema"""
         logging.info("-------------------------- HARMONIZING SOURCES -----------------------------------------------")
-        for source_name in self.config.sources_to_use:
+        for source_name in harmonization_order(self.config.sources_to_use):
             self._harmonize_source(source_name)
 
     def _harmonize_source(self, source_name: str):
@@ -189,10 +195,18 @@ class KrakenBuildOrchestrator:
         # Instantiate our harmonizer (its provenance id comes from build_config: sources.<name>.source_id),
         # telling it which other sources' edges to drop because we ingest those directly
         # (build_config: sources.<other>.drop_from_other_sources).
+        extra_arguments = {}
+        if source_name == "babel":
+            # Babel decides which structure-only cliques to keep by what the other sources reference, so it reads
+            # their harmonized nodes (and is harmonized last -- see harmonization_order).
+            extra_arguments["other_sources_nodes"] = self.config.harmonized_nodes_paths_of_build_sources(
+                other_than=source_name
+            )
         harmonizer = self.HARMONIZERS[source_name](
             self.biolink_client,
             source_id=source_config.source_id,
             auto_source_exclusions=self.config.auto_source_exclusions(source_name),
+            **extra_arguments,
         )
 
         if not self.config.options.validation_only:

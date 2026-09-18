@@ -50,8 +50,10 @@ def _write_release(tmp_path, compendia, gene_protein=(), drug_chemical=(), relat
     return release
 
 
-def _harmonizer() -> BabelHarmonizer:
+def _harmonizer(other_sources_nodes=None) -> BabelHarmonizer:
     harmonizer = object.__new__(BabelHarmonizer)
+    harmonizer.other_sources_nodes = dict(other_sources_nodes or {})
+    harmonizer.referenced_structure_ids = set()
     harmonizer.source_infores = "infores:sri-node-normalizer"
     harmonizer.biolink = _LeafBiolink()
     harmonizer.name_override_count = 0
@@ -69,9 +71,9 @@ def _harmonizer() -> BabelHarmonizer:
     return harmonizer
 
 
-def _run(tmp_path, **release):
+def _run(tmp_path, other_sources_nodes=None, **release):
     release_dir = _write_release(tmp_path, **release)
-    harmonizer = _harmonizer()
+    harmonizer = _harmonizer(other_sources_nodes)
     nodes_path, edges_path = tmp_path / "nodes.jsonl", tmp_path / "edges.jsonl"
     harmonizer.harmonize(nodes_path, edges_path, input_file=release_dir)
     with jsonlines.open(nodes_path) as nodes, jsonlines.open(edges_path) as edges:
@@ -143,43 +145,79 @@ def test_gene_protein_cliques_are_scoped_by_taxon_and_conflated_by_same_as(tmp_p
     assert harmonizer.stats["Gene"]["cliques_dropped_taxon"] == 1
 
 
-def test_structure_only_chemical_cliques_are_dropped(tmp_path):
-    _, nodes, _ = _run(
-        tmp_path,
-        compendia={
-            "SmallMolecule": [
-                _clique(
-                    "biolink:SmallMolecule",
-                    [_identifier("PUBCHEM.COMPOUND:1", "some structure"), _identifier("INCHIKEY:AAA")],
-                ),
-                # CAS and ChEMBL count as curation: these cliques are the combination products and assay
-                # compounds the aggregators conflate, so Babel must know them to keep them apart
-                _clique(
-                    "biolink:SmallMolecule",
-                    [_identifier("PUBCHEM.COMPOUND:2", "a registered structure"), _identifier("CAS:338392-03-3")],
-                ),
-                _clique(
-                    "biolink:SmallMolecule",
-                    [
-                        _identifier("PUBCHEM.COMPOUND:46861711", "Linagliptin; METformin Hydrochloride"),
-                        _identifier("CHEMBL.COMPOUND:CHEMBL4879149"),
-                    ],
-                ),
-                _clique(
-                    "biolink:SmallMolecule",
-                    [_identifier("CHEBI:6801", "metformin"), _identifier("PUBCHEM.COMPOUND:4091")],
-                ),
-            ]
-        },
-    )
+def _structure_cliques():
+    return {
+        "SmallMolecule": [
+            _clique(
+                "biolink:SmallMolecule",
+                [_identifier("PUBCHEM.COMPOUND:1", "some structure"), _identifier("INCHIKEY:AAA")],
+            ),
+            # Jentadueto's shape: registry ids only, but kg2 lists its CAS on metformin
+            _clique(
+                "biolink:SmallMolecule",
+                [
+                    _identifier("PUBCHEM.COMPOUND:46861711", "Linagliptin; METformin Hydrochloride"),
+                    _identifier("CAS:1198772-26-7"),
+                    _identifier("INCHIKEY:JQFLARMXIDCGKG-UNTBIKODSA-N"),
+                ],
+            ),
+            # ChEMBL counts as curation: always kept
+            _clique(
+                "biolink:SmallMolecule",
+                [_identifier("PUBCHEM.COMPOUND:3", "an assayed compound"), _identifier("CHEMBL.COMPOUND:CHEMBL9")],
+            ),
+            _clique(
+                "biolink:SmallMolecule",
+                [_identifier("CHEBI:6801", "metformin"), _identifier("PUBCHEM.COMPOUND:4091")],
+            ),
+        ]
+    }
+
+
+def test_structure_only_cliques_nobody_uses_are_dropped(tmp_path):
+    _, nodes, _ = _run(tmp_path, compendia=_structure_cliques())
     assert set(nodes) == {
+        "PUBCHEM.COMPOUND:3",
+        "CHEMBL.COMPOUND:CHEMBL9",
         "CHEBI:6801",
         "PUBCHEM.COMPOUND:4091",
-        "PUBCHEM.COMPOUND:2",
-        "CAS:338392-03-3",
-        "PUBCHEM.COMPOUND:46861711",
-        "CHEMBL.COMPOUND:CHEMBL4879149",
     }
+
+
+def test_a_structure_only_clique_another_source_uses_is_kept_whole(tmp_path):
+    """Entity resolution defers to Babel only for ids it knows. Dropping Jentadueto's clique left its ids for kg2's
+    conflated list to put on metformin; keeping it -- because kg2 references its CAS -- lets Babel keep them
+    apart. The whole clique is kept, not just the referenced id, since its members are what Babel vouches for."""
+    kg2_nodes = tmp_path / "kg2_nodes.jsonl"
+    with jsonlines.open(kg2_nodes, "w") as writer:
+        writer.write(
+            {
+                "id": "CHEBI:6801",
+                "categories": ["biolink:SmallMolecule"],
+                "equivalent_ids": ["CHEBI:6801", "CAS:1198772-26-7"],
+            }
+        )
+    harmonizer, nodes, _ = _run(tmp_path, other_sources_nodes={"kg2": kg2_nodes}, compendia=_structure_cliques())
+    assert {"PUBCHEM.COMPOUND:46861711", "CAS:1198772-26-7", "INCHIKEY:JQFLARMXIDCGKG-UNTBIKODSA-N"} <= set(nodes)
+    assert "PUBCHEM.COMPOUND:1" not in nodes  # still nobody's
+    assert harmonizer.stats["SmallMolecule"]["cliques_kept_structure_only_but_used_elsewhere"] == 1
+
+
+def test_a_node_id_counts_as_a_reference_too(tmp_path):
+    other = tmp_path / "refmet_nodes.jsonl"
+    with jsonlines.open(other, "w") as writer:
+        writer.write({"id": "PUBCHEM.COMPOUND:1", "categories": ["biolink:SmallMolecule"], "equivalent_ids": []})
+    _, nodes, _ = _run(tmp_path, other_sources_nodes={"refmet": other}, compendia=_structure_cliques())
+    assert {"PUBCHEM.COMPOUND:1", "INCHIKEY:AAA"} <= set(nodes)
+
+
+def test_a_missing_peer_is_warned_about_not_fatal(tmp_path, caplog):
+    with caplog.at_level("WARNING"):
+        _, nodes, _ = _run(
+            tmp_path, other_sources_nodes={"kg2": tmp_path / "not_there.jsonl"}, compendia=_structure_cliques()
+        )
+    assert "harmonize kg2 before Babel" in caplog.text
+    assert "PUBCHEM.COMPOUND:46861711" not in nodes
 
 
 def test_drug_chemical_relations_are_typed_edges_with_close_match_only_where_no_relation_connects(tmp_path):
@@ -248,3 +286,26 @@ def test_a_lone_identifier_with_no_label_and_no_taxon_is_dropped(tmp_path):
         },
     )
     assert set(nodes) == {"MGI:8135641", "RXCUI:1726214", "UMLS:C1618329"}
+
+
+def test_the_reference_rule_touches_only_structure_only_chemical_cliques(tmp_path):
+    """Nothing outside SmallMolecule / MolecularMixture, and nothing inside them with a curated id, is subject to
+    the "is it used elsewhere" check: with no other sources at all, all of these survive."""
+    _, nodes, _ = _run(
+        tmp_path,
+        other_sources_nodes={},
+        compendia={
+            # registry-only ids, but not a structure compendium -> the filter never applies
+            "ChemicalEntity": [_clique("biolink:ChemicalEntity", [_identifier("CAS:1-2-3", "a mixture component")])],
+            "Drug": [_clique("biolink:Drug", [_identifier("PUBCHEM.COMPOUND:9", "a drug product")])],
+            "Disease": [_clique("biolink:Disease", [_identifier("MONDO:5", "a disease nobody else lists")])],
+            # a structure compendium, but with a curated id -> kept
+            "SmallMolecule": [
+                _clique(
+                    "biolink:SmallMolecule",
+                    [_identifier("HMDB:HMDB0000122", "D-Glucose"), _identifier("PUBCHEM.COMPOUND:5793")],
+                )
+            ],
+        },
+    )
+    assert set(nodes) == {"CAS:1-2-3", "PUBCHEM.COMPOUND:9", "MONDO:5", "HMDB:HMDB0000122", "PUBCHEM.COMPOUND:5793"}

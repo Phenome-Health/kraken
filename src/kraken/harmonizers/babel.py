@@ -26,12 +26,14 @@ filtered by a rule that looks only at the clique itself -- never at what other s
 doesn't depend on build order:
   * Gene / Protein cliques from organisms of no biomedical interest: kept only if a clique taxon is in
     ncbigene_taxon_allowlist.py (after rolling up to species -- the same list NCBI Gene is scoped by).
-  * SmallMolecule / MolecularMixture cliques made only of a deposited structure and its hash (PubChem, InChIKey):
-    ~97M of them. Kept if ANY other identifier is present -- CAS or ChEMBL included -- which leaves 20.9M of
-    SmallMolecule's 232M ids. Those two registries count as curation despite being bulk, because an id Babel
-    DROPS is one Babel has no opinion about, and entity resolution defers to Babel only for ids it knows (see
-    build._stage1_write_evidence_and_facts). Dropping them handed those ids back to the aggregators' conflated
-    lists, which is how Jentadueto (a CAS+InChIKey+PubChem clique) ended up merged into metformin.
+  * SmallMolecule / MolecularMixture cliques made only of structure-registry ids (PubChem, InChIKey, CAS): ~108M
+    structures no vocabulary names. Kept only if some other identifier is present (ChEMBL, HMDB, ChEBI, UNII,
+    MeSH, DrugBank, ...) -- OR if another source uses one of its ids. That second condition matters because
+    entity resolution defers to Babel only for ids it knows (see build._stage1_write_evidence_and_facts): a
+    clique we drop is one Babel has no opinion on, so the aggregators' conflated lists get to place its ids
+    freely, which is how Jentadueto (a CAS+InChIKey+PubChem clique that kg2 lists on metformin) ended up merged
+    into metformin. Keeping every such clique would add 11.6M ids nobody uses; keeping only the referenced ones
+    gives Babel its say exactly where it matters. This is why Babel is harmonized after every other source.
   * Publication: excluded entirely (PMIDs aren't entities we resolve).
 And in every compendium, a clique that is ONE identifier with no label and no taxon is dropped: it says nothing
 beyond "this id exists" (2.5M of them are nameless Ensembl genes of unknown organism). An id like that which
@@ -57,8 +59,11 @@ from kraken.utils.constants import (
     DRUG_CHEMICAL_CONFLATION_RELATION,
     GENE_PROTEIN_CONFLATION_RELATION,
     KNOWLEDGE_ASSERTION,
+    NODE_EQUIVALENT_IDS,
+    NODE_ID,
     SAME_AS_PREDICATE,
 )
+from kraken.utils.kg_io import stream_nodes_from_jsonl
 from kraken.utils.taxonomy import TaxonNormalizer
 
 # --- Input layout (the release's own directory names, plus the two files we add alongside) ---
@@ -77,9 +82,9 @@ TAXDUMP_FILENAME = "taxdump.tar.gz"
 EXCLUDED_COMPENDIA = frozenset({"Publication"})
 TAXON_FILTERED_COMPENDIA = frozenset({"Gene", "Protein"})
 STRUCTURE_FILTERED_COMPENDIA = frozenset({"SmallMolecule", "MolecularMixture"})
-# A deposited structure and the hash of that structure: every compound in PubChem has both, so a clique holding
-# only these says nothing beyond "this structure was deposited somewhere".
-STRUCTURE_ONLY_PREFIXES = frozenset({"PUBCHEM.COMPOUND", "INCHIKEY"})
+# Identifiers assigned to structures wholesale -- every deposited compound (PubChem, InChIKey) and every
+# registered substance (CAS) -- so on their own they say nothing about whether anyone curates the entity.
+STRUCTURE_ONLY_PREFIXES = frozenset({"PUBCHEM.COMPOUND", "INCHIKEY", "CAS"})
 
 # --- Edges ---
 # Babel's drug/chemical relations (RxNorm's, via UMLS) read subject -> object: "doxepin 100 MG Oral Capsule
@@ -102,6 +107,7 @@ INFORMATION_CONTENT_ATTRIBUTE = "information_content"
 # outside the allowlist are rejected without parsing their JSON.
 TAXA_TAIL_PATTERN = re.compile(r'"taxa": \[([^\]]*)\]\}\s*$')
 IDENTIFIER_PREFIX_PATTERN = re.compile(r'"i": "([^":]+):')
+IDENTIFIER_PATTERN = re.compile(r'"i": "([^"]+)"')
 
 
 class BabelHarmonizer(BaseHarmonizer):
@@ -115,8 +121,12 @@ class BabelHarmonizer(BaseHarmonizer):
     # would lose e.g. a gene concept a curated vocabulary names without an organism.
     keep_untaxoned_gene_protein_cliques: bool = True
 
-    def __init__(self, biolink_client, source_id: str, **kwargs):
+    def __init__(self, biolink_client, source_id: str, other_sources_nodes: dict[str, Path] | None = None, **kwargs):
+        """``other_sources_nodes``: ``source -> harmonized nodes file`` for the other sources in the build, whose
+        references decide which structure-only cliques are kept (see the module docstring)."""
         super().__init__(biolink_client, source_id, **kwargs)
+        self.other_sources_nodes = dict(other_sources_nodes or {})
+        self.referenced_structure_ids: set[str] = set()
         self.taxonomy: TaxonNormalizer | None = None
         self._taxon_allowed: dict[str, bool] = {}
         self._species_curie: dict[str, str] = {}
@@ -158,6 +168,7 @@ class BabelHarmonizer(BaseHarmonizer):
         groups = self._load_groups(conflation_dir / DRUG_CHEMICAL_CONFLATION_FILENAME)
         self.drug_chemical_ids = {curie for row in relations for curie in (row[0], row[2])}
         self.drug_chemical_ids.update(curie for group in groups for curie in group)
+        self.referenced_structure_ids = self._load_referenced_structure_ids()
 
         with jsonlines.open(nodes_output, "w") as nodes, jsonlines.open(edges_output, "w") as edges:
             for compendium_path in compendia:
@@ -181,6 +192,30 @@ class BabelHarmonizer(BaseHarmonizer):
         if not compendia:
             raise FileNotFoundError(f"{self.source_name}: no compendium files in {compendia_dir}")
         return compendia
+
+    def _load_referenced_structure_ids(self) -> set[str]:
+        """Every structure-registry id (see STRUCTURE_ONLY_PREFIXES) another source's harmonized nodes use, as a
+        node id or in an equivalency list. Only those prefixes are held, so this stays in the low millions."""
+        referenced: set[str] = set()
+        prefixes = tuple(f"{prefix}:" for prefix in STRUCTURE_ONLY_PREFIXES)
+        for source, nodes_path in sorted(self.other_sources_nodes.items()):
+            if not Path(nodes_path).is_file():
+                logging.warning(
+                    f"{self.source_name}: {source} has no harmonized nodes at {nodes_path}, so structure-only "
+                    f"cliques only {source} uses will be dropped -- harmonize {source} before Babel"
+                )
+                continue
+            before = len(referenced)
+            for node in stream_nodes_from_jsonl(Path(nodes_path)):
+                for curie in (node.get(NODE_ID), *(node.get(NODE_EQUIVALENT_IDS) or ())):
+                    if curie and curie.startswith(prefixes):
+                        referenced.add(curie)
+            logging.info(f"{self.source_name}: {source} references {len(referenced) - before} new structure ids")
+        logging.info(
+            f"{self.source_name}: other sources reference {len(referenced)} structure-registry ids; structure-only "
+            f"cliques containing one are kept"
+        )
+        return referenced
 
     @staticmethod
     def _load_relations(path: Path) -> list[tuple[str, str, str]]:
@@ -209,8 +244,10 @@ class BabelHarmonizer(BaseHarmonizer):
                     stats["cliques_dropped_taxon"] += 1
                     continue
                 if compendium in STRUCTURE_FILTERED_COMPENDIA and self._structure_only(line):
-                    stats["cliques_dropped_structure_only"] += 1
-                    continue
+                    if not self.referenced_structure_ids.intersection(IDENTIFIER_PATTERN.findall(line)):
+                        stats["cliques_dropped_structure_only"] += 1
+                        continue
+                    stats["cliques_kept_structure_only_but_used_elsewhere"] += 1
                 clique = json.loads(line)
                 if self._is_empty_singleton(clique):
                     stats["cliques_dropped_empty_singleton"] += 1

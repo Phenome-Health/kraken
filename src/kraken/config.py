@@ -253,6 +253,20 @@ class KrakenConfig(BaseModel):
             for source in self.sources_to_use
         }
 
+    def harmonized_nodes_paths_of_build_sources(self, *, other_than: str) -> dict[str, Path]:
+        """``source -> harmonized nodes file`` for every source a build integrates, except ``other_than``.
+
+        "Every source a build integrates" is every configured source that isn't EXCLUDED, regardless of
+        include_sources: a run often harmonizes one source at a time (include_sources: [babel]) and integrates
+        them all later, and a source that reads its peers' output must see the peers that will be integrated.
+        """
+        excluded = set(to_list(self.options.exclude_sources))
+        return {
+            source: self.harmonized_dir / source / "nodes.jsonl"
+            for source in sorted(self.sources)
+            if source != other_than and source not in excluded
+        }
+
     @property
     def all_source_input_paths_resolved(self) -> dict[str, list[Path]]:
         """Get resolved input paths for all sources to use"""
