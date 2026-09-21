@@ -1,5 +1,48 @@
 # Changelog
 
+## [2.2.0](https://github.com/Phenome-Health/kraken/compare/v2.1.1...v2.2.0) (2026-09-18)
+
+
+### Features
+
+* add babel download as source, instead of API; add SMILES rule ([d933c30](https://github.com/Phenome-Health/kraken/commit/d933c30a0f241242cfb20f3a98dd9d56ad62444a))
+* add clustering ER rough draft implementation ([57cea57](https://github.com/Phenome-Health/kraken/commit/57cea5793939c3ee6b1ad082d59da3b861b83ec8))
+* add direct ncbigene ingest, for more taxon annotations ([bda0362](https://github.com/Phenome-Health/kraken/commit/bda0362d5d0352beec5409f3c87a88deae82595d))
+* add harmonizers for CTKG and DAKG ([048c7f5](https://github.com/Phenome-Health/kraken/commit/048c7f5da92610259e8a0ce3ff13fe34da3aafa5))
+* add name suffixes selectively (pathway, etc.); reorg helpers ([157c194](https://github.com/Phenome-Health/kraken/commit/157c194c26506f3073af59695680d4660f37e072))
+* add taxon to metagraph ([1703810](https://github.com/Phenome-Health/kraken/commit/1703810c61b60d54f949e4b2c620b710f9e8bbbf))
+* auto exclude direct sources from others, ER fixes/tweaks ([c7bc6a4](https://github.com/Phenome-Health/kraken/commit/c7bc6a4f57f9a7c584d3f29a5f4a24d4c290013e))
+* better name loinc nodes [#13](https://github.com/Phenome-Health/kraken/issues/13) and add descriptions ([86b1292](https://github.com/Phenome-Health/kraken/commit/86b129293bce2e861a450366bb42d8672ea4cfac))
+* consider IDs present in other sources when filtering Babel ([82392aa](https://github.com/Phenome-Health/kraken/commit/82392aa3116cb4330b7d3058074b2ee4ffb0dd26))
+* extract equivalencies from loinc, other relationships ([4b40f1d](https://github.com/Phenome-Health/kraken/commit/4b40f1d521186d2cdce635a94d0607255c615793))
+* improve greedy cluster split algorithm ([287338d](https://github.com/Phenome-Health/kraken/commit/287338df784b9716fdcc3bb7b8d58bb52ce040f2))
+* list kraken as aggregator source on direct (non-agg) ingests ([5e982ae](https://github.com/Phenome-Health/kraken/commit/5e982aece0f507f8da528941d437f8c13f9f1f14))
+* more chem from babel, CAID name fix, taxon only on gene/prot, etc. ([9ee53ef](https://github.com/Phenome-Health/kraken/commit/9ee53ef0fa1755f0a2d331c155d2539ba6d6ece1))
+* retain equivalence edges between clusters ([d4a09b2](https://github.com/Phenome-Health/kraken/commit/d4a09b298797b583517f675228006d50b17e02af))
+* switch to label prop, NN as source of truth, other fixes ([47ff1de](https://github.com/Phenome-Health/kraken/commit/47ff1de1e94bbe53dfdc67e44a45f71f12ac8fe3))
+
+
+### Bug Fixes
+
+* add name overrides for PANTHER.PATHWAY ([7ef36db](https://github.com/Phenome-Health/kraken/commit/7ef36db190e057378aee1865fa882b8c164b4887))
+* allele conflations with variants (robokop) ([ee18eb2](https://github.com/Phenome-Health/kraken/commit/ee18eb2aac8cfe217b18f9b6f16548eabb46f9fd))
+* close_match for cross-cluster edges, canonical ID at center ([0ff1a81](https://github.com/Phenome-Health/kraken/commit/0ff1a81dc724707973d3454b3e33c2fd7a633640))
+* include source_id in harmonizer init ([f3f88a8](https://github.com/Phenome-Health/kraken/commit/f3f88a8295fb2405f725ea8572f774a35e5404ca))
+* move backup category/taxon inference AFTER NN and source ([d289ac1](https://github.com/Phenome-Health/kraken/commit/d289ac12b72336692366a345cbaf445824492dd8))
+* pull more synonym names from translator kg ingest ([a1e38b9](https://github.com/Phenome-Health/kraken/commit/a1e38b977a0c2573e4da6c3745acbab1cdc75f6a))
+* refmet KEGG class conflations, other ER tweaks ([46853ec](https://github.com/Phenome-Health/kraken/commit/46853ec7c3894da65baac899a792a32a244a5ef9))
+* run all ncbigene curies through Normalizer ([7f1f2ae](https://github.com/Phenome-Health/kraken/commit/7f1f2ae1d4bd35adddbb806a8da50a65e31e43ad))
+
+
+### Performance Improvements
+
+* efficiency improvements in merging, other ER tweaks ([81da466](https://github.com/Phenome-Health/kraken/commit/81da4662647dc478ff0c79d103594827cc642ceb))
+
+
+### Documentation
+
+* clarify python version compatibility ([b5d0c83](https://github.com/Phenome-Health/kraken/commit/b5d0c83a326a58c65f53b5049e54378a65f6e2a4))
+
 ## [2.1.1](https://github.com/Phenome-Health/kraken/compare/v2.1.0...v2.1.1) (2026-08-18)
 
 
