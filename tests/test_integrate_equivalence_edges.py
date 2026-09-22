@@ -194,6 +194,38 @@ def test_babel_same_as_between_clusters_becomes_close_match(tmp_path):
     }
 
 
+def test_any_sources_equivalence_between_clusters_becomes_close_match(tmp_path):
+    """Not only Babel's: a source's same_as / exact_match that entity resolution kept apart (e.g. a kg2 same_as
+    Babel overrules) can't claim the two nodes are the same either."""
+    from kraken.integrate import _write_keyed_edges
+
+    src = tmp_path / "h" / "umls"
+    src.mkdir(parents=True)
+    (src / "nodes.jsonl").write_text("")
+    edges_file = src / "edges.jsonl"
+    base = {"primary_knowledge_source": "infores:umls", "knowledge_level": "knowledge_assertion"}
+    with jsonlines.open(edges_file, "w") as w:
+        w.write_all(
+            [
+                {**base, "subject": "UMLS:C1", "predicate": "biolink:exact_match", "object": "MESH:D2"},
+                {**base, "subject": "UMLS:C1", "predicate": "biolink:same_as", "object": "NCIT:C3"},
+                {**base, "subject": "UMLS:C1", "predicate": "biolink:exact_match", "object": "MESH:D4"},  # one node
+            ]
+        )
+    config = SimpleNamespace(
+        sources_to_use=["umls"],
+        all_harmonized_paths_resolved={"umls": (src / "nodes.jsonl", edges_file)},
+    )
+    node_map = {"UMLS:C1": "R1", "MESH:D2": "R2", "NCIT:C3": "R3", "MESH:D4": "R1"}
+    out = tmp_path / "keyed.tsv"
+    _write_keyed_edges(node_map, config, out)
+
+    assert {(e["subject"], e["predicate"], e["object"]) for e in _edges_from_keyed(out)} == {
+        ("R1", "biolink:close_match", "R2"),
+        ("R1", "biolink:close_match", "R3"),
+    }
+
+
 def test_integration_refuses_to_run_without_babel(tmp_path):
     import pytest
 

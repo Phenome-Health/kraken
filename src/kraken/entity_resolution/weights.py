@@ -34,16 +34,15 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
-from kraken.utils.constants import CLOSE_MATCH_PREDICATE, PROJECT_ROOT, SAME_AS_PREDICATE
+from kraken.utils.constants import CLOSE_MATCH_PREDICATE, EXACT_MATCH_PREDICATES, PROJECT_ROOT
 
 # Optional tuning file; if absent, the defaults below apply.
 DEFAULT_WEIGHTS_PATH = PROJECT_ROOT / "config" / "entity_resolution" / "weights.yaml"
 
-# Match predicates. exact_match / same_as are full-strength equivalence;
+# Match predicates. exact_match / same_as (EXACT_MATCH_PREDICATES) are full-strength equivalence;
 # close_match is weak; broad_match / narrow_match are hierarchical and MUST be
 # excluded (including them guarantees parent/child collapse). Predicate values
 # are always biolink-prefixed after harmonization, so only prefixed forms appear.
-EXACT_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:exact_match", SAME_AS_PREDICATE})
 CLOSE_MATCH_PREDICATES: frozenset[str] = frozenset({CLOSE_MATCH_PREDICATE})
 EXCLUDED_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:broad_match", "biolink:narrow_match"})
 

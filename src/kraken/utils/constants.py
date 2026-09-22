@@ -47,6 +47,9 @@ KNOWLEDGE_ASSERTION = "knowledge_assertion"
 # this follows the convention for unregistered ids: bare, like "translator-kg-open" or "pgs-catalog".
 KRAKEN_SOURCE_ID = "kraken"
 SAME_AS_PREDICATE = "biolink:same_as"
+EXACT_MATCH_PREDICATE = "biolink:exact_match"
+# The predicates that assert full equivalence (not close_match, which is weaker).
+EXACT_MATCH_PREDICATES: frozenset[str] = frozenset({EXACT_MATCH_PREDICATE, SAME_AS_PREDICATE})
 # The only categories a `taxon` is kept on (see BaseHarmonizer.create_node). Taxon exists to stop ORTHOLOGS
 # merging -- a dog TP53 with the human one -- which is a gene/protein problem. Elsewhere it is noise that blocks
 # correct merges: Babel taxons HP phenotypes and MONDO diseases as human and MP phenotypes as Mammalia, so the

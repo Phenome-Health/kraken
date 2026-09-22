@@ -36,13 +36,13 @@ from kraken.utils.constants import (
     EDGE_PREDICATE,
     EDGE_PRIMARY_KS,
     EDGE_SUBJECT,
+    EXACT_MATCH_PREDICATES,
     KNOWLEDGE_ASSERTION,
     KRAKEN_SOURCE_ID,
     NODE_EQUIVALENT_IDS,
     NODE_ID,
     NODE_PROVIDED_BY,
     NOT_PROVIDED,
-    SAME_AS_PREDICATE,
 )
 from kraken.utils.general import create_edge_key, to_list
 from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_nodes_from_jsonl
@@ -135,9 +135,10 @@ def _write_keyed_edges(node_map: dict[str, str], config: KrakenConfig, keyed_edg
                 logging.info(f"Writing keyed edges from {source_name}..")
                 _, edges_file = config.all_harmonized_paths_resolved[source_name]
                 for edge in stream_edges_from_jsonl(edges_file):
-                    if source_name == "babel" and edge.get(EDGE_PREDICATE) == SAME_AS_PREDICATE:
-                        # A Babel clique edge. Within one cluster it becomes a self-loop and is dropped below; one
-                        # that survives joins ids entity resolution kept apart, so it can't claim same_as.
+                    if edge.get(EDGE_PREDICATE) in EXACT_MATCH_PREDICATES:
+                        # An asserted equivalence (a Babel clique edge, or a source's same_as / exact_match). Within
+                        # one cluster it becomes a self-loop and is dropped below; one that survives joins ids entity
+                        # resolution kept apart, so it can't claim same_as.
                         edge = {**edge, EDGE_PREDICATE: CROSS_CLUSTER_EQUIVALENCE_PREDICATE}
                     # KG2's originals carry their relation (needed to settle undetermined orientations)
                     triples = kg2_pre_id_triples(edge) if source_name == "kg2" else []

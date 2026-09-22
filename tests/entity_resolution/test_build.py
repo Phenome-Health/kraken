@@ -1,11 +1,13 @@
 """Test the out-of-core entity-resolution build (evidence -> clusters -> nodes)."""
 
+from collections import Counter
 from types import SimpleNamespace
 
 import jsonlines
 import pytest
 
 from kraken.entity_resolution.build import _original_endpoints, resolve_entities
+from kraken.entity_resolution.id_facts import IdFactsStore
 
 pytest.importorskip("igraph")
 
@@ -65,7 +67,7 @@ def test_kg2_close_match_downweighted_by_subclass_count(tmp_path):
         wr.write_all(edges)
 
     out = io.StringIO()
-    _write_kg2_match_evidence(ef, w, out)
+    _write_kg2_match_evidence(ef, w, out, IdFactsStore(tmp_path / "facts.sqlite"), Counter())
     lines = [ln for ln in out.getvalue().splitlines() if ln]
     assert len(lines) == 1
     a, b, _group, weight, kind = lines[0].split("\t")
@@ -310,6 +312,41 @@ def test_name_only_pair_merges_when_compatible(tmp_path):
     )
     m = resolve_entities(config, biolink=None)
     assert m["FOO:1"] == m["FOO:2"]  # merged on the shared name alone
+
+
+def test_name_key_decides_name_matches_by_each_nodes_branch(tmp_path):
+    """Plural and spelling variants match outside chemistry; a chemical plural (a class) and an enantiomer don't."""
+
+    def node(curie, category, name):
+        return {"id": curie, "categories": [category], "provided_by": ["src"], "equivalent_ids": [curie], "name": name}
+
+    harmonized = {
+        "src": _write_source(
+            tmp_path,
+            "src",
+            [
+                node("DOID:1", "biolink:Disease", "jejunal neoplasm"),
+                node("UMLS:C1", "biolink:Disease", "Jejunal Neoplasms"),
+                node("CHEBI:1", "biolink:SmallMolecule", "uridine"),
+                node("CHEBI:2", "biolink:SmallMolecule", "uridines"),
+                node("UNII:1", "biolink:SmallMolecule", "EPICHLOROHYDRIN, (+)-"),
+                node("UNII:2", "biolink:SmallMolecule", "EPICHLOROHYDRIN, (-)-"),
+                node("GTOPDB:1", "biolink:SmallMolecule", "AZD1678"),
+                node("UNII:3", "biolink:SmallMolecule", "AZD-1678"),
+            ],
+        ),
+    }
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved=harmonized,
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["DOID:1"] == m["UMLS:C1"]
+    assert m["GTOPDB:1"] == m["UNII:3"]
+    assert m["CHEBI:1"] != m["CHEBI:2"], "a chemical class merged with its member"
+    assert m["UNII:1"] != m["UNII:2"], "two enantiomers merged on their names"
 
 
 def test_name_collision_across_branches_does_not_merge(tmp_path):
@@ -582,7 +619,7 @@ def test_kg2_parallel_close_matches_from_different_kses_reach_tau_through_the_re
         wr.write_all([edge("infores:mesh"), edge("infores:go"), edge("infores:chv-umls")])
 
     out = io.StringIO()
-    _write_kg2_match_evidence(ef, w, out)
+    _write_kg2_match_evidence(ef, w, out, IdFactsStore(tmp_path / "facts.sqlite"), Counter())
     rows = [ln.split("\t")[:4] for ln in out.getvalue().splitlines() if ln]
     assert len({group for _a, _b, group, _wt in rows}) == 3, "each KS should land in its own group"
     total = accumulate([(a, b, g, float(wt)) for a, b, g, wt in rows], w)[("ATC:X", "UMLS:Y")]
@@ -814,6 +851,129 @@ def test_aggregator_pairs_babel_knows_both_ids_of_are_ignored(tmp_path):
     m = resolve_entities(config, biolink=None)
     assert m["CHEBI:6801"] != m["CHEBI:6802"], "an aggregator list re-merged a salt Babel keeps separate"
     assert m["CHV:0000008019"] == m["CHEBI:6801"], "an id only the aggregator knows should still attach"
+
+
+def test_aggregator_same_as_edges_babel_knows_both_ids_of_are_ignored(tmp_path):
+    """The same rule for an aggregator's same_as / exact_match EDGES as for its lists: kg2 re-publishes UniChem's
+    "(S)-warfarin same_as (R)-warfarin", which merged at full weight. Where Babel has never heard of one side, the
+    edge still counts."""
+    babel = _write_source_with_edges(
+        tmp_path,
+        "babel",
+        [
+            {"id": c, "categories": ["biolink:SmallMolecule"], "provided_by": ["infores:sri-node-normalizer"]}
+            for c in ("CHEBI:87738", "DRUGBANK:DB08496")
+        ],
+        [],  # two separate one-id cliques: (S)-warfarin and (R)-warfarin
+    )
+
+    def kg2_edge(predicate, subject, object_):
+        return {
+            "subject": "CHEBI:1",
+            "object": "CHEBI:2",
+            "predicate": predicate,
+            "primary_knowledge_source": "infores:unichem",
+            "attributes": {
+                "infores:rtx-kg2": {"kg2pre_ids": [f"{subject}---owl:sameAs---None---None---None---{object_}---src"]}
+            },
+        }
+
+    kg2 = _write_source_with_edges(
+        tmp_path,
+        "kg2",
+        [],
+        [
+            kg2_edge("biolink:same_as", "CHEBI:87738", "DRUGBANK:DB08496"),
+            kg2_edge("biolink:exact_match", "CHEBI:87738", "CHV:0000013241"),  # CHV: unknown to Babel
+        ],
+    )
+    umls = _write_source(
+        tmp_path,
+        "umls",
+        [{"id": "CHV:0000013241", "categories": ["biolink:SmallMolecule"], "provided_by": ["umls"]}],
+    )
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel, "kg2": kg2, "umls": umls},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["CHEBI:87738"] != m["DRUGBANK:DB08496"], "a kg2 same_as re-merged two ids Babel keeps separate"
+    assert m["CHV:0000013241"] == m["CHEBI:87738"], "an id only the aggregator knows should still attach"
+
+
+def _glycolipid_config(tmp_path, glycolipid_clique_names):
+    """Babel's real mistake: HMDB's "Glycolipids" filed in the sphingomyelin clique (they share an InChIKey), with
+    kg2 putting it with glycolipid instead. ``glycolipid_clique_names`` names the glycolipid clique's two non-hub
+    members."""
+
+    def node(curie, name):
+        return {
+            "id": curie,
+            "name": name,
+            "categories": ["biolink:SmallMolecule"],
+            "provided_by": ["infores:sri-node-normalizer"],
+        }
+
+    def same_as(hub, member):
+        return {"subject": hub, "predicate": "biolink:same_as", "object": member}
+
+    sphingomyelin = ["MESH:D013109", "UMLS:C0037906", "PUBCHEM.COMPOUND:44176376", "HMDB:HMDB0302365"]
+    glycolipid = ["MESH:D006017", "UMLS:C0017950"]
+    babel = _write_source_with_edges(
+        tmp_path,
+        "babel",
+        [
+            node("CHEBI:64583", "sphingomyelin"),
+            node("MESH:D013109", "Sphingomyelins"),
+            node("UMLS:C0037906", "Sphingomyelins"),
+            node("PUBCHEM.COMPOUND:44176376", "Sphingomyelins"),
+            node("HMDB:HMDB0302365", "Glycolipids"),
+            node("CHEBI:33563", "glycolipid"),
+            *(node(c, name) for c, name in zip(glycolipid, glycolipid_clique_names, strict=True)),
+        ],
+        [*(same_as("CHEBI:64583", m) for m in sphingomyelin), *(same_as("CHEBI:33563", m) for m in glycolipid)],
+    )
+    kg2 = _write_source(
+        tmp_path,
+        "kg2",
+        [
+            {
+                "id": "CHEBI:33563",
+                "categories": ["biolink:SmallMolecule"],
+                "provided_by": ["infores:rtx-kg2"],
+                "equivalent_ids": ["CHEBI:33563", "HMDB:HMDB0302365"],
+            }
+        ],
+    )
+    integrated = tmp_path / "integrated"
+    return SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel, "kg2": kg2},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+
+
+def test_a_babel_clique_outlier_goes_where_its_name_and_the_aggregators_put_it(tmp_path):
+    """HMDB's "Glycolipids" matches no name in Babel's sphingomyelin clique, whose other members agree on theirs,
+    and matches two ids of Babel's glycolipid clique. So Babel's evidence about it is dropped, kg2's claim (ignored
+    while Babel's stood) comes back, and it joins glycolipid."""
+    from kraken.entity_resolution.build import BABEL_OUTLIERS_REPORT_FILENAME
+
+    config = _glycolipid_config(tmp_path, ["Glycolipids", "Glycolipids"])
+    m = resolve_entities(config, biolink=None)
+    assert m["HMDB:HMDB0302365"] == m["CHEBI:33563"] == m["MESH:D006017"]
+    assert m["HMDB:HMDB0302365"] != m["CHEBI:64583"]
+    assert m["MESH:D013109"] == m["UMLS:C0037906"] == m["CHEBI:64583"], "the rest of the clique stays whole"
+    report = (config.integrated_dir / BABEL_OUTLIERS_REPORT_FILENAME).read_text().splitlines()
+    assert report[1:] == ["HMDB:HMDB0302365\tCHEBI:64583\tCHEBI:33563\t2"]
+
+
+def test_one_name_match_elsewhere_does_not_make_an_outlier(tmp_path):
+    config = _glycolipid_config(tmp_path, ["Glycolipids", "glycolipids (MeSH)"])
+    m = resolve_entities(config, biolink=None)
+    assert m["HMDB:HMDB0302365"] == m["CHEBI:64583"], "one name match should not overrule Babel"
 
 
 def test_a_gene_and_protein_conflation_becomes_one_clique_not_two_joined_by_a_bridge(tmp_path):

@@ -39,6 +39,12 @@ import pandas as pd
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
+from kraken.entity_resolution.babel_outliers import (
+    compatible_name_pairs,
+    families_signature,
+    find_babel_outliers,
+    log_babel_outliers,
+)
 from kraken.entity_resolution.clustering import DEFAULT_SEED, label_propagation
 from kraken.entity_resolution.families import ALL_FAMILIES, BranchFamilies
 from kraken.entity_resolution.guardrails import (
@@ -53,7 +59,7 @@ from kraken.entity_resolution.guardrails import (
 from kraken.entity_resolution.id_facts import IdFacts, IdFactsStore
 from kraken.entity_resolution.match_graph import alias_evidence, clique_evidence, match_predicate_evidence
 from kraken.entity_resolution.materialize import PrefixRanking, materialize_cluster
-from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, normalize_name
+from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, name_keys, normalize_name
 from kraken.entity_resolution.prefix_backups import infer_category, infer_taxon
 from kraken.entity_resolution.uncanonicalize import (
     ALIAS_EVIDENCE_SOURCES,
@@ -72,6 +78,7 @@ from kraken.utils.constants import (
     EDGE_PREDICATE,
     EDGE_PRIMARY_KS,
     EDGE_SUBJECT,
+    EXACT_MATCH_PREDICATES,
     GENE_PROTEIN_CONFLATION_RELATION,
     NODE_CATEGORIES,
     NODE_EQUIVALENT_IDS,
@@ -119,10 +126,13 @@ def _stage1_write_evidence_and_facts(
     names_path: Path,
     source_bits: dict[str, int],
     facts: IdFactsStore,
+    *,
+    deferred_path: Path | None = None,
+    cliques_path: Path | None = None,
 ) -> tuple[dict[str, frozenset[str]], dict[str, str], set[str], dict[str, int], dict[str, set[str]]]:
     """One streaming pass over harmonized nodes+edges. Writes equivalency-clique
     (native sources only) and match-predicate evidence, writes
-    ``normalized_name<TAB>curie`` rows for name similarity, and returns:
+    ``name_key<TAB>curie<TAB>families`` rows (one per key; see ``name_keys``) for name similarity, and returns:
 
     * ``inherited_cats``: curie -> candidate categories, propagated from every node
       whose categories are cleanly SINGLE-family onto each id in that node's
@@ -137,6 +147,9 @@ def _stage1_write_evidence_and_facts(
 
     Babel's nodes are also recorded into ``facts`` -- each id's own name, category and taxon -- which later stages
     treat as the source of truth for an id's category and taxon.
+
+    For finding Babel clique outliers (see ``babel_outliers``), the aggregator evidence Babel's say overrules goes to
+    ``deferred_path`` instead of the evidence file, and every Babel clique member to ``cliques_path``.
     """
     inherited_cats: dict[str, frozenset[str]] = {}
     node_taxon: dict[str, str] = {}
@@ -224,7 +237,12 @@ def _stage1_write_evidence_and_facts(
     sources = sorted(config.all_harmonized_paths_resolved.items(), key=lambda kv: (kv[0] != "babel", kv[0]))
     babel_facts: list[tuple[str, IdFacts]] = []
     dropped_known_pairs = 0
-    with open(evidence_path, "w") as ev, open(names_path, "w") as nm:
+    with (
+        open(evidence_path, "w") as ev,
+        open(names_path, "w") as nm,
+        open(deferred_path or os.devnull, "w") as deferred,
+        open(cliques_path or os.devnull, "w") as cliques,
+    ):
         # Pass 1: every source's NODES (ids, equivalency lists, categories, taxa, names).
         for source, (nodes_path, _edges_path) in sources:
             bit = 1 << source_bits[source]
@@ -264,12 +282,14 @@ def _stage1_write_evidence_and_facts(
                     aggregator_list = source in weights.aggregator_list_sources
                     head_known = aggregator_list and facts.knows(node_id)
                     for a, b, group, weight in clique_evidence(equiv_ids, source, weights, head=node_id):
+                        row = _evidence_row(a, b, group, weight, kind=f"equiv:{source}")
                         if aggregator_list:
                             other = b if a == node_id else a
                             if head_known and other != node_id and facts.knows(other):
                                 dropped_known_pairs += 1
+                                deferred.write(row)
                                 continue
-                        ev.write(_evidence_row(a, b, group, weight, kind=f"equiv:{source}"))
+                        ev.write(row)
                     # Category inheritance. Not for Babel: its nodes carry each id's own type, which later stages
                     # read from ``facts`` ahead of anything inherited, so recording it again here would only
                     # cost memory -- one entry for every Babel id.
@@ -289,9 +309,12 @@ def _stage1_write_evidence_and_facts(
                     # own name -- so we do NOT emit it; those ids are named per-id by
                     # their own Babel node instead.
                     if source not in CANONICALIZED_AGGREGATOR_SOURCES:
-                        name_norm = normalize_name(node.get(NODE_NAME))
-                        if not is_droppable(name_norm, min_length=weights.min_name_length, stoplist=DEFAULT_STOPLIST):
-                            nm.write(f"{name_norm}{SEP}{node_id}\n")
+                        name = node.get(NODE_NAME)
+                        words = normalize_name(name)
+                        if not is_droppable(words, min_length=weights.min_name_length, stoplist=DEFAULT_STOPLIST):
+                            signature = families_signature(branches)
+                            for key in name_keys(name, branches):
+                                nm.write(f"{key}{SEP}{node_id}{SEP}{signature}\n")
         if babel_facts:
             facts.record(babel_facts)
             babel_facts.clear()
@@ -308,15 +331,16 @@ def _stage1_write_evidence_and_facts(
         # canonicalized endpoint would just re-import Babel's clustering. KG2 also
         # needs its close_match down-weighted where subclass edges co-occur, so it
         # gets a dedicated two-phase writer.
+        dropped_known_matches = Counter()
         for source, (_nodes_path, edges_path) in sources:
             bit = 1 << source_bits[source]
             if not Path(edges_path).exists():
                 continue
             if source == "kg2":
-                _write_kg2_match_evidence(Path(edges_path), weights, ev)
+                _write_kg2_match_evidence(Path(edges_path), weights, ev, facts, dropped_known_matches, deferred)
                 continue
             if source == "babel":
-                _write_babel_evidence(Path(edges_path), weights, ev)
+                _write_babel_evidence(Path(edges_path), weights, ev, cliques)
                 continue
             takes_aliases = source in ALIAS_EVIDENCE_SOURCES
             for edge in stream_edges_from_jsonl(Path(edges_path)):
@@ -333,9 +357,35 @@ def _stage1_write_evidence_and_facts(
                     ev_edge = match_predicate_evidence(
                         subject, object_, predicate, source, weights, primary_ks=primary_ks
                     )
-                    if ev_edge is not None:
-                        ev.write(_evidence_row(*ev_edge, kind=f"match:{source}"))
+                    if ev_edge is None:
+                        continue
+                    row = _evidence_row(*ev_edge, kind=f"match:{source}")
+                    if _babel_decides(subject, object_, predicate, source, weights, facts):
+                        dropped_known_matches[source] += 1
+                        deferred.write(row)
+                    else:
+                        ev.write(row)
+        for source, count in sorted(dropped_known_matches.items()):
+            logging.info(
+                "entity_resolution: ignored %d %s same_as/exact_match pairs Babel knows both ids of "
+                "(Babel decides those; they survive as close_match edges)",
+                count,
+                source,
+            )
     return inherited_cats, node_taxon, node_ids, seeds, source_provided_by
+
+
+def _babel_decides(a: str, b: str, predicate: str, source: str, weights: ERWeights, facts: IdFactsStore) -> bool:
+    """True for an aggregator's same_as / exact_match between two ids Babel knows: like the aggregators' equivalence
+    lists, it is Babel's call. Of kg2's 41k such pairs, 9.7k join ids Babel keeps in different cliques, and 4.9k of
+    those merged in 2.1.1 at full weight: a GO process with one Reactome reaction, a drug's salt or prodrug with the
+    drug (salsalate / salicylic acid), one enantiomer with the other ((S)- / (R)-warfarin)."""
+    return (
+        predicate in EXACT_MATCH_PREDICATES
+        and source in weights.aggregator_list_sources
+        and facts.knows(a)
+        and facts.knows(b)
+    )
 
 
 def _primary_ks(edge: dict) -> str | None:
@@ -397,11 +447,12 @@ def _conflated_hubs(edges_path: Path) -> dict[str, str]:
     return {hub: find(hub) for hub in parent}
 
 
-def _write_babel_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
+def _write_babel_evidence(edges_path: Path, weights: ERWeights, ev, cliques=None) -> None:
     """Equivalence evidence from Babel's same_as edges: each clique, and each gene/protein conflation MERGED INTO
     the gene's clique (see ``_conflated_hubs``), weighted as ONE list with the hub as head -- so a group within
     ``clique_cap`` is a full clique. Babel's other edges -- its drug/chemical relations -- are deliberately not
-    evidence: that conflation is off.
+    evidence: that conflation is off. Each clique's members also go to ``cliques``, if given, as
+    ``id<TAB>hub<TAB>clique size`` rows.
 
     The harmonizer writes each hub's edges consecutively, so an unconflated clique is one run of edges sharing a
     subject and is emitted as it streams. A conflated group's two cliques are written in different places (one per
@@ -414,6 +465,11 @@ def _write_babel_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
     current: str | None = None
     members: list[str] = []
 
+    def record_clique(hub: str, clique: list[str]) -> None:
+        if cliques is not None:
+            unique = set(clique)
+            cliques.writelines(f"{member}{SEP}{hub}{SEP}{len(unique)}\n" for member in unique)
+
     def flush() -> None:
         if current is None or not members:
             return
@@ -422,6 +478,7 @@ def _write_babel_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
             conflated[anchor].update(members)
             conflated[anchor].add(current)
             return
+        record_clique(current, [current, *members])
         for evidence in clique_evidence([current, *members], "babel", weights, head=current):
             ev.write(_evidence_row(*evidence, kind="babel"))
 
@@ -436,6 +493,7 @@ def _write_babel_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
     flush()
 
     for anchor, group in conflated.items():
+        record_clique(anchor, [anchor, *group])
         for evidence in clique_evidence([anchor, *sorted(group)], "babel", weights, head=anchor):
             ev.write(_evidence_row(*evidence, kind="babel:gene_protein"))
 
@@ -451,9 +509,13 @@ def _subclass_penalized_weight(base_weight: float, hierarchical_count: int, deca
     return base_weight * (decay**hierarchical_count)
 
 
-def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
+def _write_kg2_match_evidence(
+    edges_path: Path, weights: ERWeights, ev, facts: IdFactsStore, dropped_known_matches: Counter, deferred=None
+) -> None:
     """Emit KG2 match-predicate evidence on un-canonicalized endpoints, down-weighting
-    each close_match by how many subclass/superclass edges the same original pair has.
+    each close_match by how many subclass/superclass edges the same original pair has,
+    and setting aside the same_as / exact_match pairs Babel decides (see ``_babel_decides``) -- to ``deferred``, if
+    given, in case one turns out to be a Babel clique outlier.
 
     Two-phase over KG2's edges (option (a)): first count hierarchical edges per original
     pair and buffer the match pairs (bounded by KG2's edge count, not the whole graph),
@@ -462,7 +524,8 @@ def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
     KG2's originals contribute no alias evidence (see uncanonicalize.ALIAS_EVIDENCE_SOURCES).
     """
     hierarchical_counts: dict[tuple[str, str], int] = defaultdict(int)
-    match_pairs: list[tuple[str, str, str, str | None]] = []  # (a, b, predicate, primary_ks), a <= b
+    # (a, b, predicate, primary_ks, whether Babel decides it), a <= b
+    match_pairs: list[tuple[str, str, str, str | None, bool]] = []
     for edge in stream_edges_from_jsonl(edges_path):
         predicate = edge.get(EDGE_PREDICATE, "")
         is_hierarchical = predicate in SUBCLASS_PREDICATES
@@ -475,50 +538,83 @@ def _write_kg2_match_evidence(edges_path: Path, weights: ERWeights, ev) -> None:
             if is_hierarchical:
                 hierarchical_counts[(a, b)] += 1
             else:
-                match_pairs.append((a, b, predicate, _primary_ks(edge)))
+                babel_decides = _babel_decides(a, b, predicate, "kg2", weights, facts)
+                if babel_decides:
+                    dropped_known_matches["kg2"] += 1
+                match_pairs.append((a, b, predicate, _primary_ks(edge), babel_decides))
 
-    for a, b, predicate, primary_ks in match_pairs:
+    for a, b, predicate, primary_ks, babel_decides in match_pairs:
         base = weights.predicate_weight(predicate)
         weight = _subclass_penalized_weight(base, hierarchical_counts.get((a, b), 0), weights.subclass_penalty_decay)
         # Per-primary-KS group, so parallel close_matches on this pair from different KSes sum.
         group = weights.predicate_group("kg2", primary_ks)
-        ev.write(_evidence_row(a, b, group, weight, kind="match:kg2"))
+        row = _evidence_row(a, b, group, weight, kind="match:kg2")
+        if not babel_decides:
+            ev.write(row)
+        elif deferred is not None:
+            deferred.write(row)
 
 
-def _stage1b_append_name_similarity(names_path: Path, evidence_path: Path, weights: ERWeights, temp_dir: Path) -> None:
+def _stage1b_append_name_similarity(
+    names_path: Path,
+    evidence_path: Path,
+    weights: ERWeights,
+    temp_dir: Path,
+    *,
+    guardrail_config: GuardrailConfig | None = None,
+    name_pairs_path: Path | None = None,
+) -> None:
     """Group CURIEs by normalized name (external sort) and append name-similarity
     clique evidence for each group within the size cap. Bounded memory: one name
-    group at a time."""
+    group at a time. The pairs the pairwise guardrails allow also go to ``name_pairs_path``, if given, as
+    ``a<TAB>b<TAB>families(a)<TAB>families(b)`` rows, for finding Babel clique outliers."""
     sorted_names = temp_dir / "er_s1_names_sorted.tmp"
     try:
         _external_sort(names_path, sorted_names, ["-k1,1"], temp_dir)
-        with open(sorted_names) as fin, open(evidence_path, "a") as ev:
+        with (
+            open(sorted_names) as fin,
+            open(evidence_path, "a") as ev,
+            open(name_pairs_path or os.devnull, "w") as name_pairs,
+        ):
             current = None
-            ids: list[str] = []
+            group: dict[str, str] = {}  # curie -> its families signature
 
-            def flush(group_ids: list[str]) -> None:
-                unique_ids = sorted(set(group_ids))
+            def flush() -> None:
+                unique_ids = sorted(group)
                 if not (2 <= len(unique_ids) <= weights.name_group_cap):
                     return
                 w = weights.name_similarity_weight
                 for i in range(len(unique_ids)):
                     for j in range(i + 1, len(unique_ids)):
                         a, b = unique_ids[i], unique_ids[j]
-                        if a > b:
-                            a, b = b, a
                         ev.write(_evidence_row(a, b, NAME_SIMILARITY_GROUP, w, kind="name_sim"))
+                if name_pairs_path is not None and guardrail_config is not None:
+                    for a, b in compatible_name_pairs(group, guardrail_config):
+                        name_pairs.write(f"{a}{SEP}{b}{SEP}{group[a]}{SEP}{group[b]}\n")
 
             for line in fin:
-                name, _, curie = line.rstrip("\n").partition(SEP)
-                if name != current and ids:
-                    flush(ids)
-                    ids = []
+                name, curie, signature = line.rstrip("\n").split(SEP)
+                if name != current and group:
+                    flush()
+                    group = {}
                 current = name
-                ids.append(curie)
-            if ids:
-                flush(ids)
+                group.setdefault(curie, signature)
+            if group:
+                flush()
     finally:
         remove_file(sorted_names)
+
+
+def _restore_deferred_evidence(deferred_path: Path, evidence_path: Path, ids: set[str] | dict) -> int:
+    """Append the set-aside aggregator evidence (see ``deferred_path`` in stage 1) that touches any of ``ids``."""
+    restored = 0
+    with open(deferred_path) as fin, open(evidence_path, "a") as ev:
+        for line in fin:
+            a, b, _rest = line.split(SEP, 2)
+            if a in ids or b in ids:
+                ev.write(line)
+                restored += 1
+    return restored
 
 
 # --------------------------------------------------------------------------------------
@@ -526,9 +622,17 @@ def _stage1b_append_name_similarity(names_path: Path, evidence_path: Path, weigh
 # --------------------------------------------------------------------------------------
 
 
-def _stage2_accumulate_pairs(evidence_path: Path, pairs_path: Path, weights: ERWeights, temp_dir: Path) -> int:
+def _stage2_accumulate_pairs(
+    evidence_path: Path,
+    pairs_path: Path,
+    weights: ERWeights,
+    temp_dir: Path,
+    babel_outliers: set[str] | dict | None = None,
+) -> int:
     """Combine evidence per CURIE pair (max within source group, sum across)
-    and keep pairs meeting tau. Returns the number of pairs written."""
+    and keep pairs meeting tau, leaving out Babel's evidence about its clique outliers (see ``babel_outliers``).
+    Returns the number of pairs written."""
+    babel_outliers = babel_outliers or set()
     sorted_ev = temp_dir / "er_s2_evidence_sorted.tmp"
     n_pairs = 0
     try:
@@ -547,7 +651,9 @@ def _stage2_accumulate_pairs(evidence_path: Path, pairs_path: Path, weights: ERW
                 return 0
 
             for line in fin:
-                a, b, group, weight_s = line.rstrip("\n").split(SEP)[:4]  # 5th column (evidence kind) is diagnostic
+                a, b, group, weight_s, kind = line.rstrip("\n").split(SEP)
+                if babel_outliers and kind.startswith("babel") and (a in babel_outliers or b in babel_outliers):
+                    continue
                 weight = float(weight_s)
                 if a != cur_a or b != cur_b:
                     n_pairs += flush()
@@ -944,6 +1050,8 @@ def _stage_banner(msg: str) -> None:
 # handful; a regression (the 56,515-member clusters of the first size-aware build) shows what caused it.
 OVERSIZED_EVIDENCE_REPORT_MIN_SIZE = 1000
 OVERSIZED_REPORT_FILENAME = "oversized_clusters.jsonl"
+# Every Babel clique outlier, with the clique its name matches, in ``<integrated debug dir>`` (see babel_outliers).
+BABEL_OUTLIERS_REPORT_FILENAME = "babel_clique_outliers.tsv"
 # Key of the membership markers stage 4 sorts alongside the node dicts (not a node property).
 CLUSTER_MEMBER_MARKER = "__cluster_member__"
 # Babel's per-id facts for this ER run (see resolve_entities); a temp file, removed when ER finishes.
@@ -1017,6 +1125,9 @@ def resolve_entities(config, biolink) -> dict[str, str]:
 
     evidence_path = temp_dir / "er_s1_evidence.tmp"
     names_path = temp_dir / "er_s1_names.tmp"
+    deferred_path = temp_dir / "er_s1_deferred_evidence.tmp"
+    cliques_path = temp_dir / "er_s1_babel_cliques.tmp"
+    name_pairs_path = temp_dir / "er_s1b_name_pairs.tmp"
     pairs_path = temp_dir / "er_s2_pairs.tmp"
 
     # Deterministic source -> bit index, for encoding per-id provenance in ``seeds``.
@@ -1030,7 +1141,15 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         t = time.perf_counter()
         _stage_banner("ER STAGE 1 -- streaming harmonized nodes/edges -> match evidence, names, guardrail facts")
         inherited_cats, node_taxon, node_ids, seeds, source_provided_by = _stage1_write_evidence_and_facts(
-            config, weights, families, evidence_path, names_path, source_bits, facts
+            config,
+            weights,
+            families,
+            evidence_path,
+            names_path,
+            source_bits,
+            facts,
+            deferred_path=deferred_path,
+            cliques_path=cliques_path,
         )
         _stage_banner(
             f"ER STAGE 1 DONE ({time.perf_counter() - t:.1f}s) -- {len(node_ids)} harmonized node ids, "
@@ -1038,13 +1157,25 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         )
 
         t = time.perf_counter()
-        _stage_banner("ER STAGE 1b -- adding name-similarity match evidence")
-        _stage1b_append_name_similarity(names_path, evidence_path, weights, temp_dir)
+        _stage_banner("ER STAGE 1b -- adding name-similarity match evidence, finding Babel clique outliers")
+        _stage1b_append_name_similarity(
+            names_path,
+            evidence_path,
+            weights,
+            temp_dir,
+            guardrail_config=guardrail_config,
+            name_pairs_path=name_pairs_path,
+        )
+        outliers = find_babel_outliers(name_pairs_path, cliques_path, weights.clique_cap, temp_dir)
+        log_babel_outliers(outliers, _debug_dir(config) / BABEL_OUTLIERS_REPORT_FILENAME)
+        if outliers:
+            restored = _restore_deferred_evidence(deferred_path, evidence_path, outliers)
+            logging.info("entity_resolution: restored %d aggregator evidence rows about Babel outliers", restored)
         _stage_banner(f"ER STAGE 1b DONE ({time.perf_counter() - t:.1f}s)")
 
         t = time.perf_counter()
         _stage_banner("ER STAGE 2 -- accumulating + tau-filtering weighted match pairs")
-        n_pairs = _stage2_accumulate_pairs(evidence_path, pairs_path, weights, temp_dir)
+        n_pairs = _stage2_accumulate_pairs(evidence_path, pairs_path, weights, temp_dir, outliers)
         _stage_banner(f"ER STAGE 2 DONE ({time.perf_counter() - t:.1f}s) -- {n_pairs} pairs above tau")
 
         t = time.perf_counter()
@@ -1095,9 +1226,8 @@ def resolve_entities(config, biolink) -> dict[str, str]:
     finally:
         facts.close()
         remove_file(facts_path)
-        remove_file(evidence_path)
-        remove_file(names_path)
-        remove_file(pairs_path)
+        for path in (evidence_path, names_path, deferred_path, cliques_path, name_pairs_path, pairs_path):
+            remove_file(path)
 
     _report_eval(curie_to_cluster)
     logging.info("entity_resolution: %d node ids mapped to representatives", len(node_id_to_rep))
