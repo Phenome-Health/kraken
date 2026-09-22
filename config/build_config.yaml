@@ -1,4 +1,4 @@
-kraken_version: 2.1.1
+kraken_version: 2.3.0
 biolink_version: 4.2.5
 log_level: INFO
 steps:
@@ -9,7 +9,7 @@ options:
   metagraph_creation: True
   validate_output: True
   validation_only: False
-  include_sources: []
+  include_sources: ["long-covid"]
   exclude_sources: ["clingen"]
 
 # Base directory path to use for all input/output files (should be absolute path)
@@ -130,6 +130,11 @@ sources:
     source_id: "biological-age"  # a paper (Earls et al. 2019), not a registered DB; bare id we coin
     version: "2019"  # Earls et al. J Gerontol A 2019 (doi:10.1093/gerona/glz220)
     input_file: "input_data/bio-age"
+
+  long-covid:
+    source_id: "isb-long-covid"  # ISB's RECOVER-funded long COVID tables (Qi Wei), not a registered DB; bare id we coin
+    version: "received_2026-09-17"
+    input_file: "input_data/long-covid"
 
 
   clingen:
