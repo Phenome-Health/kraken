@@ -147,8 +147,15 @@ class ERWeights(BaseModel):
     # evidence, not weak. The residual risk is two DISTINCT entities in the SAME
     # branch/taxon that happen to share a normalized name and carry no enforced
     # id (e.g. two CHEBI with identical labels); the eval measures that cost.
+    #
+    # Below Babel's clique weight, though, so that where the two DISAGREE Babel wins: the repair of a guardrail
+    # violation regrows the cluster strongest-edge-first, and label propagation follows the heaviest neighbours.
+    # 2.1.1's CHEBI:23614 "deoxycholate" is the case: a name match pulled ChEMBL's id away from its own structure
+    # (which three sources each call "deoxycholate") into another clique's. Where a name SHOULD beat Babel -- Babel
+    # filed an id in the wrong clique -- the outlier rule handles it by dropping Babel's evidence about that id
+    # entirely (see babel_outliers), so nothing here has to outweigh a clique.
     # UNTUNED placeholder like the rest — the eval sets the final value.
-    name_similarity_weight: float = 0.7
+    name_similarity_weight: float = 0.45
 
     # A close_match edge between two nodes that ALSO have subclass_of/superclass_of
     # edges between them is likely a mislabeled hierarchical relation, not

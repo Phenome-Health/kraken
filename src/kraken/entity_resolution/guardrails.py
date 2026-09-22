@@ -38,7 +38,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
 from kraken.entity_resolution.families import ALL_FAMILIES, BranchFamilies
-from kraken.utils.constants import SMILES_PREFIX
+from kraken.utils.constants import INCHIKEY_PREFIX, SMILES_PREFIX
 
 # Splitter injected by resolve/clustering: given member ids, return sub-clusters.
 Splitter = Callable[[list[str]], list[list[str]]]
@@ -58,7 +58,13 @@ Splitter = Callable[[list[str]], list[list[str]]]
 #     in practice a compound and its salt, or two stereoisomers (of 846 lipids lipidmaps and translator share an
 #     InChIKey with, the 60 whose SMILES differ are exactly that). Drug/chemical conflation is off, so they stay
 #     apart.
-DEFAULT_ENFORCED_PREFIXES: frozenset[str] = frozenset({"RM", "LM", "MONDO", "CAID", SMILES_PREFIX})
+#   * INCHIKEY — likewise one structure per id, and Babel agrees: of its 3,638,219 cliques holding an InChIKey,
+#     every single one holds exactly ONE, so two in a cluster is always something WE merged. That is how
+#     CHEBI:23614 "deoxycholate" came to hold two skeletons: ChEMBL names CHEMBL1208257 "DEOXYCHOLATE" although its
+#     structure is C25H42O4 (FFRRRORQFBLEJM), a carbon heavier than deoxycholate's C24H39O4- (KXGVEGMKQFWNSR), and
+#     a name match alone reaches tau. No normalization can catch that -- the names are identical, the SOURCE is
+#     wrong -- so the structures have to veto it.
+DEFAULT_ENFORCED_PREFIXES: frozenset[str] = frozenset({"RM", "LM", "MONDO", "CAID", SMILES_PREFIX, INCHIKEY_PREFIX})
 
 # Candidate one-id-per-cluster prefixes: watched (instrumented) but NOT enforced.
 # HGNC only — it is a curated one-id-per-human-gene nomenclature, so >1 usually

@@ -60,8 +60,32 @@ def test_one_id_guardrail():
 
 
 def test_default_enforced_prefixes():
-    # RefMet=RM, LIPID MAPS=LM (verified in harmonized data), MONDO, ClinGen alleles (CAID), and structures (SMILES).
-    assert DEFAULT_ENFORCED_PREFIXES == frozenset({"RM", "LM", "MONDO", "CAID", "SMILES"})
+    # RefMet=RM, LIPID MAPS=LM (verified in harmonized data), MONDO, ClinGen alleles (CAID), and the two structure
+    # identifiers (SMILES, INCHIKEY -- Babel itself never puts two InChIKeys in one clique).
+    assert DEFAULT_ENFORCED_PREFIXES == frozenset({"RM", "LM", "MONDO", "CAID", "SMILES", "INCHIKEY"})
+
+
+def test_two_structures_are_never_one_cluster():
+    """2.1.1's CHEBI:23614 "deoxycholate" held two unrelated skeletons: ChEMBL, PubChem and UMLS each call their own
+    structure "deoxycholate", and a name match alone reaches tau."""
+    anion, other = "INCHIKEY:KXGVEGMKQFWNSR-LLQZFEROSA-M", "INCHIKEY:FFRRRORQFBLEJM-GXACPUAJSA-N"
+    cfg = GuardrailConfig()
+    members = ["CHEBI:23614", anion, "CHEMBL.COMPOUND:CHEMBL1208257", other]
+    info = {c: _ni(c, ("biolink:SmallMolecule",)) for c in members}
+    assert cluster_violations(members, info, cfg) == ["one_id"]
+    # The repair takes the strongest edges first -- and a name match (0.7) outweighs a Babel clique (0.5), so the
+    # ChEMBL id follows the NAME rather than its own structure, which is left on its own.
+    adjacency = {
+        "CHEBI:23614": {anion: 0.5, "CHEMBL.COMPOUND:CHEMBL1208257": 0.7},
+        anion: {"CHEBI:23614": 0.5},
+        "CHEMBL.COMPOUND:CHEMBL1208257": {other: 0.5, "CHEBI:23614": 0.7},
+        other: {"CHEMBL.COMPOUND:CHEMBL1208257": 0.5},
+    }
+    groups = {frozenset(g) for g in greedy_valid_partition(members, info, cfg, adjacency)}
+    assert groups == {
+        frozenset({"CHEBI:23614", anion, "CHEMBL.COMPOUND:CHEMBL1208257"}),
+        frozenset({other}),
+    }
 
 
 def test_two_alleles_are_never_one_cluster():
