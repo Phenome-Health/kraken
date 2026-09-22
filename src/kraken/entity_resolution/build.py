@@ -46,6 +46,7 @@ from kraken.entity_resolution.babel_outliers import (
     log_babel_outliers,
 )
 from kraken.entity_resolution.clustering import DEFAULT_SEED, label_propagation
+from kraken.entity_resolution.debug_db import DebugDbWriter, debug_db_path
 from kraken.entity_resolution.families import ALL_FAMILIES, BranchFamilies
 from kraken.entity_resolution.guardrails import (
     GuardrailConfig,
@@ -628,10 +629,12 @@ def _stage2_accumulate_pairs(
     weights: ERWeights,
     temp_dir: Path,
     babel_outliers: set[str] | dict | None = None,
+    debug_db: DebugDbWriter | None = None,
 ) -> int:
     """Combine evidence per CURIE pair (max within source group, sum across)
     and keep pairs meeting tau, leaving out Babel's evidence about its clique outliers (see ``babel_outliers``).
-    Returns the number of pairs written."""
+    Every pair with evidence other than a shared Babel clique also goes to ``debug_db``, whether or not it reached
+    tau. Returns the number of pairs written."""
     babel_outliers = babel_outliers or set()
     sorted_ev = temp_dir / "er_s2_evidence_sorted.tmp"
     n_pairs = 0
@@ -641,10 +644,14 @@ def _stage2_accumulate_pairs(
             cur_a = cur_b = None
             group_max: dict[str, float] = {}
 
+            kind_max: dict[str, float] = {}
+
             def flush() -> int:
                 if cur_a is None:
                     return 0
                 total = sum(group_max.values())
+                if debug_db is not None and not all(kind.startswith("babel") for kind in kind_max):
+                    debug_db.add_evidence(cur_a, cur_b, total, total >= weights.tau, kind_max)
                 if total >= weights.tau:
                     out.write(f"{cur_a}{SEP}{cur_b}{SEP}{total}\n")
                     return 1
@@ -659,9 +666,12 @@ def _stage2_accumulate_pairs(
                     n_pairs += flush()
                     cur_a, cur_b = a, b
                     group_max = {}
+                    kind_max = {}
                 prev = group_max.get(group)
                 if prev is None or weight > prev:
                     group_max[group] = weight
+                if weight > kind_max.get(kind, -1.0):
+                    kind_max[kind] = weight
             n_pairs += flush()
     finally:
         remove_file(sorted_ev)
@@ -862,9 +872,11 @@ def _stage4_materialize(
     families: BranchFamilies,
     biolink,
     temp_dir: Path,
+    debug_db: DebugDbWriter | None = None,
 ) -> dict[str, str]:
     """Stream harmonized nodes, group by cluster on disk, reconcile one cluster at a
-    time, and write the canonical nodes file. Returns ``node_id -> representative``.
+    time, and write the canonical nodes file (and each id's row of ``debug_db``, if given). Returns
+    ``node_id -> representative``.
 
     EVERY id a source provided is materialized -- merged into its cluster, or emitted
     as its own SINGLETON if it never merged. Bare ids (equiv-list members with no
@@ -931,13 +943,15 @@ def _stage4_materialize(
 
     try:
         with jsonlines.open(keyed, "w") as writer:
-            for _source, (nodes_path, _edges) in sorted(config.all_harmonized_paths_resolved.items()):
+            for source, (nodes_path, _edges) in sorted(config.all_harmonized_paths_resolved.items()):
                 if not Path(nodes_path).exists():
                     continue
                 for node in stream_nodes_from_jsonl(Path(nodes_path)):
                     node_id = node.get(NODE_ID)
                     if not node_id:
                         continue
+                    if debug_db is not None:
+                        node[SOURCE_MARKER] = source  # which source said what, for the debug db; removed at flush
                     # Replace the (possibly conflated) source category list with this id's single intrinsic
                     # category, so the merged node's categories are the union of its members' true types, not
                     # conflation leftovers.
@@ -998,6 +1012,7 @@ def _stage4_materialize(
                 group = [entry for entry in entries if CLUSTER_MEMBER_MARKER not in entry]
                 if not group:
                     return  # a cluster of ids no source provided a node or list entry for: nothing to write
+                sources = [entry.pop(SOURCE_MARKER, None) for entry in group]
                 node = materialize_cluster(group, ranking, families, label_of=label_of)
                 # No drop rule: every id a source provided is kept (bare ids now carry
                 # real provenance, so nothing is provenance-less). A bare-only cluster
@@ -1018,6 +1033,8 @@ def _stage4_materialize(
                 rep = node[NODE_ID]
                 for member in group:
                     node_id_to_rep[member[NODE_ID]] = rep
+                if debug_db is not None:
+                    _record_debug_ids(debug_db, rep, node[NODE_EQUIVALENT_IDS], group, sources)
 
             for key, node in reader:
                 if key != current_key and members:
@@ -1031,6 +1048,42 @@ def _stage4_materialize(
         remove_file(keyed)
         remove_file(keyed_sorted)
     return node_id_to_rep
+
+
+def _record_debug_babel_cliques(debug_db: DebugDbWriter, cliques_path: Path) -> None:
+    """Every Babel clique member (``id<TAB>hub<TAB>size`` rows written in stage 1) into the debug db."""
+    with open(cliques_path) as fin:
+        for line in fin:
+            curie, hub, size = line.rstrip("\n").split(SEP)
+            debug_db.add_babel_clique_member(curie, hub, int(size))
+
+
+def _record_debug_ids(
+    debug_db: DebugDbWriter, rep: str, ids: list[str], group: list[dict], sources: list[str | None]
+) -> None:
+    """One debug-db row per id of a written node, from the source records ER merged it from. Babel's record is the
+    id's own name and type; every other source's is what that source called it. A bare id (an equivalence-list
+    member no source has a node for) has one synthetic record, named by Babel if Babel knows it."""
+    records: dict[str, list[tuple[str | None, dict]]] = defaultdict(list)
+    for source, entry in zip(sources, group, strict=True):
+        records[entry[NODE_ID]].append((source, entry))
+    for curie in ids:
+        babel = next((entry for source, entry in records[curie] if source == "babel"), None)
+        entries = [entry for _source, entry in records[curie]]
+        debug_db.add_id(
+            curie,
+            rep,
+            babel_name=babel.get(NODE_NAME) if babel else None,
+            babel_categories=babel.get(NODE_CATEGORIES) or [] if babel else [],
+            taxon=next((e[NODE_TAXON] for e in entries if e.get(NODE_TAXON)), None),
+            categories=sorted({c for e in entries for c in e.get(NODE_CATEGORIES) or []}),
+            provided_by={p for e in entries for p in e.get(NODE_PROVIDED_BY) or []},
+            source_names=[
+                (source or "(bare id)", entry[NODE_NAME])
+                for source, entry in records[curie]
+                if entry.get(NODE_NAME) and source != "babel"
+            ],
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -1054,6 +1107,8 @@ OVERSIZED_REPORT_FILENAME = "oversized_clusters.jsonl"
 BABEL_OUTLIERS_REPORT_FILENAME = "babel_clique_outliers.tsv"
 # Key of the membership markers stage 4 sorts alongside the node dicts (not a node property).
 CLUSTER_MEMBER_MARKER = "__cluster_member__"
+# Key stage 4 tags each source record with, for the debug db (removed before the node is built).
+SOURCE_MARKER = "__source__"
 # Babel's per-id facts for this ER run (see resolve_entities); a temp file, removed when ER finishes.
 BABEL_FACTS_FILENAME = "er_babel_facts.tmp.sqlite"
 OVERSIZED_REPORT_SAMPLE_IDS = 25
@@ -1137,6 +1192,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
     facts_path = temp_dir / BABEL_FACTS_FILENAME
     remove_file(facts_path)  # rebuilt from this build's Babel nodes every run
     facts = IdFactsStore(facts_path)
+    debug_db = DebugDbWriter(debug_db_path(_debug_dir(config), getattr(config, "kraken_version", None)))
     try:
         t = time.perf_counter()
         _stage_banner("ER STAGE 1 -- streaming harmonized nodes/edges -> match evidence, names, guardrail facts")
@@ -1171,11 +1227,12 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         if outliers:
             restored = _restore_deferred_evidence(deferred_path, evidence_path, outliers)
             logging.info("entity_resolution: restored %d aggregator evidence rows about Babel outliers", restored)
+        _record_debug_babel_cliques(debug_db, cliques_path)
         _stage_banner(f"ER STAGE 1b DONE ({time.perf_counter() - t:.1f}s)")
 
         t = time.perf_counter()
         _stage_banner("ER STAGE 2 -- accumulating + tau-filtering weighted match pairs")
-        n_pairs = _stage2_accumulate_pairs(evidence_path, pairs_path, weights, temp_dir, outliers)
+        n_pairs = _stage2_accumulate_pairs(evidence_path, pairs_path, weights, temp_dir, outliers, debug_db)
         _stage_banner(f"ER STAGE 2 DONE ({time.perf_counter() - t:.1f}s) -- {n_pairs} pairs above tau")
 
         t = time.perf_counter()
@@ -1218,6 +1275,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             families,
             biolink,
             temp_dir,
+            debug_db,
         )
         _stage_banner(
             f"ER STAGE 4 DONE ({time.perf_counter() - t:.1f}s) -- "
@@ -1225,9 +1283,11 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         )
     finally:
         facts.close()
+        debug_db.close()
         remove_file(facts_path)
         for path in (evidence_path, names_path, deferred_path, cliques_path, name_pairs_path, pairs_path):
             remove_file(path)
+    logging.info("entity_resolution: debug database (inspect any id's node with it) at %s", debug_db.path)
 
     _report_eval(curie_to_cluster)
     logging.info("entity_resolution: %d node ids mapped to representatives", len(node_id_to_rep))
