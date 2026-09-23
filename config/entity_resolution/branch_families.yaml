@@ -11,7 +11,10 @@
 # doubt, be generous. Review every line; edit freely.
 #
 # Key bridges: ClinicalFinding -> [clinical_obs, disease_pheno];
-#   Procedure -> [clinical_obs, treatment]; NucleicAcidEntity -> [chemical, gene_protein].
+#   Procedure -> [clinical_obs, treatment]; NucleicAcidEntity -> [chemical, gene_protein];
+#   Publication -> [info_content, clinical_obs] (UMLS types survey/questionnaire items as intellectual
+#   products, so "Ever told you have or had atrial fibrillation" arrives as a Publication from UMLS and as a
+#   ClinicalMeasurement from the CDEs -- one entity, two families).
 
 categories:
   biolink:AccessibleDnaRegion: [gene_protein]
@@ -141,7 +144,7 @@ categories:
   biolink:ProteinDomain: [gene_protein]
   biolink:ProteinFamily: [gene_protein]
   biolink:ProteinIsoform: [gene_protein]
-  biolink:Publication: [info_content]
+  biolink:Publication: [info_content, clinical_obs]  # bridge: UMLS survey items (see the header)
   biolink:RNAProduct: [gene_protein]
   biolink:RNAProductIsoform: [gene_protein]
   biolink:ReagentTargetedGene: [gene_protein, genomic_variant]
