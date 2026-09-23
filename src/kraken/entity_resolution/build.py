@@ -41,6 +41,7 @@ from scipy.sparse.csgraph import connected_components
 
 from kraken.entity_resolution.babel_outliers import (
     compatible_name_pairs,
+    drop_corroborated,
     families_signature,
     find_babel_outliers,
     log_babel_outliers,
@@ -1222,7 +1223,14 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             guardrail_config=guardrail_config,
             name_pairs_path=name_pairs_path,
         )
-        outliers = find_babel_outliers(name_pairs_path, cliques_path, weights.clique_cap, temp_dir)
+        candidates = find_babel_outliers(name_pairs_path, cliques_path, weights.clique_cap, temp_dir)
+        outliers = drop_corroborated(candidates, cliques_path, deferred_path)
+        logging.info(
+            "entity_resolution: %d Babel clique outlier candidates, %d left alone because the aggregators place "
+            "them where Babel does",
+            len(candidates),
+            len(candidates) - len(outliers),
+        )
         log_babel_outliers(outliers, _debug_dir(config) / BABEL_OUTLIERS_REPORT_FILENAME)
         if outliers:
             restored = _restore_deferred_evidence(deferred_path, evidence_path, outliers)

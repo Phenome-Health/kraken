@@ -148,14 +148,14 @@ class ERWeights(BaseModel):
     # branch/taxon that happen to share a normalized name and carry no enforced
     # id (e.g. two CHEBI with identical labels); the eval measures that cost.
     #
-    # Below Babel's clique weight, though, so that where the two DISAGREE Babel wins: the repair of a guardrail
-    # violation regrows the cluster strongest-edge-first, and label propagation follows the heaviest neighbours.
-    # 2.1.1's CHEBI:23614 "deoxycholate" is the case: a name match pulled ChEMBL's id away from its own structure
-    # (which three sources each call "deoxycholate") into another clique's. Where a name SHOULD beat Babel -- Babel
-    # filed an id in the wrong clique -- the outlier rule handles it by dropping Babel's evidence about that id
-    # entirely (see babel_outliers), so nothing here has to outweigh a clique.
+    # ABOVE Babel's clique weight. 2.3.0 tried it below (0.45, so Babel would win the guardrail repair's
+    # strongest-edge-first regrowth on CHEBI:23614 "deoxycholate"), and the benchmark showed the cost: a name match
+    # is also what holds many legitimate clusters together, and weakening it split Babel's own conflated ACE
+    # gene/protein clique across two nodes, among others. Both readings of a disagreement are handled better
+    # elsewhere anyway -- the one-id guardrails split two structures whichever side wins, and the outlier rule
+    # (see babel_outliers) is how a name overrules Babel's placement of an id.
     # UNTUNED placeholder like the rest — the eval sets the final value.
-    name_similarity_weight: float = 0.45
+    name_similarity_weight: float = 0.7
 
     # A close_match edge between two nodes that ALSO have subclass_of/superclass_of
     # edges between them is likely a mislabeled hierarchical relation, not

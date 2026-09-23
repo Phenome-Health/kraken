@@ -13,7 +13,7 @@ pytest.importorskip("igraph")
 
 @pytest.fixture
 def glycolipid_build(tmp_path):
-    from tests.entity_resolution.test_build import _glycolipid_config
+    from test_build import _glycolipid_config  # same directory; pytest puts it on the path
 
     config = _glycolipid_config(tmp_path, ["Glycolipids", "Glycolipids"])
     resolve_entities(config, biolink=None)

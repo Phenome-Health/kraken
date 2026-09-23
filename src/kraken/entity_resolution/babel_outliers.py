@@ -11,7 +11,9 @@ The name is the tell. An id is an OUTLIER when:
   "Sphingomyelins" / "sphingomyelin"),
 * its own name matches none of them, and
 * its name matches at least two ids of ONE other Babel clique ("Glycolipids" = MeSH's and UMLS's, both in
-  glycolipid's clique).
+  glycolipid's clique), and
+* the aggregators do NOT corroborate Babel's placement of it (see ``drop_corroborated``) -- otherwise the wrong
+  name is the id's own, not Babel's.
 
 Only name matches the pairwise guardrails allow count, and only chemicals, diseases, anatomy and the like are judged
 -- not organisms, genes, proteins or variants, whose names are symbols. For an outlier, Babel's evidence about it is
@@ -163,6 +165,38 @@ def find_babel_outliers(
     finally:
         for path in temps:
             remove_file(path)
+
+
+def drop_corroborated(
+    candidates: dict[str, tuple[str, str, int]], cliques_path: Path, deferred_path: Path
+) -> dict[str, tuple[str, str, int]]:
+    """Keep only the candidates the AGGREGATORS don't place where Babel does.
+
+    A name can be wrong in either direction, and which one tells us apart is whether anyone else agrees with Babel.
+    ChEMBL names CHEMBL455602 "CITPRESSINE II" though its structure is citpressine I -- and kg2, ROBOKOP and
+    Translator all place it where Babel does, with citpressine I. HMDB's "Glycolipids" is the other way: kg2 and
+    ROBOKOP put it with glycolipid, against Babel's sphingomyelin clique. So an id whose own clique the aggregators
+    corroborate is left alone. On the 2.3.0 data that is 1,893 of 2,348 candidates.
+
+    Such a pair is always in ``deferred_path``: both ids are in a Babel clique, so Babel knows both, which is
+    exactly when an aggregator's claim is set aside (see ``_babel_decides`` and the equivalence-list rule).
+    """
+    hubs = {hub for hub, _other, _n in candidates.values()}
+    members: dict[str, set[str]] = {hub: set() for hub in hubs}
+    with open(cliques_path) as fin:
+        for line in fin:
+            curie, hub, _size = line.rstrip("\n").split(SEP)
+            if hub in members:
+                members[hub].add(curie)
+    corroborated = set()
+    with open(deferred_path) as fin:
+        for line in fin:
+            a, b, _rest = line.split(SEP, 2)
+            for one, other in ((a, b), (b, a)):
+                hub = candidates.get(one, (None,))[0]
+                if hub is not None and other in members.get(hub, ()):
+                    corroborated.add(one)
+    return {curie: info for curie, info in candidates.items() if curie not in corroborated}
 
 
 def log_babel_outliers(outliers: dict[str, tuple[str, str, int]], report_path: Path | None = None) -> None:
