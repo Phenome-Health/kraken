@@ -84,3 +84,22 @@ def test_no_two_cases_disagree_about_a_pair():
         for first, second in combinations(groups, 2):
             apart.update((a, b) if a < b else (b, a) for a in first for b in second)
     assert not together & apart, f"pairs both together and apart: {sorted(together & apart)[:5]}"
+
+
+def test_comparing_two_builds_finds_what_a_case_outcome_cannot():
+    """A case carrying a known_issue reads "known issue" however it fails, so breakage arriving inside an
+    already-failing case never shows up as a REGRESSION. Comparing pair by pair against a baseline does."""
+    from kraken.entity_resolution.eval.benchmark import compare
+
+    case = BenchmarkCase(
+        case="two-things",
+        kind="chemical",
+        clusters={"a thing": ["X:1", "X:2"], "another thing": ["Y:1"]},
+        known_issue="X:2 is in a node of its own",
+    )
+    before = {"X:1": "n1", "X:2": "n1", "Y:1": "n2"}
+    after = {"X:1": "n1", "X:2": "n3", "Y:1": "n1"}  # split X, and pulled Y in with X:1
+    changes = compare([case], before, after)
+    assert changes["two-things"]["lost"] == [("X:1", "X:2")]
+    assert changes["two-things"]["gained"] == [("X:1", "Y:1")]
+    assert compare([case], before, before) == {}, "nothing changed, nothing reported"

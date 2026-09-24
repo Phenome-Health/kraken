@@ -21,6 +21,10 @@ The build is read from its nodes JSONL (``--nodes``), or from a running Kestrel 
     uv run python -m kraken.entity_resolution.eval.benchmark --api https://kestrel.krakenkg.com/api
     uv run python -m kraken.entity_resolution.eval.benchmark --api http://localhost:9990/api --json > report.json
 
+``--baseline <previous nodes JSONL>`` also reports what got WORSE since that build, pair by pair. The case
+outcomes cannot: once a case carries a ``known_issue`` it reads "known issue" however it fails, so new breakage
+inside an already-failing case is invisible to them (see ``compare``).
+
 The same cases also give pairwise precision/recall (see ``scorer``), over every must-link pair (two ids of one
 cluster) and cannot-link pair (ids of two clusters of one case).
 """
@@ -34,6 +38,7 @@ import urllib.request
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from itertools import combinations
 from pathlib import Path
 
 from kraken.entity_resolution.eval.scorer import DEFAULT_GROUND_TRUTH_PATH, load_gold, score
@@ -229,6 +234,47 @@ def _ids(ids: list[str], shown: int = 6) -> str:
     return ", ".join(ids[:shown]) + (f", ... ({len(ids)} ids)" if len(ids) > shown else "")
 
 
+def compare(cases: Iterable[BenchmarkCase], before: Mapping[str, str], after: Mapping[str, str]) -> dict:
+    """What changed between two builds, PAIR by pair: ``{case: {"lost": [...], "gained": [...]}}``.
+
+    A case's outcome cannot say this. Once a case carries a ``known_issue`` it reads "known issue" whenever it
+    fails, whatever the failure is, so breakage that arrives inside an already-failing case is invisible -- which
+    is how 1,006 pairs' worth of 2.3.0 regressions went unreported by a run that said "3 REGRESSIONS".
+
+    ``lost`` is a pair the case says belongs together that the old build had together and the new one splits;
+    ``gained`` is a pair the case says belongs apart that the old build kept apart and the new one merges.
+    """
+
+    def together(pair: tuple[str, str], membership: Mapping[str, str]) -> bool:
+        a, b = pair
+        return a in membership and b in membership and membership[a] == membership[b]
+
+    changes: dict[str, dict[str, list[tuple[str, str]]]] = {}
+    for case in cases:
+        groups = [sorted(members) for members in case.clusters.values()]
+        must = [pair for group in groups for pair in combinations(group, 2)]
+        cannot = [(a, b) for i, g in enumerate(groups) for h in groups[i + 1 :] for a in g for b in h]
+        lost = [p for p in must if together(p, before) and not together(p, after)]
+        gained = [p for p in cannot if not together(p, before) and together(p, after)]
+        if lost or gained:
+            changes[case.case] = {"lost": lost, "gained": gained}
+    return changes
+
+
+def _print_comparison(changes: dict, out=sys.stdout) -> None:
+    lost = sum(len(c["lost"]) for c in changes.values())
+    gained = sum(len(c["gained"]) for c in changes.values())
+    print(f"\nAgainst the baseline build ({len(changes)} cases changed):", file=out)
+    print(f"  {lost} pairs the cases merge were TOGETHER in the baseline and are apart now", file=out)
+    print(f"  {gained} pairs the cases separate were APART in the baseline and are merged now", file=out)
+    for case, change in sorted(changes.items(), key=lambda kv: -(len(kv[1]["lost"]) + len(kv[1]["gained"]))):
+        counts = ", ".join(
+            f"{len(change[kind])} {word}" for kind, word in (("lost", "lost"), ("gained", "conflated")) if change[kind]
+        )
+        example = (change["lost"] or change["gained"])[0]
+        print(f"    {counts:<28} {case}   e.g. {example[0]} / {example[1]}", file=out)
+
+
 def _print_flags(cases: Iterable[BenchmarkCase], out=sys.stdout) -> None:
     for case in cases:
         for flag in case.flags:
@@ -243,6 +289,11 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cases", action="append", help=f"case file(s) (default: {DEFAULT_BENCHMARK_PATH.name})")
     parser.add_argument(
         "--with-seed", action="store_true", help=f"also score the pairwise metrics on {DEFAULT_GROUND_TRUTH_PATH.name}"
+    )
+    parser.add_argument(
+        "--baseline",
+        help="a previous build's nodes JSONL: also report every pair that got WORSE since it (a case's outcome "
+        "cannot, once it carries a known_issue)",
     )
     parser.add_argument("--json", action="store_true", help="emit the full report as JSON")
     parser.add_argument("--flags", action="store_true", help="list every flagged (best-guess) id for review, and exit")
@@ -265,10 +316,19 @@ def _main(argv: list[str] | None = None) -> int:
 
     results = run(cases, membership)
     pairwise = _pairwise(pairwise_files, membership)
+    changes = compare(cases, membership_from_nodes_file(args.baseline, wanted), membership) if args.baseline else {}
     if args.json:
-        print(json.dumps({"pairwise": pairwise, "cases": [r.as_dict() for r in results]}, indent=1))
+        report = {"pairwise": pairwise, "cases": [r.as_dict() for r in results]}
+        if args.baseline:
+            report["against_baseline"] = {
+                case: {kind: [list(p) for p in pairs] for kind, pairs in change.items()}
+                for case, change in changes.items()
+            }
+        print(json.dumps(report, indent=1))
     else:
         _print_report(results, pairwise)
+        if args.baseline:
+            _print_comparison(changes)
     return 1 if any(r.outcome == "REGRESSION" for r in results) else 0
 
 

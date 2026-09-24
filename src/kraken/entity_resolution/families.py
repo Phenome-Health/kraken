@@ -32,6 +32,10 @@ DEFAULT_FAMILIES_PATH = PROJECT_ROOT / "config" / "entity_resolution" / "branch_
 # Sentinel meaning "compatible with every family" (wildcard nodes).
 ALL_FAMILIES = frozenset({"__ALL__"})
 
+# The one family named in code rather than only in the config: genes and proteins are named by SYMBOLS, which
+# repeat across species, so a name match there is only as safe as the taxon that goes with it.
+GENE_PROTEIN_FAMILY = "gene_protein"
+
 
 class BranchFamilies:
     """Curated category -> family-set map, with node/cluster branch logic."""

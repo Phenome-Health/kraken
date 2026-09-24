@@ -48,7 +48,8 @@ from kraken.entity_resolution.babel_outliers import (
 )
 from kraken.entity_resolution.clustering import DEFAULT_SEED, label_propagation
 from kraken.entity_resolution.debug_db import DebugDbWriter, debug_db_path
-from kraken.entity_resolution.families import ALL_FAMILIES, BranchFamilies
+from kraken.entity_resolution.families import ALL_FAMILIES, GENE_PROTEIN_FAMILY, BranchFamilies
+from kraken.entity_resolution.gene_protein_cohesion import rejoin_split_gene_protein_cliques
 from kraken.entity_resolution.guardrails import (
     GuardrailConfig,
     NodeInfo,
@@ -118,6 +119,14 @@ def _external_sort(input_path: Path, output_path: Path, key_args: list[str], tem
 # --------------------------------------------------------------------------------------
 # Stage 1: stream harmonized data -> evidence file, name file, per-CURIE guardrail facts
 # --------------------------------------------------------------------------------------
+
+
+def _aggregator_name_is_matchable(curie: str, branches: frozenset[str], taxon: str | None) -> bool:
+    """Whether an aggregator's name for an id Babel doesn't know may be matched on: anything except a gene or
+    protein with no taxon, whose name is a symbol that repeats across species (see the call site)."""
+    if branches is ALL_FAMILIES or GENE_PROTEIN_FAMILY not in branches:
+        return True
+    return bool(taxon or infer_taxon(curie))
 
 
 def _stage1_write_evidence_and_facts(
@@ -310,7 +319,22 @@ def _stage1_write_evidence_and_facts(
                     # is the clique's PREFERRED label -- not reliably the canonical id's
                     # own name -- so we do NOT emit it; those ids are named per-id by
                     # their own Babel node instead.
-                    if source not in CANONICALIZED_AGGREGATOR_SOURCES:
+                    #
+                    # UNLESS BABEL HAS NEVER HEARD OF THE ID, when that reasoning has nothing to stand on: no
+                    # Babel node will ever name it, so without this the id carries NO name into the match graph
+                    # at all and can never match anything, however exactly its name agrees with another node's.
+                    # KEGG:05012 "Parkinson disease pathway" sat alone beside PANTHER.PATHWAY:P00049, same name,
+                    # same type, no evidence between them. 11.0M ids were in that state in the 2.3.0 build, and a
+                    # sampled ~21,300 of the name matches it cost them were matches the guardrails would have
+                    # allowed (GO:0061769 = GO:0034317 "nicotinate riboside kinase activity",
+                    # HANCESTRO:0314 = OBO:HANCESTRO_0314, MESH:D002482 = KEGG.COMPOUND:C00760 "Cellulose").
+                    # Except a gene or protein with no taxon, and an id Babel doesn't know rarely has one: its
+                    # name is a SYMBOL that repeats across species, and the taxon guardrail -- the only thing
+                    # that keeps a cow's TNF out of a human's -- goes wildcard without one. That is 27% of those
+                    # matches, and in a sample of 172 not one had a taxon on both sides.
+                    if source not in CANONICALIZED_AGGREGATOR_SOURCES or (
+                        not facts.knows(node_id) and _aggregator_name_is_matchable(node_id, branches, taxon)
+                    ):
                         name = node.get(NODE_NAME)
                         words = normalize_name(name)
                         if not is_droppable(words, min_length=weights.min_name_length, stoplist=DEFAULT_STOPLIST):
@@ -694,6 +718,7 @@ def _stage3_cluster(
     node_ids: set[str],
     facts: IdFactsStore,
     seed: int,
+    cliques_path: Path | None = None,
 ) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, tuple[str, ...]]]:
     """Cluster the weighted pair graph. Returns ``curie -> cluster_id`` for every
     CURIE appearing in a pair, the ids-per-prefix histogram, and ``curie -> single
@@ -800,6 +825,21 @@ def _stage3_cluster(
     oversized: list[list[str]] = []
     next_cluster_id = 0
     repairs: Counter = Counter()  # one-id repairs, reported once at the end rather than per cluster
+    # A cluster that breaks a guardrail is repaired AFTER the component pass, because the repair wants to know
+    # which Babel clique each member is in (see greedy_valid_partition) and an id -> hub map for the whole build
+    # would not fit in memory. Held with the edges between its members, which is all the repair reads.
+    to_repair: list[tuple[list[str], list[tuple[str, str, float]]]] = []
+
+    def record(cluster: list[str]) -> None:
+        nonlocal next_cluster_id
+        for curie in cluster:
+            curie_to_cluster[curie] = next_cluster_id
+        for prefix, count in ids_per_cluster_histogram([cluster]).items():
+            for ids_of_prefix, clusters in count.items():
+                histogram[prefix][ids_of_prefix] += clusters
+        if len(cluster) >= guardrail_config.oversized_cluster_log_threshold:
+            oversized.append(cluster)
+        next_cluster_id += 1
 
     for comp in range(n_components):
         node_idx = node_order[comp_node_starts[comp] : comp_node_ends[comp]]
@@ -818,32 +858,81 @@ def _stage3_cluster(
             # Label propagation on the pruned component (no resolution parameter —
             # LP merges what's connected; the guardrails do the splitting).
             raw_clusters = label_propagation(member_curies, comp_edges, seed=seed)
-            # Guardrails as the backstop, split until valid (catches transitive
-            # conflicts the pairwise prune can't see). LP has no resolution to raise,
-            # so there's no clustering-based splitter — greedy_valid_partition repairs.
-            adjacency = _adjacency(comp_edges)
+            # Guardrails as the backstop: a cluster that still violates one (a transitive conflict the pairwise
+            # prune above cannot see) is held back for the repair pass after this loop, with the edges between
+            # its members -- LP has no resolution to raise, so greedy_valid_partition is the splitter.
             checked: list[list[str]] = []
             for cluster in raw_clusters:
-                checked.extend(
-                    enforce_cluster(
-                        cluster, info, guardrail_config, adjacency=adjacency, splitter=None, repairs=repairs
+                if cluster_violations(sorted(cluster), info, guardrail_config):
+                    held = set(cluster)
+                    to_repair.append(
+                        (cluster, [e for e in comp_edges if e[0] in held and e[1] in held]),
                     )
-                )
+                else:
+                    checked.append(cluster)
             raw_clusters = checked
 
         for cluster in raw_clusters:
-            for curie in cluster:
-                curie_to_cluster[curie] = next_cluster_id
-            for prefix, count in ids_per_cluster_histogram([cluster]).items():
+            record(cluster)
+
+    # The guardrail repairs, now that the Babel cliques the violating clusters are made of can be looked up.
+    if to_repair:
+        wanted = {curie for cluster, _edges in to_repair for curie in cluster}
+        clique_of = _clique_membership(cliques_path, wanted, weights.clique_cap) if cliques_path else {}
+        logging.info(
+            "entity_resolution: repairing %d guardrail-violating clusters (%d ids, %d of them in a Babel clique "
+            "the repair keeps whole)",
+            len(to_repair),
+            len(wanted),
+            len(clique_of),
+        )
+        for cluster, edges in to_repair:
+            info = {c: info_provider(c) for c in cluster}
+            for part in enforce_cluster(
+                sorted(cluster),
+                info,
+                guardrail_config,
+                adjacency=_adjacency(edges),
+                splitter=None,
+                repairs=repairs,
+                clique_of=clique_of,
+            ):
+                record(part)
+
+    # A Babel gene/protein clique that label propagation tore in two is put back (see gene_protein_cohesion),
+    # and what it counted per cluster retallied for the clusters that changed.
+    if cliques_path is not None:
+        for group in rejoin_split_gene_protein_cliques(curie_to_cluster, cliques_path, info_provider, guardrail_config):
+            for cluster in group:
+                for prefix, count in ids_per_cluster_histogram([cluster]).items():
+                    for ids_of_prefix, clusters in count.items():
+                        histogram[prefix][ids_of_prefix] -= clusters
+            rejoined = [curie for cluster in group for curie in cluster]
+            for prefix, count in ids_per_cluster_histogram([rejoined]).items():
                 for ids_of_prefix, clusters in count.items():
                     histogram[prefix][ids_of_prefix] += clusters
-            if len(cluster) >= guardrail_config.oversized_cluster_log_threshold:
-                oversized.append(cluster)
-            next_cluster_id += 1
+            if len(rejoined) >= guardrail_config.oversized_cluster_log_threshold:
+                oversized.append(rejoined)
 
     log_one_id_repairs(repairs, guardrail_config)
     log_oversized_clusters(oversized, guardrail_config)
     return curie_to_cluster, {prefix: dict(counts) for prefix, counts in histogram.items()}, mg_categories
+
+
+def _clique_membership(cliques_path: Path, wanted: set[str], clique_cap: int) -> dict[str, str]:
+    """``id -> Babel clique hub`` for the wanted ids, from the ``id, hub, size`` rows stage 1 wrote.
+
+    Only cliques within ``clique_cap`` are returned: a larger one is emitted as a star from its hub (see
+    ``match_graph.clique_evidence``), so its members are connected only through the hub and treating them as one
+    group would assert a link the evidence does not have.
+    """
+    membership: dict[str, str] = {}
+    with open(cliques_path) as fin:
+        for line in fin:
+            curie, hub, size = line.rstrip("\n").split(SEP)
+            if curie in wanted and int(size) <= clique_cap:
+                membership[curie] = sys.intern(hub)
+    return membership
 
 
 def _adjacency(edges: list[tuple[str, str, float]]) -> dict[str, dict[str, float]]:
@@ -1255,6 +1344,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             node_ids,
             facts,
             DEFAULT_SEED,
+            cliques_path,
         )
         _stage_banner(
             f"ER STAGE 3 DONE ({time.perf_counter() - t:.1f}s) -- "

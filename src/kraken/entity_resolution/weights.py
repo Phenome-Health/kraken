@@ -148,14 +148,19 @@ class ERWeights(BaseModel):
     # branch/taxon that happen to share a normalized name and carry no enforced
     # id (e.g. two CHEBI with identical labels); the eval measures that cost.
     #
-    # ABOVE Babel's clique weight. 2.3.0 tried it below (0.45, so Babel would win the guardrail repair's
-    # strongest-edge-first regrowth on CHEBI:23614 "deoxycholate"), and the benchmark showed the cost: a name match
-    # is also what holds many legitimate clusters together, and weakening it split Babel's own conflated ACE
-    # gene/protein clique across two nodes, among others. Both readings of a disagreement are handled better
-    # elsewhere anyway -- the one-id guardrails split two structures whichever side wins, and the outlier rule
-    # (see babel_outliers) is how a name overrules Babel's placement of an id.
+    # BELOW Babel's clique weight, so Babel wins the guardrail repair's strongest-edge-first regrowth where the two
+    # disagree (CHEBI:23614 "deoxycholate"). Measured both ways on the benchmark, with everything else equal:
+    #
+    #   0.45  precision 0.9199  recall 0.9262      0.7  precision 0.9061  recall 0.9313
+    #
+    # At 0.7 a name match is strong enough to pull a stereo-UNSPECIFIED form into the specified compound and a
+    # class into a member -- "3,7-dihydroxycholan-24-oic acid, unspecified stereo" into ursodeoxycholic acid,
+    # CHEBI:17234 "glucose" into RefMet's "Glucose", DrugCentral's "tixocortol" into the pivalate's cluster -- 820
+    # cannot-link pairs' worth, against 263 must-link pairs it recovers. The cost 0.45 used to carry was splitting
+    # Babel's own conflated gene/protein cliques (ACE), and that is now repaired structurally rather than by edge
+    # weight (see gene_protein_cohesion), so the case for the higher value went with it.
     # UNTUNED placeholder like the rest — the eval sets the final value.
-    name_similarity_weight: float = 0.7
+    name_similarity_weight: float = 0.45
 
     # A close_match edge between two nodes that ALSO have subclass_of/superclass_of
     # edges between them is likely a mislabeled hierarchical relation, not

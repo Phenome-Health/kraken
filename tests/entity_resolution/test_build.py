@@ -1062,3 +1062,154 @@ def test_an_unmerged_node_keeps_its_category(tmp_path):
     assert by_id["CHEBI:16236"]["categories"] == ["biolink:SmallMolecule"]
     # an id Babel doesn't know keeps what its source said, rather than falling through to NamedThing
     assert by_id["WEIRD:1"]["categories"] == ["biolink:Pathway"]
+
+
+def test_an_id_only_an_aggregator_knows_still_matches_on_its_name(tmp_path):
+    """KEGG:05012 "Parkinson disease pathway" is named by kg2 alone -- Babel has never heard of it -- and sat in a
+    node of its own next to PANTHER.PATHWAY:P00049 of exactly the same name and type. An aggregator's name is
+    normally not matched on (it is the clique's preferred label), but for an id Babel doesn't know it is the only
+    name there will ever be."""
+    pathway = ["biolink:Pathway"]
+    babel = _write_source(
+        tmp_path,
+        "babel",
+        [
+            {
+                "id": "PANTHER.PATHWAY:P00049",
+                "name": "Parkinson disease pathway",
+                "categories": pathway,
+                "provided_by": ["infores:sri-node-normalizer"],
+            }
+        ],
+    )
+    kg2 = _write_source(
+        tmp_path,
+        "kg2",
+        [
+            {
+                "id": "KEGG:05012",
+                "name": "Parkinson disease pathway",
+                "categories": pathway,
+                "provided_by": ["infores:rtx-kg2"],
+            },
+            {
+                "id": "REACT:R-HSA-000000",
+                "name": "Some other pathway",
+                "categories": pathway,
+                "provided_by": ["infores:rtx-kg2"],
+            },
+        ],
+    )
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel, "kg2": kg2},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["KEGG:05012"] == m["PANTHER.PATHWAY:P00049"]
+    assert m["REACT:R-HSA-000000"] != m["KEGG:05012"], "a different name still stands on its own"
+
+
+def test_a_gene_symbol_an_aggregator_alone_names_is_not_matched_without_a_taxon(tmp_path):
+    """A gene name is a symbol, and symbols repeat across species: 'TNF' is the cow's gene as much as the human's.
+    An id Babel doesn't know almost never carries a taxon, so the guardrail that keeps orthologs apart has nothing
+    to check -- and these names are left out of the match graph after all."""
+    gene = ["biolink:Gene"]
+    babel = _write_source(
+        tmp_path,
+        "babel",
+        [
+            {
+                "id": "NCBIGene:7124",
+                "name": "TNF",
+                "categories": gene,
+                "taxon": "NCBITaxon:9606",
+                "provided_by": ["infores:sri-node-normalizer"],
+            }
+        ],
+    )
+    kg2 = _write_source(
+        tmp_path,
+        "kg2",
+        [
+            {"id": "ENSEMBL:ENSBTAG00000001", "name": "TNF", "categories": gene, "provided_by": ["infores:rtx-kg2"]},
+            {
+                "id": "ENSEMBL:ENSG00000001",
+                "name": "TNF",
+                "categories": gene,
+                "taxon": "NCBITaxon:9606",
+                "provided_by": ["infores:rtx-kg2"],
+            },
+        ],
+    )
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel, "kg2": kg2},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["ENSEMBL:ENSBTAG00000001"] != m["NCBIGene:7124"], "no taxon, so the symbol alone must not merge it"
+    assert m["ENSEMBL:ENSG00000001"] == m["NCBIGene:7124"], "with a taxon to check, the name counts"
+
+
+def test_a_one_id_repair_cuts_between_the_babel_cliques(tmp_path):
+    """Ibuprofen's shape end to end: Babel's racemic clique and its (R) clique, pulled into one cluster by a
+    RefMet entry that lists both structures. The cluster holds two InChIKeys, so the one-id guardrail repairs it
+    -- and the cut must run between the two cliques, not shed the InChIKey that has only clique edges."""
+    racemic_key = "INCHIKEY:HEFNNWSXXWATRW-UHFFFAOYSA-N"
+    r_key = "INCHIKEY:HEFNNWSXXWATRW-SNVBAGLBSA-N"
+
+    def node(curie, name=None):
+        return {
+            "id": curie,
+            "name": name,
+            "categories": ["biolink:SmallMolecule"],
+            "provided_by": ["infores:sri-node-normalizer"],
+        }
+
+    def same_as(hub, member):
+        return {"subject": hub, "predicate": "biolink:same_as", "object": member}
+
+    racemic = ["CHEBI:5855", racemic_key, "MESH:D007052", "DRUGBANK:DB01050"]
+    levo = ["CHEBI:47835", r_key, "UNII:2R43V6L3EG"]
+    babel = _write_source_with_edges(
+        tmp_path,
+        "babel",
+        [
+            node("CHEBI:5855", "ibuprofen"),
+            node(racemic_key),
+            node("MESH:D007052", "Ibuprofen"),
+            node("DRUGBANK:DB01050", "Ibuprofen"),
+            node("CHEBI:47835", "levibuprofen"),
+            node(r_key),
+            node("UNII:2R43V6L3EG", "LEVIBUPROFEN"),
+        ],
+        [*(same_as("CHEBI:5855", m) for m in racemic[1:]), *(same_as("CHEBI:47835", m) for m in levo[1:])],
+    )
+    refmet = _write_source(
+        tmp_path,
+        "refmet",
+        [
+            {
+                "id": "RM:0052815",
+                "name": "Ibuprofen",
+                "categories": ["biolink:SmallMolecule"],
+                "provided_by": ["infores:refmet"],
+                # RefMet maps both forms onto one entry -- through their NAMED ids, which is what pulls the two
+                # cliques together before either InChIKey's own 0.5 clique edges are considered
+                "equivalent_ids": ["RM:0052815", "MESH:D007052", "UNII:2R43V6L3EG"],
+            }
+        ],
+    )
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel, "refmet": refmet},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m[racemic_key] != m[r_key], "two structures cannot share a node"
+    assert m[racemic_key] == m["CHEBI:5855"] == m["MESH:D007052"], "the racemic key stays with its own clique"
+    assert m[r_key] == m["CHEBI:47835"] == m["UNII:2R43V6L3EG"], "and the (R) key with its own"

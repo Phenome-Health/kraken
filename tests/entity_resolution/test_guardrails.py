@@ -248,3 +248,61 @@ def test_a_compound_and_its_salt_are_never_one_cluster():
     (lumped under the parent's InChIKey) must not share a cluster."""
     assert not one_id_valid(["SMILES:O=C(O)CCCO", "SMILES:O=C([O-])CCCO.[Na+]"], DEFAULT_ENFORCED_PREFIXES)
     assert one_id_valid(["SMILES:O=C(O)CCCO", "LM:FA01050006"], DEFAULT_ENFORCED_PREFIXES)
+
+
+# Ibuprofen's shape: Babel's racemic clique and its (R) clique merged into one cluster, so it holds two InChIKeys.
+RACEMIC_KEY = "INCHIKEY:HEFNNWSXXWATRW-UHFFFAOYSA-N"
+R_KEY = "INCHIKEY:HEFNNWSXXWATRW-SNVBAGLBSA-N"
+RACEMIC_CLIQUE = [RACEMIC_KEY, "CHEBI:5855", "MESH:D007052", "DRUGBANK:DB01050"]
+R_CLIQUE = [R_KEY, "CHEBI:47835", "UNII:2R43V6L3EG"]
+LOOSE = "ATC:M01AE01"  # in no Babel clique, and attached to the racemic side
+
+
+def _ibuprofen():
+    members = [*RACEMIC_CLIQUE, *R_CLIQUE, LOOSE]
+    info = {c: _ni(c, ("biolink:SmallMolecule",)) for c in members}
+    adjacency: dict[str, dict[str, float]] = {c: {} for c in members}
+    for clique in (RACEMIC_CLIQUE, R_CLIQUE):  # Babel emits a clique as a full clique, at its own weight
+        for a in clique:
+            for b in clique:
+                if a != b:
+                    adjacency[a][b] = 0.5
+    # what the (R) key ALSO has, and the racemic key does not: a strong non-Babel claim
+    adjacency["CHEBI:5855"]["UNII:2R43V6L3EG"] = 1.5
+    adjacency["UNII:2R43V6L3EG"]["CHEBI:5855"] = 1.5
+    adjacency[LOOSE]["CHEBI:5855"] = 0.5
+    adjacency["CHEBI:5855"][LOOSE] = 0.5
+    clique_of = {c: "CHEBI:5855" for c in RACEMIC_CLIQUE} | {c: "CHEBI:47835" for c in R_CLIQUE}
+    return members, info, adjacency, clique_of
+
+
+def test_growing_from_ids_strands_the_structure_the_rule_is_about():
+    """The bug this exists to fix: the (R) key arrives on the strongest edge and takes the cluster's one InChIKey
+    slot, so the racemic key is locked out of every merge and ends up alone -- while racemic and (R) ids stay
+    mixed together in the group it left."""
+    members, info, adjacency, _clique_of = _ibuprofen()
+    groups = {frozenset(g) for g in greedy_valid_partition(members, info, GuardrailConfig(), adjacency)}
+    assert frozenset({RACEMIC_KEY}) in groups, "the racemic key is stranded alone"
+    mixed = next(g for g in groups if R_KEY in g)
+    assert {"CHEBI:5855", "MESH:D007052"} <= mixed, "and the racemic ids stay with the (R) key"
+
+
+def test_growing_from_cliques_cuts_between_the_two_structures():
+    members, info, adjacency, clique_of = _ibuprofen()
+    groups = {frozenset(g) for g in greedy_valid_partition(members, info, GuardrailConfig(), adjacency, clique_of)}
+    assert groups == {frozenset([*RACEMIC_CLIQUE, LOOSE]), frozenset(R_CLIQUE)}
+
+
+def test_a_clique_that_breaks_a_guardrail_by_itself_is_still_cut():
+    """Babel cliques do mix two species. Keeping a clique whole must never override the guardrails -- otherwise
+    the 97,200 cross-species cliques this build found would be forced back together."""
+    members = ["NCBIGene:1", "UniProtKB:A", "RGD:2"]
+    info = {
+        "NCBIGene:1": _ni("NCBIGene:1", ("biolink:Gene",), taxon="NCBITaxon:9606"),
+        "UniProtKB:A": _ni("UniProtKB:A", ("biolink:Protein",), taxon="NCBITaxon:9606"),
+        "RGD:2": _ni("RGD:2", ("biolink:Gene",), taxon="NCBITaxon:10116"),  # a rat id in a human clique
+    }
+    clique_of = dict.fromkeys(members, "NCBIGene:1")
+    partition = greedy_valid_partition(members, info, GuardrailConfig(), _complete(members), clique_of)
+    groups = {frozenset(g) for g in partition}
+    assert groups == {frozenset({"NCBIGene:1", "UniProtKB:A"}), frozenset({"RGD:2"})}

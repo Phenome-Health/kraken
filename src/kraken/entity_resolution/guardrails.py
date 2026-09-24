@@ -150,15 +150,34 @@ def greedy_valid_partition(
     info: NodeInfoMap,
     config: GuardrailConfig,
     adjacency: Mapping[str, Mapping[str, float]],
+    clique_of: Mapping[str, str] | None = None,
 ) -> list[list[str]]:
     """Deterministically partition members into guardrail-valid groups by growing them along the match graph,
     strongest edges first.
 
-    Every member starts as its own group. Edges between members are taken in order of decreasing weight (ties by
-    id), and each joins its two endpoints' groups unless the merged group would break a guardrail -- two taxa, two
-    ids of one enforced prefix, or no family in common. So the strongest evidence in the cluster is kept, a group
-    only ever grows along an edge (every group is connected), and a member none of whose edges can be kept stays
-    on its own rather than being put somewhere it has no evidence for. Every group is valid by construction.
+    Every member starts as its own group -- or, given ``clique_of`` (``id -> Babel clique hub``), every BABEL
+    CLIQUE starts as one group and each id Babel left out of a clique starts alone. Edges between members are taken
+    in order of decreasing weight (ties by id), and each joins its two endpoints' groups unless the merged group
+    would break a guardrail -- two taxa, two ids of one enforced prefix, or no family in common. So the strongest
+    evidence in the cluster is kept, a group only ever grows along an edge (every group is connected), and a member
+    none of whose edges can be kept stays on its own rather than being put somewhere it has no evidence for. Every
+    group is valid by construction.
+
+    Starting from cliques is what makes a one-id repair cut along the structures rather than shed an id. Ibuprofen:
+    Babel's racemic clique (CHEBI:5855 -- the InChIKey ...-UHFFFAOYSA-N and the 14 ids named "ibuprofen") and its
+    (R) clique (CHEBI:47835 -- ...-SNVBAGLBSA-N and levibuprofen's) had merged into one cluster, so it held two
+    InChIKeys. Growing from ids, the (R) key arrives on a 1.5 edge, takes the cluster's one InChIKey slot, and the
+    racemic key -- which has nothing but 0.5 clique edges -- is locked out of every merge and ends up alone, while
+    racemic and (R) ids stay mixed in the node it left. Growing from cliques, the two cliques simply cannot merge,
+    and the ids Babel never clustered (ATC codes, CHV terms, CAS numbers) attach to whichever side their own
+    evidence points at.
+
+    A clique is only a starting group where that is safe: NOT when it breaks a guardrail on its own (Babel cliques
+    do mix two species, and the taxon guardrail must still cut those), and not -- by the caller's choice of what to
+    put in ``clique_of`` -- when it is too large to have been emitted as a full clique, since the members of a star
+    are connected only through its hub. A clique never holds two ids of one enforced prefix (of Babel's 3,638,219
+    cliques holding an InChIKey every one holds exactly one, and no clique holds two MONDO ids), so a one-id
+    violation always has a cut that runs BETWEEN cliques -- taking one through a clique is the gratuitous choice.
 
     Growing in id order instead -- the previous approach -- could place a member before any of its neighbours, drop
     it into the earliest group that allowed it, and so use up that group's one MONDO slot ahead of the MONDO id
@@ -190,6 +209,53 @@ def greedy_valid_partition(
             m = parent[m]
         return m
 
+    def merge(root_a: str, root_b: str, branches: frozenset[str] | None, taxon: str | None) -> None:
+        if size[root_a] < size[root_b]:
+            root_a, root_b = root_b, root_a
+        parent[root_b] = root_a
+        size[root_a] += size[root_b]
+        group_branches[root_a] = branches
+        group_taxon[root_a] = taxon
+        group_prefixes[root_a] |= group_prefixes[root_b]
+
+    def merged_state(root_a: str, root_b: str) -> tuple[frozenset[str] | None, str | None] | None:
+        """The guardrail state the two groups would have together, or None if they may not merge."""
+        taxon_a, taxon_b = group_taxon[root_a], group_taxon[root_b]
+        if taxon_a is not None and taxon_b is not None and taxon_a != taxon_b:
+            return None
+        if not group_prefixes[root_a].isdisjoint(group_prefixes[root_b]):
+            return None
+        branches_a, branches_b = group_branches[root_a], group_branches[root_b]
+        if branches_a is None:
+            branches = branches_b
+        elif branches_b is None:
+            branches = branches_a
+        else:
+            branches = branches_a & branches_b
+        if branches is not None and not branches:
+            return None
+        return branches, (taxon_a if taxon_a is not None else taxon_b)
+
+    # Each Babel clique the caller vouched for starts as ONE group, so a repair cuts between cliques rather than
+    # through one -- unless the clique breaks a guardrail by itself, which is Babel's mistake to be split.
+    if clique_of:
+        in_clique: dict[str, list[str]] = defaultdict(list)
+        for m in members:
+            hub = clique_of.get(m)
+            if hub is not None:
+                in_clique[hub].append(m)
+        for hub in sorted(in_clique):
+            group = in_clique[hub]
+            if len(group) < 2 or cluster_violations(group, info, config):
+                continue
+            for other in group[1:]:
+                root_a, root_b = find(group[0]), find(other)
+                if root_a == root_b:
+                    continue
+                state = merged_state(root_a, root_b)
+                if state is not None:  # guaranteed by the check above; belt and braces
+                    merge(root_a, root_b, *state)
+
     # Each member pair once, whichever side's adjacency lists it.
     pair_weights: dict[tuple[str, str], float] = {}
     for a in members:
@@ -202,27 +268,10 @@ def greedy_valid_partition(
         root_a, root_b = find(a), find(b)
         if root_a == root_b:
             continue
-        taxon_a, taxon_b = group_taxon[root_a], group_taxon[root_b]
-        if taxon_a is not None and taxon_b is not None and taxon_a != taxon_b:
+        state = merged_state(root_a, root_b)
+        if state is None:
             continue
-        if not group_prefixes[root_a].isdisjoint(group_prefixes[root_b]):
-            continue
-        branches_a, branches_b = group_branches[root_a], group_branches[root_b]
-        if branches_a is None:
-            merged_branches = branches_b
-        elif branches_b is None:
-            merged_branches = branches_a
-        else:
-            merged_branches = branches_a & branches_b
-        if merged_branches is not None and not merged_branches:
-            continue
-        if size[root_a] < size[root_b]:
-            root_a, root_b = root_b, root_a
-        parent[root_b] = root_a
-        size[root_a] += size[root_b]
-        group_branches[root_a] = merged_branches
-        group_taxon[root_a] = taxon_a if taxon_a is not None else taxon_b
-        group_prefixes[root_a] |= group_prefixes[root_b]
+        merge(root_a, root_b, *state)
 
     groups: dict[str, list[str]] = defaultdict(list)
     for m in members:
@@ -238,6 +287,7 @@ def enforce_cluster(
     adjacency: Mapping[str, Mapping[str, float]],
     splitter: Splitter | None = None,
     repairs: Counter | None = None,
+    clique_of: Mapping[str, str] | None = None,
 ) -> list[list[str]]:
     """Split a cluster until every part is guardrail-valid.
 
@@ -270,7 +320,7 @@ def enforce_cluster(
         if len(candidate) > 1:
             sub = candidate
     if sub is None:
-        sub = greedy_valid_partition(members, info, config, adjacency)
+        sub = greedy_valid_partition(members, info, config, adjacency, clique_of)
     if len(sub) <= 1:
         # nothing split it (e.g. an unsplittable single-branch blob) -> stop
         logging.warning("could not split violating cluster %s (violations=%s)", members[:6], violations)
@@ -281,7 +331,11 @@ def enforce_cluster(
         if part == members:  # no progress; avoid infinite recursion
             result.append(part)
         else:
-            result.extend(enforce_cluster(part, info, config, adjacency=adjacency, splitter=splitter, repairs=repairs))
+            result.extend(
+                enforce_cluster(
+                    part, info, config, adjacency=adjacency, splitter=splitter, repairs=repairs, clique_of=clique_of
+                )
+            )
     return result
 
 
