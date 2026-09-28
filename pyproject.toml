@@ -1,6 +1,6 @@
 [project]
 name = "kraken"
-version = "2.2.0"
+version = "2.3.0"
 description = "Build system for Phenome Health's unified knowledge graph, KRAKEN"
 readme = "README.md"
 license = "MIT"
