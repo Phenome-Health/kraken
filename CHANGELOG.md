@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.0](https://github.com/Phenome-Health/kraken/compare/v2.2.0...v2.3.0) (2026-09-28)
+
+
+### Features
+
+* add corroboration for babel outliers; update benchmark w/ debug ([41861ab](https://github.com/Phenome-Health/kraken/commit/41861ab64baf11c3cef43df3a6daef77a25552b1))
+* add INCHIKEY guardrail; lower name-match edge weight ([736c437](https://github.com/Phenome-Health/kraken/commit/736c437b9aa855537794262c0d993a6803ff3ead))
+* add isb-long-covid source ([f48a76c](https://github.com/Phenome-Health/kraken/commit/f48a76c89dd03efbbf5bb044330982660f97789b))
+* Babel overrides agg same_as, name outliers override Babel ([6c8d5f3](https://github.com/Phenome-Health/kraken/commit/6c8d5f3a7c1b9ce2bac7022070b53b861a50de6e))
+* decrease name sim weight, seed splitting with babel labels ([3dd08a5](https://github.com/Phenome-Health/kraken/commit/3dd08a5b7b17e320ceb0c0091e09b781d4d90242))
+
+
+### Bug Fixes
+
+* allow Publication in clinical measurement-type family ([2412b82](https://github.com/Phenome-Health/kraken/commit/2412b8230dfa8da4ff9134bd66b0f98d677f9516))
+
 ## [2.2.0](https://github.com/Phenome-Health/kraken/compare/v2.1.1...v2.2.0) (2026-09-18)
 
 
