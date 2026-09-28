@@ -34,16 +34,15 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
-from kraken.utils.constants import CLOSE_MATCH_PREDICATE, PROJECT_ROOT, SAME_AS_PREDICATE
+from kraken.utils.constants import CLOSE_MATCH_PREDICATE, EXACT_MATCH_PREDICATES, PROJECT_ROOT
 
 # Optional tuning file; if absent, the defaults below apply.
 DEFAULT_WEIGHTS_PATH = PROJECT_ROOT / "config" / "entity_resolution" / "weights.yaml"
 
-# Match predicates. exact_match / same_as are full-strength equivalence;
+# Match predicates. exact_match / same_as (EXACT_MATCH_PREDICATES) are full-strength equivalence;
 # close_match is weak; broad_match / narrow_match are hierarchical and MUST be
 # excluded (including them guarantees parent/child collapse). Predicate values
 # are always biolink-prefixed after harmonization, so only prefixed forms appear.
-EXACT_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:exact_match", SAME_AS_PREDICATE})
 CLOSE_MATCH_PREDICATES: frozenset[str] = frozenset({CLOSE_MATCH_PREDICATE})
 EXCLUDED_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:broad_match", "biolink:narrow_match"})
 
@@ -148,8 +147,20 @@ class ERWeights(BaseModel):
     # evidence, not weak. The residual risk is two DISTINCT entities in the SAME
     # branch/taxon that happen to share a normalized name and carry no enforced
     # id (e.g. two CHEBI with identical labels); the eval measures that cost.
+    #
+    # BELOW Babel's clique weight, so Babel wins the guardrail repair's strongest-edge-first regrowth where the two
+    # disagree (CHEBI:23614 "deoxycholate"). Measured both ways on the benchmark, with everything else equal:
+    #
+    #   0.45  precision 0.9199  recall 0.9262      0.7  precision 0.9061  recall 0.9313
+    #
+    # At 0.7 a name match is strong enough to pull a stereo-UNSPECIFIED form into the specified compound and a
+    # class into a member -- "3,7-dihydroxycholan-24-oic acid, unspecified stereo" into ursodeoxycholic acid,
+    # CHEBI:17234 "glucose" into RefMet's "Glucose", DrugCentral's "tixocortol" into the pivalate's cluster -- 820
+    # cannot-link pairs' worth, against 263 must-link pairs it recovers. The cost 0.45 used to carry was splitting
+    # Babel's own conflated gene/protein cliques (ACE), and that is now repaired structurally rather than by edge
+    # weight (see gene_protein_cohesion), so the case for the higher value went with it.
     # UNTUNED placeholder like the rest — the eval sets the final value.
-    name_similarity_weight: float = 0.7
+    name_similarity_weight: float = 0.45
 
     # A close_match edge between two nodes that ALSO have subclass_of/superclass_of
     # edges between them is likely a mislabeled hierarchical relation, not

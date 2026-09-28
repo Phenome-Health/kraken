@@ -14,6 +14,7 @@ INFORES_PREFIX = "infores"
 # A chemical structure as a curie, e.g. "SMILES:O=C(O)CCCO". biomapper2 canonicalizes the local part (RDKit), so one
 # structure is one id whichever source it came from.
 SMILES_PREFIX = "SMILES"
+INCHIKEY_PREFIX = "INCHIKEY"
 # Edge attribute naming the Babel relation an edge came from (harmonizers/babel.py). Several relations share each
 # Biolink predicate -- Babel's clique edges and its gene/protein conflation edges are both same_as -- so entity
 # resolution reads this to tell them apart.
@@ -47,6 +48,9 @@ KNOWLEDGE_ASSERTION = "knowledge_assertion"
 # this follows the convention for unregistered ids: bare, like "translator-kg-open" or "pgs-catalog".
 KRAKEN_SOURCE_ID = "kraken"
 SAME_AS_PREDICATE = "biolink:same_as"
+EXACT_MATCH_PREDICATE = "biolink:exact_match"
+# The predicates that assert full equivalence (not close_match, which is weaker).
+EXACT_MATCH_PREDICATES: frozenset[str] = frozenset({EXACT_MATCH_PREDICATE, SAME_AS_PREDICATE})
 # The only categories a `taxon` is kept on (see BaseHarmonizer.create_node). Taxon exists to stop ORTHOLOGS
 # merging -- a dog TP53 with the human one -- which is a gene/protein problem. Elsewhere it is noise that blocks
 # correct merges: Babel taxons HP phenotypes and MONDO diseases as human and MP phenotypes as Mammalia, so the

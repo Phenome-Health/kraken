@@ -48,6 +48,19 @@ def test_clinical_measurement_bridges_but_disease_and_infocontent_stay_apart():
     assert not bf.is_valid_cluster([["biolink:Disease"], ["biolink:ClinicalFinding"], ["biolink:CommonDataElement"]])
 
 
+def test_a_umls_survey_item_can_join_its_clinical_measurement():
+    """UMLS types survey/questionnaire items as intellectual products, so "Ever told you have or had atrial
+    fibrillation" is a Publication from UMLS and a ClinicalMeasurement from the CDEs -- one entity."""
+    bf = load()
+    assert bf.is_valid_cluster([["biolink:Publication"], ["biolink:ClinicalMeasurement"]])
+    assert bf.is_valid_cluster([["biolink:Publication"], ["biolink:CommonDataElement"]])
+    assert bf.is_valid_cluster([["biolink:Publication"], ["biolink:Dataset"]])  # still info_content's own
+    # ...but the bridge must not carry a publication into a disease or a gene
+    assert not bf.is_valid_cluster([["biolink:Publication"], ["biolink:Disease"]])
+    assert not bf.is_valid_cluster([["biolink:Publication"], ["biolink:Gene"]])
+    assert not bf.is_valid_cluster([["biolink:Dataset"], ["biolink:Publication"], ["biolink:ClinicalMeasurement"]])
+
+
 def test_ace_rtd_cluster_is_invalid():
     # The issue #7 conflation: a gene/protein and a disease in one cluster.
     bf = load()

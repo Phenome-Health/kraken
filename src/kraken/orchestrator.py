@@ -25,6 +25,7 @@ from kraken.harmonizers.dakg import DAKGHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
 from kraken.harmonizers.loinc import LoincHarmonizer
+from kraken.harmonizers.long_covid import LongCovidHarmonizer
 from kraken.harmonizers.microbiome_kg import MicrobiomeKGHarmonizer
 from kraken.harmonizers.multiomics_kg import MultiomicsKGHarmonizer
 from kraken.harmonizers.ncbigene import NCBIGeneHarmonizer
@@ -68,6 +69,7 @@ class KrakenBuildOrchestrator:
         "pgs-catalog": PGSCatalogHarmonizer,
         "bio-bmi": BioBMIHarmonizer,
         "bio-age": BioAgeHarmonizer,
+        "long-covid": LongCovidHarmonizer,
         "babel": BabelHarmonizer,
     }
 
