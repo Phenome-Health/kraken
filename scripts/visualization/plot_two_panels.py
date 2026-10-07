@@ -36,6 +36,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image_a", type=Path, help="Panel A image (top if vertical, left if horizontal)")
     ap.add_argument("image_b", type=Path, help="Panel B image (bottom if vertical, right if horizontal)")
+    ap.add_argument("more_images", type=Path, nargs="*", help="Optional further panels (C, D, ...), in order")
     ap.add_argument(
         "-o",
         "--output",
@@ -56,7 +57,9 @@ def main():
         help="Shared dimension in inches: panel width if vertical, height if horizontal",
     )
     ap.add_argument("--gap", type=float, default=0.2, help="Gap between panels in inches (default 0.2)")
-    ap.add_argument("--labels", default="A,B", help="Comma-separated panel labels (default 'A,B'; pass '' for none)")
+    ap.add_argument(
+        "--labels", default=None, help="Comma-separated panel labels (default 'A,B,C,...' per panel; pass '' for none)"
+    )
     ap.add_argument("--label-size", type=float, default=14.0, help="Panel-label font size (default 14)")
     ap.add_argument("--background", default="white", help="Figure/panel background color (default white)")
     ap.add_argument(
@@ -68,7 +71,9 @@ def main():
     if not args.output.is_absolute():
         args.output = SCRIPT_DIR / args.output
 
-    panels = [load(args.image_a), load(args.image_b)]
+    panels = [load(p) for p in (args.image_a, args.image_b, *args.more_images)]
+    if args.labels is None:
+        args.labels = ",".join(chr(ord("A") + i) for i in range(len(panels)))
     labels = [s for s in (t.strip() for t in args.labels.split(",")) if s] if args.labels.strip() else []
 
     plt.rcParams["pdf.fonttype"] = 42  # embed TrueType, not Type 3 (journals reject Type 3)

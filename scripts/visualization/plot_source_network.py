@@ -313,6 +313,12 @@ def main():
     )
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument(
+        "--legend-loc",
+        default="upper left",
+        help="Legend corner (any matplotlib loc, e.g. 'lower left'); pick one the layout leaves empty "
+        "(default 'upper left')",
+    )
+    ap.add_argument(
         "--cache",
         type=Path,
         default=None,
@@ -500,7 +506,7 @@ def main():
     ax.legend(
         handles=handles,
         title="Shared node type family",
-        loc="upper left",
+        loc=args.legend_loc,
         frameon=False,
         fontsize=10.5,
         title_fontsize=11.5,

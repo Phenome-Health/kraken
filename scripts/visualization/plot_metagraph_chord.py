@@ -173,9 +173,10 @@ def report_cross_family(meta: dict) -> None:
 
 # width transform per scale. Note: sqrt/log widths are NOT proportional to raw
 # edge counts -- disclose that in the figure caption (kept off-figure by request).
+# Drawn in this order: sqrt first, since it is the version the paper uses.
 SCALES = {
-    "linear": lambda M: M,
     "sqrt": np.sqrt,
+    "linear": lambda M: M,
     "log": np.log1p,
 }
 
