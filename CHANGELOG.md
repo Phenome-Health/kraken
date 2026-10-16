@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.1](https://github.com/Phenome-Health/kraken/compare/v2.3.0...v2.3.1) (2026-10-16)
+
+
+### Documentation
+
+* add more build/source details, restore inputs script ([ea934ab](https://github.com/Phenome-Health/kraken/commit/ea934ab2f48aed4cfc1b0c8f46f1e3d0f14d980e))
+* correct source download links ([3088613](https://github.com/Phenome-Health/kraken/commit/3088613bf03208a8190e4c04d0efd1a9eb4c66c2))
+
 ## [2.3.0](https://github.com/Phenome-Health/kraken/compare/v2.2.0...v2.3.0) (2026-09-28)
 
 
