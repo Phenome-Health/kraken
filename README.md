@@ -16,7 +16,7 @@ KRAKEN integrates:
 - **Domain-specific knowledge graphs**: Multiomics KG, Microbiome KG, Clinical Trials KG, Drug Approvals KG
 - **Ontologies & vocabularies**: UMLS, LOINC, LIPID MAPS, RefMet, NCBI Gene
 - **Identifier equivalences**: Babel, the build behind the Translator Node Normalizer
-- **Specialized resources**: the NIH CDE Repository, PGS Catalog, and published biological-age, biological-BMI, and long COVID datasets
+- **Specialized resources**: the NIH CDE Repository, PGS Catalog, and published biological-age ([Earls et al. 2019](https://doi.org/10.1093/gerona/glz220)), biological-BMI ([Watanabe et al. 2023](https://doi.org/10.1038/s41591-023-02248-0)), and long COVID (Institute for Systems Biology) datasets
 
 Each aggregator contributes many upstream primary knowledge sources; see `artifacts/metagraphs/` for the full per-source breakdown.
 
@@ -27,6 +27,8 @@ Configure sources and build steps in `config/build_config.yaml`, then run:
 ```bash
 uv run python build.py
 ```
+
+To build KRAKEN yourself, including getting the input data and the hardware it needs, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Build process
 
