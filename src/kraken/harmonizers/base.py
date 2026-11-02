@@ -103,7 +103,7 @@ class BaseHarmonizer(ABC):
     object_prop: str = EDGE_OBJECT
     predicate_prop: str = EDGE_PREDICATE
     primary_ks_prop: str = EDGE_PRIMARY_KS
-    aggregator_ks_prop: str = EDGE_AGGREGATOR_KS  # read only by the exclusion filter (see _edge_knowledge_sources)
+    aggregator_ks_prop: str = EDGE_AGGREGATOR_KS
     knowledge_level_prop: str = EDGE_KNOWLEDGE_LEVEL
     agent_type_prop: str = EDGE_AGENT_TYPE
     supporting_sources_prop: str = EDGE_SUPPORTING_SOURCES
@@ -195,6 +195,7 @@ class BaseHarmonizer(ABC):
             self.object_prop,
             self.predicate_prop,
             self.primary_ks_prop,
+            self.aggregator_ks_prop,
             self.knowledge_level_prop,
             self.agent_type_prop,
             self.supporting_sources_prop,
@@ -447,7 +448,10 @@ class BaseHarmonizer(ABC):
                 if edge.get(self.supporting_sources_prop)
                 else self.supporting_sources_default_value
             )
-            aggregator_ks = self.source_infores if self.is_aggregator else None
+            # Keep the aggregators the source lists itself (ROBOKOP names pharos, monarch...), then the source
+            aggregator_ks = to_list(edge.get(self.aggregator_ks_prop))
+            if self.is_aggregator:
+                aggregator_ks = list(dict.fromkeys(aggregator_ks + [self.source_infores]))
         attributes, qualifiers = self._collect_edge_attributes_and_qualifiers(edge)
         self._normalize_original_endpoints(attributes)
 

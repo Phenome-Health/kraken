@@ -6,12 +6,15 @@ primary and aggregator provenance count -- an edge that merely passed THROUGH an
 just as second-hand as one it asserted.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from kraken.config import KrakenConfig
+from kraken.harmonizers import base
 from kraken.harmonizers.base import BaseHarmonizer
 from kraken.utils.constants import KRAKEN_SOURCE_ID
-from tests.helpers import stub_normalization
+from tests.helpers import PassthroughNormalizer, stub_normalization
 
 
 class _Harmonizer(BaseHarmonizer):
@@ -241,3 +244,21 @@ def test_aggregator_source_edges_do_not_get_kraken():
         "infores:rtx-kg2"
     ]
     assert "aggregator_knowledge_source" not in _edge_from(_AggregatorSource)
+
+
+def test_aggregators_a_source_lists_on_its_edges_are_kept(monkeypatch):
+    """ROBOKOP lists the aggregators before it (monarch, pharos...). They used to be replaced by ROBOKOP alone."""
+    monkeypatch.setattr(base, "Normalizer", lambda **_kwargs: PassthroughNormalizer())
+    h = _AggregatorSource(SimpleNamespace(version="4.4.4"), "infores:robokop-kg")
+    edge = h._harmonize_edge(
+        {
+            "subject": "A:1",
+            "predicate": "biolink:related_to",
+            "object": "B:2",
+            "primary_knowledge_source": "infores:hpo-annotations",
+            "aggregator_knowledge_source": ["infores:monarchinitiative"],
+            "knowledge_level": "knowledge_assertion",
+            "agent_type": "manual_agent",
+        }
+    )
+    assert edge["aggregator_knowledge_source"] == ["infores:monarchinitiative", "infores:robokop-kg"]
