@@ -18,14 +18,14 @@ KRAKEN integrates:
 - **Identifier equivalences**: Babel, the build behind the Translator Node Normalizer
 - **Specialized resources**: the NIH CDE Repository, PGS Catalog, and published biological-age ([Earls et al. 2019](https://doi.org/10.1093/gerona/glz220)), biological-BMI ([Watanabe et al. 2023](https://doi.org/10.1038/s41591-023-02248-0)), and long COVID (Institute for Systems Biology) datasets
 
-Each aggregator contributes many upstream primary knowledge sources; see `artifacts/metagraphs/` for the full per-source breakdown.
+Each aggregator contributes many upstream primary knowledge sources; see the metagraphs for the full per-source breakdown.
 
 ## Usage
 
 Configure sources and build steps in `config/build_config.yaml`, then run:
 
 ```bash
-uv run python build.py
+uv run python -m kraken.build
 ```
 
 To build KRAKEN yourself, including getting the input data and the hardware it needs, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -40,8 +40,10 @@ Validation and metagraph creation are done both on each harmonized artifact and 
 
 ## Output
 
-- **Unified KG**: `artifacts/integrated/kraken_*.jsonl`
-- **Metagraphs**: `artifacts/metagraphs/`
+Under the output directories set in `config/build_config.yaml` (for 2.4.0: `artifacts/2.4.0-dev/`):
+
+- **Unified KG**: `integrated/kraken_*.jsonl`
+- **Metagraphs**: `metagraphs/`
 
 ## Requirements
 
