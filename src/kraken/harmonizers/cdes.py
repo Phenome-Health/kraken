@@ -100,7 +100,7 @@ GENERIC_NAMES: frozenset[str] = frozenset(
 CDE_PREFIX = "CDE"
 CDE_CATEGORY = "biolink:CommonDataElement"
 STUB_CATEGORY = "biolink:NamedThing"
-ASSESSES = "biolink:assesses"  # CDE -> a concept it measures
+MENTIONS = "biolink:mentions"  # CDE -> a concept the question is about (was assesses, removed in biolink 4.4.4)
 RELATED_TO = "biolink:related_to"  # CDE -> a permissible-answer concept
 
 
@@ -109,7 +109,7 @@ class CDEHarmonizer(BaseHarmonizer):
 
     Each CDE becomes a ``biolink:CommonDataElement`` node. LOINC ids go into ``equivalent_ids``
     (so the CDE merges into / names kraken's LOINC nodes). Ontology concept mappings
-    (objectClass / property / dataElementConcept) become ``assesses`` edges, and coded permissible
+    (objectClass / property / dataElementConcept) become ``mentions`` edges, and coded permissible
     values become ``related_to`` edges -- both filtered by a curated concept blocklist. Compound
     codes (e.g. "Myocarditis/Pericarditis") are split into their constituent concepts by the
     normalizer. A minimal, named stub node is minted for every edge endpoint so nothing orphans;
@@ -185,14 +185,14 @@ class CDEHarmonizer(BaseHarmonizer):
         edges: list[dict] = []
         seen_objects: set[str] = set()
 
-        # assesses edges: ontology-origin concepts only (caDSR composites stay in attributes)
+        # mentions edges: ontology-origin concepts only (caDSR composites stay in attributes)
         for field in ("objectClass", "property", "dataElementConcept"):
             for concept in record.get(field, {}).get("concepts", []):
                 for curie in self._construct_curies(concept.get("origin"), concept.get("originId")):
                     if self._edge_worthy(curie, seen_objects):
                         seen_objects.add(curie)
                         self._add_stub(curie, concept.get("name"))
-                        edges.append(self._make_edge(cde_curie, curie, ASSESSES))
+                        edges.append(self._make_edge(cde_curie, curie, MENTIONS))
 
         # related_to edges: coded permissible values. Compound codes (e.g. "Myocarditis/Pericarditis")
         # split into multiple concepts; only single-concept answers carry the answer label onto the stub.

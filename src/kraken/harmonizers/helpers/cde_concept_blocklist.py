@@ -2,7 +2,7 @@
 Curated blocklist of NCIt/UMLS concepts too generic/grammatical to be meaningful edge targets
 (numbers, prepositions, comparators, degree & temporal glue, response-glue like Unknown/Other,
 and phrase fragments). Covers both the concept fields (objectClass/property/dataElementConcept ->
-assesses edges) and the constituents of compound permissible-value codes (-> related_to edges).
+mentions edges) and the constituents of compound permissible-value codes (-> related_to edges).
 
 Derivation: each candidate concept was looked up in the integrated kraken node set; those typed
 ONLY as biolink:NamedThing were surfaced as junk candidates, and a human kept the substantive

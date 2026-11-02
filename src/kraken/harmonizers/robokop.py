@@ -61,6 +61,13 @@ class RobokopHarmonizer(BaseHarmonizer):
     # be a trade rather than a loss (it silently was not, in 2.1.1).
     source_exclusions = {"infores:ubergraph"}
 
+    # biolink 4.4.4 replaced the "response to" predicates with "sensitivity to" ones (newer ROBOKOP did the same)
+    predicate_overrides = {
+        "biolink:affects_response_to": "biolink:affects_sensitivity_to",
+        "biolink:increases_response_to": "biolink:increases_sensitivity_to",
+        "biolink:decreases_response_to": "biolink:decreases_sensitivity_to",
+    }
+
     def __init__(self, biolink_client, source_id: str, **kwargs):
         super().__init__(biolink_client, source_id, **kwargs)
         self.alleles_named_by_change = 0

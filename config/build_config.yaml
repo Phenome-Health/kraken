@@ -1,5 +1,5 @@
 kraken_version: 2.3.0
-biolink_version: 4.2.5
+biolink_version: 4.4.4
 log_level: INFO
 steps:
   harmonize: True
