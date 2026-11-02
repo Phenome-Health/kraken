@@ -101,6 +101,8 @@ class SourceConfig(BaseModel):
     # hand-maintaining a source_exclusions set on each harmonizer that happens to re-publish it --
     # which needed you to already know which other KGs carry it.
     drop_from_other_sources: bool = False
+    # Old ids of this source (e.g. a deprecated infores) that other KGs may still put on their copies of its edges
+    former_source_ids: list[str] = Field(default_factory=list)
 
     # Computed (set by KrakenConfig validator)
     input_file_resolved: Path | None = Field(default=None, init=False)
@@ -150,6 +152,13 @@ class KrakenConfig(BaseModel):
         overlap = include_sources.intersection(exclude_sources)
         if overlap:
             raise ValueError(f"Sources cannot be both included and excluded: {overlap}")
+
+        # Integrating with include_sources would build the graph from part of the sources by mistake
+        if include_sources and self.steps.integrate and not self.options.validation_only:
+            raise ValueError(
+                "'include_sources' is only for harmonizing. Integrate in a separate run with it empty "
+                "(use 'exclude_sources' to leave a source out of the graph)."
+            )
 
         source_pool = include_sources if include_sources else all_sources
         self.sources_to_use = source_pool - exclude_sources
@@ -223,15 +232,18 @@ class KrakenConfig(BaseModel):
     def auto_source_exclusions(self, source_name: str) -> set[str]:
         """Source ids ``source_name`` must drop edges for, from the ``drop_from_other_sources`` flags.
 
-        Every OTHER in-use source that sets the flag contributes its ``source_id``; the source's own
-        id is never included, so a source is always free to publish its own edges. Only sources
-        actually in this build count -- dropping a source's second-hand copies while its direct
-        ingest is switched off would silently delete those edges from the graph entirely.
+        Every OTHER source the build integrates that sets the flag contributes its ``source_id`` (and former ids);
+        the source's own id is never included, so a source is always free to publish its own edges. Sources left
+        out by include_sources still count, since a later integrate run takes them in. Excluded sources don't --
+        dropping a source's second-hand copies while its direct ingest is switched off would silently delete
+        those edges from the graph entirely.
         """
+        excluded = set(to_list(self.options.exclude_sources))
         return {
-            self.sources[other].source_id
-            for other in self.sources_to_use
-            if other != source_name and self.sources[other].drop_from_other_sources
+            source_id
+            for other, source in self.sources.items()
+            if other != source_name and other not in excluded and source.drop_from_other_sources
+            for source_id in (source.source_id, *source.former_source_ids)
         }
 
     @property

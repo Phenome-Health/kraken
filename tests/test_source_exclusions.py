@@ -135,7 +135,7 @@ def test_unflagged_sources_contribute_nothing():
 
 def test_only_sources_in_this_build_count():
     """Dropping a source's second-hand copies while its own ingest is switched off would delete
-    those edges from the graph entirely, so an excluded/unselected source contributes nothing."""
+    those edges from the graph entirely, so an excluded source contributes nothing."""
     config = KrakenConfig(
         biolink_version="4.2.5",
         kraken_version="0.0.0",
@@ -151,6 +151,40 @@ def test_only_sources_in_this_build_count():
         },
     )
     assert config.auto_source_exclusions("kg2") == {"infores:dakg"}  # ctkg is not in this build
+
+
+def _one_source_config(integrate=False) -> KrakenConfig:
+    return KrakenConfig(
+        biolink_version="4.4.4",
+        kraken_version="0.0.0",
+        harmonization={"output_directory": "h"},
+        integration={"output_directory": "i"},
+        metagraph={"output_directory": "m"},
+        steps={"harmonize": True, "integrate": integrate, "postprocess": False},
+        options={"include_sources": ["kg2"]},
+        sources={
+            "ctkg": {
+                "source_id": "infores:clinicaltrials-kp",
+                "former_source_ids": ["infores:multiomics-clinicaltrials"],
+                "version": "1",
+                "drop_from_other_sources": True,
+            },
+            "kg2": {"source_id": "infores:rtx-kg2", "version": "1"},
+        },
+    )
+
+
+def test_harmonizing_one_source_still_drops_copies_under_old_and_new_ids():
+    """kg2 harmonized alone must still drop its CTKG copies (the integrate run takes CTKG in directly),
+    including the ones labelled with CTKG's deprecated id."""
+    config = _one_source_config()
+    assert config.auto_source_exclusions("kg2") == {"infores:clinicaltrials-kp", "infores:multiomics-clinicaltrials"}
+
+
+def test_integrate_refuses_include_sources():
+    """Otherwise the graph is built from part of the sources by mistake."""
+    with pytest.raises(ValueError, match="include_sources"):
+        _one_source_config(integrate=True)
 
 
 def test_flag_defaults_off():

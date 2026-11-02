@@ -8,7 +8,7 @@ TRIAL_PREFIX = "CLINICALTRIALS:"
 
 
 class CTKGHarmonizer(BaseHarmonizer):
-    """Clinical Trials KG (infores:multiomics-clinicaltrials): a TRAPI-style JSONL KG of
+    """Clinical Trials KG (infores:clinicaltrials-kp): a TRAPI-style JSONL KG of
     intervention -> condition edges derived from clinical-trial data.
 
     Entity nodes are minimal ({id, name, category}); edges carry a TRAPI ``sources`` list (parsed
