@@ -114,8 +114,9 @@ Each GitHub release is archived on Zenodo automatically (concept DOI
 integration on Amy Glen's Zenodo account. Record managers: Amy Glen and Drew Witherington.
 
 ## The biomapper2 dependency
-Pinned as a git dep (`main`) in `pyproject.toml`. To pick up [biomapper2](https://github.com/Phenome-Health/biomapper2)
-changes, merge them there first, then:
+Pinned to a [biomapper2](https://github.com/Phenome-Health/biomapper2) release tag in `pyproject.toml`. `uv.lock` holds
+the exact commit, and each build writes it to `build_info.json` (`biomapper2_commit`). To take a newer release, change
+the tag, then:
 ```bash
 uv lock --upgrade-package biomapper2 && uv sync
 ```

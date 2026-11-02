@@ -52,6 +52,7 @@ def test_write_build_info_produces_valid_file(tmp_path, monkeypatch):
         sources_to_use = {"umls", "kg2"}  # a SET — must be serialized as sorted list
         kg_label = "kraken-lite"
         steps = type("S", (), {"harmonize": True, "integrate": True, "postprocess": False})()
+        options = type("O", (), {"validation_only": False})()
         integrated_dir = tmp_path
 
     orch = KrakenBuildOrchestrator.__new__(KrakenBuildOrchestrator)

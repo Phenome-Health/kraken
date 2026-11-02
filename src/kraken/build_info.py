@@ -36,3 +36,4 @@ class BuildInfo(BaseModel):
     edge_count: int | None = None
     # Per-source version/release ingested for this build; value is None when unknown.
     source_versions: dict[str, str | None] | None = None
+    biomapper2_commit: str | None = None  # normalizes every curie; only set when the run harmonized

@@ -116,6 +116,18 @@
       ],
       "default": null,
       "title": "Source Versions"
+    },
+    "biomapper2_commit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Biomapper2 Commit"
     }
   },
   "required": [

@@ -3,6 +3,7 @@ Main orchestration functions for KRAKEN build
 """
 
 import importlib.metadata
+import json
 import logging
 import subprocess
 import sys
@@ -152,6 +153,15 @@ class KrakenBuildOrchestrator:
         except importlib.metadata.PackageNotFoundError:
             kraken_package_version = "unknown"
 
+        # The installed biomapper2 normalized the curies only if this run harmonized (pip records its git commit)
+        biomapper2_commit = None
+        if self.config.steps.harmonize and not self.config.options.validation_only:
+            try:
+                direct_url = importlib.metadata.distribution("biomapper2").read_text("direct_url.json")
+                biomapper2_commit = json.loads(direct_url)["vcs_info"]["commit_id"]
+            except (importlib.metadata.PackageNotFoundError, TypeError, KeyError):
+                pass
+
         build_info = BuildInfo(
             kg_version=self.config.kraken_version,
             kraken_package_version=kraken_package_version,
@@ -167,6 +177,7 @@ class KrakenBuildOrchestrator:
             build_duration_minutes=round(elapsed_seconds / 60, 1),
             kg_label=getattr(self.config, "kg_label", None),
             source_versions=getattr(self.config, "source_versions", None),
+            biomapper2_commit=biomapper2_commit,
         )
 
         self.config.integrated_dir.mkdir(parents=True, exist_ok=True)
