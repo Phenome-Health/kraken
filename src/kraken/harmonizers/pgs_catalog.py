@@ -149,24 +149,25 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
 
     def _load_scores(self, wb) -> dict[str, dict[str, Any]]:
         scores: dict[str, dict] = {}
-        for r in wb["Scores"].iter_rows(min_row=2, values_only=True):
-            pgs_id = r[0]
+        for r in self._rows(wb["Scores"]):
+            pgs_id = r["Polygenic Score (PGS) ID"]
             if not pgs_id:
                 continue
+            label, efo = r["Mapped Trait(s) (EFO label)"], r["Mapped Trait(s) (EFO ID)"]
             scores[pgs_id] = {
-                "name": r[1],
-                "reported_trait": r[2],
-                "mapped_trait_label": r[3],
-                "mapped_trait_efo": r[4],
-                "trait_curies": self._parse_trait_curies(r[3], r[4]),
-                "development_method": r[5],
-                "genome_build": r[7],
-                "num_variants": self._to_int(r[8]),
-                "weight_type": r[10],
-                "pgp_id": r[11],
-                "pmid": r[12],
-                "ftp_link": r[18],  # scoring file -- retained for the later gene-annotation increment
-                "release_date": str(r[19]) if r[19] else None,  # str(): cell may be a datetime (not JSON-safe)
+                "name": r["PGS Name"],
+                "reported_trait": r["Reported Trait"],
+                "mapped_trait_label": label,
+                "mapped_trait_efo": efo,
+                "trait_curies": self._parse_trait_curies(label, efo),
+                "development_method": r["PGS Development Method"],
+                "genome_build": r["Original Genome Build"],
+                "num_variants": self._to_int(r["Number of Variants"]),
+                "weight_type": r["Type of Variant Weight"],
+                "pgp_id": r["PGS Publication (PGP) ID"],
+                "pmid": r["Publication (PMID)"],
+                "ftp_link": r["FTP link"],  # scoring file -- retained for the later gene-annotation increment
+                "release_date": str(r["Release Date"]) if r["Release Date"] else None,  # cell may be a datetime
             }
         return scores
 
@@ -174,13 +175,20 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
         """pgs_id -> set of distinct evaluation sample sets (PSS). Distinct sample sets, not raw metric rows,
         is the honest 'independently validated in N cohorts' measure (one cohort often reports several metrics)."""
         sample_sets: dict[str, set] = defaultdict(set)
-        for r in wb["Performance Metrics"].iter_rows(min_row=2, values_only=True):
-            pgs_id, sample_set = r[1], r[2]
+        for r in self._rows(wb["Performance Metrics"]):
+            pgs_id, sample_set = r["Evaluated Score"], r["PGS Sample Set (PSS)"]
             if pgs_id and sample_set:
                 sample_sets[pgs_id].add(sample_set)
         return sample_sets
 
     # ------------------------------------------------------------------ selection
+
+    @staticmethod
+    def _rows(sheet):
+        """Rows keyed by header, so a renamed column fails loudly and a moved one is still read right."""
+        rows = sheet.iter_rows(values_only=True)
+        header = next(rows)
+        return (dict(zip(header, r)) for r in rows)
 
     def _select_top_per_trait(self, scores: dict, evaluations: dict[str, set]) -> set[str]:
         def eval_count(pgs_id):

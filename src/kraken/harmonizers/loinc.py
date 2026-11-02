@@ -183,6 +183,7 @@ class LoincFile:
     nodes: tuple[NodeSpec, ...]
     synonym_cols: tuple[str, ...] = ()
     name_qualifier: Callable[[dict], str | None] | None = None
+    other_cols: tuple[str, ...] = ()  # columns the category / name_qualifier callables read
 
 
 LOINC_FILES = [
@@ -198,12 +199,14 @@ LOINC_FILES = [
             ),
         ),
         synonym_cols=("SHORTNAME", "DisplayName", "CONSUMER_NAME"),
+        other_cols=("SCALE_TYP", "CLASSTYPE"),
     ),
     LoincFile(
         "AccessoryFiles/PartFile/Part.csv",
         (NodeSpec("PartNumber", "PartName", NAMED_THING),),
         synonym_cols=("PartDisplayName",),
         name_qualifier=part_name_qualifier,
+        other_cols=(PART_TYPE_COLUMN,),
     ),
     LoincFile("AccessoryFiles/GroupFile/Group.csv", (NodeSpec("GroupId", "Group", INFO_CATEGORY),)),
     LoincFile("AccessoryFiles/GroupFile/ParentGroup.csv", (NodeSpec("ParentGroupId", "ParentGroup", INFO_CATEGORY),)),
@@ -299,7 +302,12 @@ class LoincHarmonizer(BaseHarmonizer):
         ingest via `seen` (first occurrence wins)."""
         n = 0
         batch: list[dict] = []
-        for row in self._read_csv(base / loinc_file.path):
+        columns = {*loinc_file.synonym_cols, *loinc_file.other_cols}
+        for spec in loinc_file.nodes:
+            columns |= {spec.id_col, spec.name_col, *spec.description_cols}
+            if isinstance(spec.description, str):
+                columns.add(spec.description)
+        for row in self._read_csv(base / loinc_file.path, columns):
             for spec in loinc_file.nodes:
                 local = (row.get(spec.id_col) or "").strip()
                 if not local:
@@ -385,7 +393,9 @@ class LoincHarmonizer(BaseHarmonizer):
             return {}
 
         equivalences: dict[str, list[str]] = defaultdict(list)
-        for row in self._read_csv(path):
+        for row in self._read_csv(
+            path, {"PartNumber", "ExtCodeSystem", "ExtCodeId", "ExtCodeDisplayName", "Equivalence"}
+        ):
             part_curie = self._normalize_curie((row.get("PartNumber") or "").strip())
             ext_curie = self._ext_curie(row)
             if not part_curie or not ext_curie:
@@ -434,7 +444,7 @@ class LoincHarmonizer(BaseHarmonizer):
         if not path.is_file():
             return
         seen_pairs: set[tuple[str, str]] = set()  # an answer repeats across the lists it belongs to
-        for row in self._read_csv(path):
+        for row in self._read_csv(path, {"AnswerStringId", "ExtCodeSystem", "ExtCodeId", "ExtCodeDisplayName"}):
             answer_curie = self._normalize_curie((row.get("AnswerStringId") or "").strip())
             ext_curie = self._ext_curie(row)
             if not answer_curie or not ext_curie or (answer_curie, ext_curie) in seen_pairs:
@@ -539,6 +549,10 @@ class LoincHarmonizer(BaseHarmonizer):
         )
 
     @staticmethod
-    def _read_csv(path: Path):
+    def _read_csv(path: Path, columns: set[str]):
         with open(path, encoding="utf-8") as f:
-            yield from csv.DictReader(f)
+            reader = csv.DictReader(f)
+            # Columns are read by name, so one LOINC renamed would otherwise come back empty without a word
+            if missing := columns - set(reader.fieldnames or ()):
+                raise ValueError(f"{path.name} has no {sorted(missing)} column anymore, did LOINC rename it?")
+            yield from reader
