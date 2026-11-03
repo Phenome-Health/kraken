@@ -185,7 +185,7 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
 
     @staticmethod
     def _rows(sheet):
-        """Rows keyed by header, so a renamed column fails loudly and a moved one is still read right."""
+        # Rows keyed by header, so a renamed column fails loudly and a moved one is still read right
         rows = sheet.iter_rows(values_only=True)
         header = next(rows)
         return (dict(zip(header, r)) for r in rows)

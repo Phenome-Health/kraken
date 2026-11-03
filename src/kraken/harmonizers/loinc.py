@@ -185,6 +185,16 @@ class LoincFile:
     name_qualifier: Callable[[dict], str | None] | None = None
     other_cols: tuple[str, ...] = ()  # columns the category / name_qualifier callables read
 
+    @property
+    def columns(self) -> set[str]:
+        # Every column read from this file, checked up front so a renamed one fails instead of reading empty
+        columns = {*self.synonym_cols, *self.other_cols}
+        for spec in self.nodes:
+            columns |= {spec.id_col, spec.name_col, *spec.description_cols}
+            if isinstance(spec.description, str):
+                columns.add(spec.description)
+        return columns
+
 
 LOINC_FILES = [
     LoincFile(
@@ -302,12 +312,7 @@ class LoincHarmonizer(BaseHarmonizer):
         ingest via `seen` (first occurrence wins)."""
         n = 0
         batch: list[dict] = []
-        columns = {*loinc_file.synonym_cols, *loinc_file.other_cols}
-        for spec in loinc_file.nodes:
-            columns |= {spec.id_col, spec.name_col, *spec.description_cols}
-            if isinstance(spec.description, str):
-                columns.add(spec.description)
-        for row in self._read_csv(base / loinc_file.path, columns):
+        for row in self._read_csv(base / loinc_file.path, loinc_file.columns):
             for spec in loinc_file.nodes:
                 local = (row.get(spec.id_col) or "").strip()
                 if not local:
