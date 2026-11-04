@@ -179,6 +179,11 @@ class ERWeights(BaseModel):
         }
     )
 
+    # Aggregators normalized with the same Babel release KRAKEN loads. Where Babel knows both ids, their equivalence
+    # lists only copy our cliques, so those pairs are dropped, not set aside to judge Babel's outliers (build stage 1).
+    # translator-kg-open 1.0.2 says babel_version 2026jul22 in its release-metadata.json. Revisit when either moves.
+    same_babel_sources: set[str] = Field(default_factory=lambda: {"translator-kg-open"})
+
     # Equivalency clique handling. Sets up to this size become full cliques; larger
     # sets become a star from the list's head. Now that equivalence comes
     # from Babel's CLEAN cliques (not aggregators' junk lists), this is a

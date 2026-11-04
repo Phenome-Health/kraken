@@ -290,15 +290,23 @@ def _stage1_write_evidence_and_facts(
                     # and Jentadueto, glucose with every stereoform. What an aggregator uniquely offers is the
                     # ids Babel has never heard of (9.7M pairs), and those still count. Nothing is lost from the
                     # graph: integration keeps every cross-cluster assertion as a close_match edge.
+                    # A list built on our own Babel release only repeats Babel's cliques there, so it isn't even set
+                    # aside: kept, it would confirm Babel's misplaced ids (see drop_corroborated) and be restored
+                    # for them.
                     aggregator_list = source in weights.aggregator_list_sources
                     head_known = aggregator_list and facts.knows(node_id)
+                    echoes_babel = source in weights.same_babel_sources
                     for a, b, group, weight in clique_evidence(equiv_ids, source, weights, head=node_id):
                         row = _evidence_row(a, b, group, weight, kind=f"equiv:{source}")
                         if aggregator_list:
-                            other = b if a == node_id else a
-                            if head_known and other != node_id and facts.knows(other):
+                            if node_id in (a, b):
+                                babel_knows_both = head_known and facts.knows(b if a == node_id else a)
+                            else:  # a capped prefix moved the star off node_id (see clique_evidence)
+                                babel_knows_both = facts.knows(a) and facts.knows(b)
+                            if babel_knows_both:
                                 dropped_known_pairs += 1
-                                deferred.write(row)
+                                if not echoes_babel:
+                                    deferred.write(row)
                                 continue
                         ev.write(row)
                     # Category inheritance. Not for Babel: its nodes carry each id's own type, which later stages

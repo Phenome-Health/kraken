@@ -7,6 +7,7 @@ import jsonlines
 import pytest
 
 from kraken.entity_resolution.build import _original_endpoints, resolve_entities
+from kraken.entity_resolution.debug_db import DebugDb, debug_db_path
 from kraken.entity_resolution.id_facts import IdFactsStore
 
 pytest.importorskip("igraph")
@@ -968,6 +969,68 @@ def test_a_babel_clique_outlier_goes_where_its_name_and_the_aggregators_put_it(t
     assert m["MESH:D013109"] == m["UMLS:C0037906"] == m["CHEBI:64583"], "the rest of the clique stays whole"
     report = (config.integrated_dir / BABEL_OUTLIERS_REPORT_FILENAME).read_text().splitlines()
     assert report[1:] == ["HMDB:HMDB0302365\tCHEBI:64583\tCHEBI:33563\t2"]
+
+
+def test_an_aggregator_on_our_own_babel_release_cannot_keep_an_outlier_in_place(tmp_path):
+    """translator-kg-open 1.0.2 was normalized with the Babel release we load, so its lists repeat our cliques (it
+    put GTOPDB:7104, ursodeoxycholic acid, with chenodeoxycholic acid, as Babel does). That copy must neither cancel
+    the outlier nor pull it back into the wrong clique once Babel's evidence about it is dropped."""
+    config = _glycolipid_config(tmp_path, ["Glycolipids", "Glycolipids"])
+    config.all_harmonized_paths_resolved["translator-kg-open"] = _write_source(
+        tmp_path,
+        "translator-kg-open",
+        [
+            {
+                "id": "CHEBI:64583",
+                "categories": ["biolink:SmallMolecule"],
+                "provided_by": ["infores:sri-node-normalizer"],
+                "equivalent_ids": ["CHEBI:64583", "HMDB:HMDB0302365", "MESH:D013109", "CAS:85187-10-6"],
+            }
+        ],
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["HMDB:HMDB0302365"] == m["CHEBI:33563"]
+    assert m["HMDB:HMDB0302365"] != m["CHEBI:64583"]
+    assert m["CAS:85187-10-6"] == m["CHEBI:64583"], "an id Babel doesn't know still attaches"
+
+    evidence = DebugDb(debug_db_path(config.integrated_dir, None)).evidence_touching(["HMDB:HMDB0302365"])
+    kinds = {(e.a, e.b): e.kinds for e in evidence}
+    assert "translator-kg-open" not in kinds.get(("CHEBI:64583", "HMDB:HMDB0302365"), ""), "copy restored"
+    assert "equiv:kg2" in kinds[("CHEBI:33563", "HMDB:HMDB0302365")]
+
+
+def test_a_capped_aggregator_list_still_attaches_an_id_babel_does_not_know(tmp_path):
+    """A list holding more of its head's prefix than the cap is a star off another hub (see clique_evidence), so
+    whether Babel knows both ids of a pair has to be read off the pair, not the head."""
+    babel = _write_source_with_edges(
+        tmp_path,
+        "babel",
+        [
+            {"id": c, "categories": ["biolink:SmallMolecule"], "provided_by": ["infores:sri-node-normalizer"]}
+            for c in ("CHEBI:6801", "DRUGBANK:DB00331")
+        ],
+        [],
+    )
+    kg2 = _write_source(
+        tmp_path,
+        "kg2",
+        [
+            {
+                "id": "CHEBI:6801",
+                "categories": ["biolink:SmallMolecule"],
+                "provided_by": ["infores:rtx-kg2"],
+                "equivalent_ids": [*(f"CHEBI:{n}" for n in range(6801, 6812)), "DRUGBANK:DB00331", "UMLS:C0025598"],
+            }
+        ],
+    )
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel, "kg2": kg2},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["UMLS:C0025598"] == m["DRUGBANK:DB00331"]
 
 
 def test_one_name_match_elsewhere_does_not_make_an_outlier(tmp_path):
