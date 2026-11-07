@@ -60,9 +60,9 @@ def test_one_id_guardrail():
 
 
 def test_default_enforced_prefixes():
-    # RefMet=RM, LIPID MAPS=LM (verified in harmonized data), MONDO, ClinGen alleles (CAID), and the two structure
-    # identifiers (SMILES, INCHIKEY -- Babel itself never puts two InChIKeys in one clique).
-    assert DEFAULT_ENFORCED_PREFIXES == frozenset({"RM", "LM", "MONDO", "CAID", "SMILES", "INCHIKEY"})
+    # RefMet=RM, LIPID MAPS=LM (verified in harmonized data), MONDO, ClinGen alleles (CAID), ICD-10-CM codes, and the
+    # two structure identifiers (SMILES, INCHIKEY -- Babel itself never puts two InChIKeys in one clique).
+    assert DEFAULT_ENFORCED_PREFIXES == frozenset({"RM", "LM", "MONDO", "CAID", "ICD10CM", "SMILES", "INCHIKEY"})
 
 
 def test_two_structures_are_never_one_cluster():

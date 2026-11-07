@@ -23,6 +23,7 @@ from kraken.harmonizers.cdes import CDEHarmonizer
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.ctkg import CTKGHarmonizer
 from kraken.harmonizers.dakg import DAKGHarmonizer
+from kraken.harmonizers.icd10cm import ICD10CMHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
 from kraken.harmonizers.loinc import LoincHarmonizer
@@ -71,6 +72,7 @@ class KrakenBuildOrchestrator:
         "bio-bmi": BioBMIHarmonizer,
         "bio-age": BioAgeHarmonizer,
         "long-covid": LongCovidHarmonizer,
+        "icd10cm": ICD10CMHarmonizer,
         "babel": BabelHarmonizer,
     }
 

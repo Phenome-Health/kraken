@@ -137,6 +137,10 @@ sources:
     version: "received_2026-09-17"
     input_file: "input_data/long-covid"
 
+  icd10cm:
+    source_id: "infores:icd10cm"
+    version: "FY2027_mondo-sssom-accessed_2026-11-06_doid-2026-10-29"
+    input_file: "input_data/icd10cm/2027"
 
   clingen:
     source_id: "infores:clingen"
