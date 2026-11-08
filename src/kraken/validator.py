@@ -358,7 +358,7 @@ class KrakenValidator:
 
             # Record whether this is a merged edge from multiple aggregators. KRAKEN's own id is left out of
             # the count: it marks every directly ingested edge, so counting it would make a single chain like
-            # [multiomics-drugapprovals, kraken] look merged, and the no_merged_edges guard below pass trivially.
+            # [drugapprovals-kp, kraken] look merged, and the no_merged_edges guard below pass trivially.
             if EdgeModel.aggregator_ks.name in edge:
                 if len([a for a in edge[EdgeModel.aggregator_ks.name] if a != KRAKEN_SOURCE_ID]) > 1:
                     merged_edge_count += 1

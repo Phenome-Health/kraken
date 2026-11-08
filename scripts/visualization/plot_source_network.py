@@ -99,6 +99,9 @@ LABEL_OVERRIDES = {
     "multiomics-microbiome": "microbiome-kg",
     "multiomics-drugapprovals": "drug-approvals-kg",
     "multiomics-clinicaltrials": "clinical-trials-kg",
+    "multiomics-kp": "multiomics-kg",
+    "microbiome-kp": "microbiome-kg",
+    "drugapprovals-kp": "drug-approvals-kg",
 }
 
 

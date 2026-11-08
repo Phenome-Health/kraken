@@ -74,20 +74,21 @@ sources:
     drop_from_other_sources: true
 
   dakg:
-    source_id: "infores:multiomics-drugapprovals"
+    source_id: "infores:drugapprovals-kp"
+    former_source_ids: ["infores:multiomics-drugapprovals"]  # deprecated, DAKG's own records and the aggregators still use it
     version: "0.5.7"
     nodes_input: "input_data/dakg/drug_approvals_kg_nodes_current.jsonl"
     edges_input: "input_data/dakg/drug_approvals_kg_edges_current.jsonl"
     drop_from_other_sources: true
 
   microbiome-kg:
-    source_id: "infores:multiomics-microbiome"
+    source_id: "infores:microbiome-kp"
     version: "2.1.0"
     nodes_input: "input_data/microbiome-kg/Microbiome_KG_nodes_v2.1.0.tsv"
     edges_input: "input_data/microbiome-kg/Microbiome_KG_edges_p2.1.0.tsv"
 
   multiomics-kg:
-    source_id: "infores:multiomics-multiomics"
+    source_id: "infores:multiomics-kp"
     version: "2.1.0"
     nodes_input: "input_data/multiomics-kg/Multiomics_KG_nodes_v2.1.0.tsv"
     edges_input: "input_data/multiomics-kg/Multiomics_KG_edges_p2.1.0.tsv"
