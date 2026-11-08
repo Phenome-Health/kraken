@@ -3,6 +3,7 @@ import gzip
 import heapq
 import logging
 import re
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,10 @@ VARIANT_VOCAB = "dbsnp"
 HARMONIZED_SCORING_URL = (
     "https://ftp.ebi.ac.uk/pub/databases/spot/pgs/scores/{pgs_id}/ScoringFiles/Harmonized/{pgs_id}_hmPOS_GRCh38.txt.gz"
 )
+# One connect timeout on ftp.ebi.ac.uk stopped a build 2 h 23 min in. Waits grow (1, 2, 3, 4 min), to outlast a short
+# outage of the server.
+DOWNLOAD_ATTEMPTS = 5
+DOWNLOAD_RETRY_WAIT_SECONDS = 60
 
 
 class PGSCatalogHarmonizer(BaseHarmonizer):
@@ -371,21 +376,31 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
     @staticmethod
     def _download(url: str, dest: Path) -> Path | None:
         """Download `url` to `dest` (cached: returns immediately if it already exists). Writes to a .part file
-        and renames on completion so a partial download is never cached as complete. Returns None on 404."""
+        and renames on completion so a partial download is never cached as complete. Returns None on 404.
+        Connection failures and 5xx responses are retried; the last failure propagates and stops the build."""
         if dest.exists():
             return dest
         dest.parent.mkdir(parents=True, exist_ok=True)
         logging.info(f"Downloading {url}")
-        with requests.get(url, stream=True, timeout=120) as resp:
-            if resp.status_code == 404:
-                return None
-            resp.raise_for_status()
-            part = dest.with_name(dest.name + ".part")
-            with open(part, "wb") as fh:
-                for chunk in resp.iter_content(chunk_size=1 << 20):
-                    fh.write(chunk)
-            part.rename(dest)
-        return dest
+        for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+            try:
+                with requests.get(url, stream=True, timeout=120) as resp:
+                    if resp.status_code == 404:
+                        return None
+                    resp.raise_for_status()
+                    part = dest.with_name(dest.name + ".part")
+                    with open(part, "wb") as fh:
+                        for chunk in resp.iter_content(chunk_size=1 << 20):
+                            fh.write(chunk)
+                    part.rename(dest)
+                return dest
+            except requests.RequestException as error:
+                client_error = error.response is not None and error.response.status_code < 500
+                if client_error or attempt == DOWNLOAD_ATTEMPTS:
+                    raise
+                wait = DOWNLOAD_RETRY_WAIT_SECONDS * attempt
+                logging.warning(f"Download attempt {attempt} of {url} failed ({error}); retrying in {wait} s")
+                time.sleep(wait)
 
     def _make_gene_stub(self, gene_curie: str, symbol: str | None) -> dict:
         return self.create_node(
