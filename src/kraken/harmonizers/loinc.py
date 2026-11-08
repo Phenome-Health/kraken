@@ -22,8 +22,9 @@ LOINC_PREFIX = "LOINC"
 # Per-identifier-type Biolink categories. LOINC is the source of truth for most of these, so we assign
 # meaningful types up front rather than defaulting to NamedThing.
 #   - Numeric codes are heterogeneous: genuine measurements (quantitative/ordinal/nominal lab & clinical
-#     results) -> ClinicalMeasurement; documents, narratives, and survey/claims items -> InformationContentEntity;
-#     panels/sets & anything else -> NamedThing. Read off SCALE_TYP + CLASSTYPE per row (see numeric_category).
+#     results) -> ClinicalMeasurement; documents, narratives, survey/claims items and defining terms ->
+#     InformationContentEntity; panels/sets & anything else -> NamedThing. Read off SCALE_TYP + CLASSTYPE + CLASS
+#     per row (see numeric_category).
 #   - LA answers / LL answer lists / LG groups are information artifacts -> InformationContentEntity.
 #   - LP parts are genuinely heterogeneous (components, specimens, methods, genes, radiology axes...) with no
 #     single honest fit, so they stay NamedThing -- leaf-filtering upgrades the ones that merge with a richer
@@ -35,10 +36,15 @@ NAMED_THING = "biolink:NamedThing"
 MEASUREMENT_SCALES = {"Qn", "SemiQn", "OrdQn", "Nom", "Ord"}  # LOINC SCALE_TYP values denoting a measurement
 NARRATIVE_SCALES = {"Doc", "Nar"}  # documents / narrative reports
 INFO_CLASSTYPES = {"3", "4"}  # LOINC CLASSTYPE 3=Claims/Attachments, 4=Survey (questionnaire items)
+# LOINC's definition of these says "This term is not itself an observation": each only carries the answer list that
+# a post-coordinated axis value ({Molgen}, {Specimen}) resolves to. Their SCALE_TYP is still Nom, so ask this first.
+DEFINING_TERM_CLASS = "LOINC.DEFINING"
 
 
 def numeric_category(row: dict) -> str:
-    """Category for a numeric LOINC code, from its SCALE_TYP + CLASSTYPE (see the mapping notes above)."""
+    """Category for a numeric LOINC code, from its SCALE_TYP + CLASSTYPE + CLASS (see the mapping notes above)."""
+    if (row.get("CLASS") or "").strip() == DEFINING_TERM_CLASS:
+        return INFO_CATEGORY
     if (row.get("CLASSTYPE") or "").strip() in INFO_CLASSTYPES:
         return INFO_CATEGORY
     scale = (row.get("SCALE_TYP") or "").strip()
@@ -209,7 +215,7 @@ LOINC_FILES = [
             ),
         ),
         synonym_cols=("SHORTNAME", "DisplayName", "CONSUMER_NAME"),
-        other_cols=("SCALE_TYP", "CLASSTYPE"),
+        other_cols=("SCALE_TYP", "CLASSTYPE", "CLASS"),
     ),
     LoincFile(
         "AccessoryFiles/PartFile/Part.csv",

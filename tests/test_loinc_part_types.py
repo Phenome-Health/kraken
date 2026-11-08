@@ -8,9 +8,12 @@ part type is appended to disambiguate them.
 import pytest
 
 from kraken.harmonizers.loinc import (
+    INFO_CATEGORY,
+    MEASUREMENT_CATEGORY,
     PART_TYPE_COLUMN,
     LoincHarmonizer,
     NodeSpec,
+    numeric_category,
     numeric_description,
     part_name_qualifier,
     part_type_display,
@@ -19,6 +22,15 @@ from kraken.harmonizers.loinc import (
 
 def _row(part_type, part_name=""):
     return {PART_TYPE_COLUMN: part_type, "PartName": part_name}
+
+
+# ------------------------------- numeric code category -------------------------------
+
+
+def test_defining_term_is_not_a_measurement():
+    """{Molgen} and {Specimen} have a nominal scale like a lab result, but LOINC says they are not observations."""
+    assert numeric_category({"CLASS": "LOINC.DEFINING", "SCALE_TYP": "Nom", "CLASSTYPE": "1"}) == INFO_CATEGORY
+    assert numeric_category({"CLASS": "MOLPATH", "SCALE_TYP": "Nom", "CLASSTYPE": "1"}) == MEASUREMENT_CATEGORY
 
 
 # ------------------------------- display term -------------------------------
