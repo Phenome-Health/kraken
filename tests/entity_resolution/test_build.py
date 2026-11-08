@@ -1,5 +1,6 @@
 """Test the out-of-core entity-resolution build (evidence -> clusters -> nodes)."""
 
+import json
 from collections import Counter
 from types import SimpleNamespace
 
@@ -72,7 +73,7 @@ def test_kg2_close_match_downweighted_by_subclass_count(tmp_path):
     lines = [ln for ln in out.getvalue().splitlines() if ln]
     assert len(lines) == 1
     a, b, _group, weight, kind = lines[0].split("\t")
-    assert kind == "match:kg2"
+    assert kind == "match_with_subclass:kg2", "a hierarchy, told apart from an equivalence by its kind, not its weight"
     assert (a, b) == ("ATC:X", "UMLS:Y")
     assert float(weight) == w.close_match_weight * (w.subclass_penalty_decay**2)  # 2 hierarchical edges
 
@@ -971,12 +972,64 @@ def test_a_babel_clique_outlier_goes_where_its_name_and_the_aggregators_put_it(t
     assert report[1:] == ["HMDB:HMDB0302365\tCHEBI:64583\tCHEBI:33563\t2"]
 
 
-def test_an_aggregator_on_our_own_babel_release_cannot_keep_an_outlier_in_place(tmp_path):
-    """translator-kg-open 1.0.2 was normalized with the Babel release we load, so its lists repeat our cliques (it
-    put GTOPDB:7104, ursodeoxycholic acid, with chenodeoxycholic acid, as Babel does). That copy must neither cancel
-    the outlier nor pull it back into the wrong clique once Babel's evidence about it is dropped."""
+def test_a_primary_source_mapping_moves_an_outlier_the_lists_place_with_babel(tmp_path):
+    """kg2's and ROBOKOP's lists copy Babel, but kg2's close_match on the original ids, read from HMDB, points at the
+    clique the name matches. Through the real stages: the outlier ends up in that clique, and the copies, which
+    outweigh its name, are not restored to pull it back."""
+
+    def kg2_with_mapping(primary_source):
+        return _write_source_with_edges(
+            tmp_path / primary_source,
+            "kg2",
+            [
+                {
+                    "id": "CHEBI:64583",
+                    "categories": ["biolink:SmallMolecule"],
+                    "provided_by": ["infores:rtx-kg2"],
+                    "equivalent_ids": ["CHEBI:64583", "HMDB:HMDB0302365"],
+                }
+            ],
+            [
+                {
+                    "subject": "CHEBI:64583",
+                    "object": "CHEBI:33563",
+                    "predicate": "biolink:close_match",
+                    "primary_knowledge_source": primary_source,
+                    "attributes": {
+                        "infores:rtx-kg2": {
+                            "kg2pre_ids": ["HMDB:HMDB0302365---xref---None---None---None---MESH:D006017---src"]
+                        }
+                    },
+                }
+            ],
+        )
+
     config = _glycolipid_config(tmp_path, ["Glycolipids", "Glycolipids"])
-    config.all_harmonized_paths_resolved["translator-kg-open"] = _write_source(
+    config.all_harmonized_paths_resolved["robokop"] = _write_source(
+        tmp_path,
+        "robokop",
+        [
+            {
+                "id": head,
+                "categories": ["biolink:SmallMolecule"],
+                "provided_by": ["infores:robokop-kg"],
+                "equivalent_ids": [head, "HMDB:HMDB0302365"],
+            }
+            for head in ("MESH:D013109", "UMLS:C0037906")
+        ],
+    )
+    config.all_harmonized_paths_resolved["kg2"] = kg2_with_mapping("infores:sri-node-normalizer")
+    m = resolve_entities(config, biolink=None)
+    assert m["HMDB:HMDB0302365"] == m["CHEBI:64583"], "Babel confirming itself is no primary source"
+
+    config.all_harmonized_paths_resolved["kg2"] = kg2_with_mapping("infores:hmdb")
+    m = resolve_entities(config, biolink=None)
+    assert m["HMDB:HMDB0302365"] == m["MESH:D006017"]
+    assert m["HMDB:HMDB0302365"] != m["CHEBI:64583"]
+
+
+def _add_translator(config, tmp_path, babel_version):
+    nodes, edges = _write_source(
         tmp_path,
         "translator-kg-open",
         [
@@ -988,6 +1041,27 @@ def test_an_aggregator_on_our_own_babel_release_cannot_keep_an_outlier_in_place(
             }
         ],
     )
+    # what translator-kg-open's harmonizer copies beside its output
+    (nodes.parent / "release-metadata.json").write_text(json.dumps({"babel_version": babel_version}))
+    config.all_harmonized_paths_resolved["translator-kg-open"] = (nodes, edges)
+    config.sources = {"babel": SimpleNamespace(version="2026jul22")}
+
+
+def test_an_aggregator_on_another_babel_release_is_treated_like_the_others(tmp_path):
+    """If translator-kg-open's metadata names another Babel, its lists are no longer copies of our cliques: its pairs
+    are set aside like kg2's, and it counts as an aggregator placing the id with Babel."""
+    config = _glycolipid_config(tmp_path, ["Glycolipids", "Glycolipids"])
+    _add_translator(config, tmp_path, babel_version="2026jan01")
+    m = resolve_entities(config, biolink=None)
+    assert m["HMDB:HMDB0302365"] == m["CHEBI:64583"]
+
+
+def test_an_aggregator_on_our_own_babel_release_cannot_keep_an_outlier_in_place(tmp_path):
+    """translator-kg-open 1.0.2 was normalized with the Babel release we load, so its lists repeat our cliques (it
+    put GTOPDB:7104, ursodeoxycholic acid, with chenodeoxycholic acid, as Babel does). That copy must neither cancel
+    the outlier nor pull it back into the wrong clique once Babel's evidence about it is dropped."""
+    config = _glycolipid_config(tmp_path, ["Glycolipids", "Glycolipids"])
+    _add_translator(config, tmp_path, babel_version="2026jul22")
     m = resolve_entities(config, biolink=None)
     assert m["HMDB:HMDB0302365"] == m["CHEBI:33563"]
     assert m["HMDB:HMDB0302365"] != m["CHEBI:64583"]

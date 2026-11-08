@@ -12,8 +12,8 @@ The name is the tell. An id is an OUTLIER when:
 * its own name matches none of them, and
 * its name matches at least two ids of ONE other Babel clique ("Glycolipids" = MeSH's and UMLS's, both in
   glycolipid's clique), and
-* the aggregators do NOT corroborate Babel's placement of it (see ``drop_corroborated``) -- otherwise the wrong
-  name is the id's own, not Babel's.
+* the aggregators do NOT corroborate Babel's placement of it, or a primary source's mapping contradicts them (see
+  ``drop_corroborated``) -- otherwise the wrong name is the id's own, not Babel's.
 
 Only name matches the pairwise guardrails allow count, and only chemicals, diseases, anatomy and the like are judged
 -- not organisms, genes, proteins or variants, whose names are symbols. For an outlier, Babel's evidence about it is
@@ -32,7 +32,7 @@ import logging
 import os
 import subprocess
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from pathlib import Path
 
 from kraken.entity_resolution.families import ALL_FAMILIES
@@ -44,6 +44,15 @@ SEP = "\t"
 WILDCARD_SIGNATURE = "*"
 # An outlier needs this many name matches in one other clique: one could be a coincidence.
 MIN_MATCHES_IN_OTHER_CLIQUE = 2
+# The evidence kind of a same_as / exact_match / close_match edge, read on its original endpoints (see build stage 1).
+MAPPING_EDGE_KIND = "match:"
+MAPPING_EDGE_MARK = f"{SEP}{MAPPING_EDGE_KIND}"
+# The evidence kind of a source's equivalence list.
+LIST_KIND = "equiv:"
+LIST_MARK = f"{SEP}{LIST_KIND}"
+# How an edge's evidence group names its primary knowledge source (see ERWeights.predicate_group).
+PRIMARY_SOURCE_SEP = "|ks:"
+NODE_NORMALIZER = "infores:sri-node-normalizer"
 
 
 def families_signature(branches: frozenset[str]) -> str:
@@ -167,36 +176,91 @@ def find_babel_outliers(
             remove_file(path)
 
 
-def drop_corroborated(
-    candidates: dict[str, tuple[str, str, int]], cliques_path: Path, deferred_path: Path
-) -> dict[str, tuple[str, str, int]]:
-    """Keep only the candidates the AGGREGATORS don't place where Babel does.
-
-    A name can be wrong in either direction, and which one tells us apart is whether anyone else agrees with Babel.
-    ChEMBL names CHEMBL455602 "CITPRESSINE II" though its structure is citpressine I -- and kg2, ROBOKOP and
-    Translator all place it where Babel does, with citpressine I. HMDB's "Glycolipids" is the other way: kg2 and
-    ROBOKOP put it with glycolipid, against Babel's sphingomyelin clique. So an id whose own clique the aggregators
-    corroborate is left alone. On the 2.3.0 data that is 1,893 of 2,348 candidates.
-
-    Such a pair is always in ``deferred_path``: both ids are in a Babel clique, so Babel knows both, which is
-    exactly when an aggregator's claim is set aside (see ``_babel_decides`` and the equivalence-list rule).
-    """
-    hubs = {hub for hub, _other, _n in candidates.values()}
+def clique_members(cliques_path: Path, hubs: set[str]) -> dict[str, set[str]]:
+    """The members of the Babel cliques named by ``hubs``."""
     members: dict[str, set[str]] = {hub: set() for hub in hubs}
     with open(cliques_path) as fin:
         for line in fin:
             curie, hub, _size = line.rstrip("\n").split(SEP)
             if hub in members:
                 members[hub].add(curie)
+    return members
+
+
+def _is_primary_mapping(group: str, kind: str) -> bool:
+    """A mapping edge read from a named primary source, not the Node Normalizer. One on a pair kg2 also relates by
+    subclass is a hierarchy, not an equivalence, and has another kind (see ``_write_kg2_match_evidence`` in build.py).
+    """
+    primary_source = group.partition(PRIMARY_SOURCE_SEP)[2]
+    return kind.startswith(MAPPING_EDGE_KIND) and primary_source not in ("", NODE_NORMALIZER)
+
+
+def drop_corroborated(
+    candidates: dict[str, tuple[str, str, int]],
+    cliques_path: Path,
+    deferred_path: Path,
+    evidence_path: Path | None = None,
+    native_list_sources: Collection[str] = (),
+) -> dict[str, tuple[str, str, int]]:
+    """Keep only the candidates the AGGREGATORS don't place where Babel does, unless a primary source says otherwise.
+
+    A name can be wrong in either direction, and which one tells us apart is whether anyone else agrees with Babel.
+    ChEMBL names CHEMBL455602 "CITPRESSINE II" though its structure is citpressine I -- and kg2, ROBOKOP and
+    Translator all place it where Babel does, with citpressine I. HMDB's "Glycolipids" is the other way: kg2 and
+    ROBOKOP put it with glycolipid, against Babel's sphingomyelin clique. So an id whose own clique the aggregators
+    corroborate is left alone.
+
+    Such a pair is always in ``deferred_path``: both ids are in a Babel clique, so Babel knows both, which is
+    exactly when an aggregator's claim is set aside (see ``_babel_decides`` and the equivalence-list rule).
+
+    But the aggregators' lists come from older Babel releases (93% of kg2's chemical lists are exact copies of our
+    cliques), so they repeat a long-lived Babel mistake: Mondo xrefs DOID:4297 "scimitar syndrome" to a venous return
+    anomaly, Babel follows, and the lists copy it. kg2's mapping edges don't: they are xrefs read from the primary
+    source (DOID's own say UMLS:C0036400, scimitar syndrome) on the ORIGINAL ids, before any normalization. So an id
+    with such an edge to the clique its name matches, and none to its own, is kept whatever the lists say. Same_as
+    edges are in ``deferred_path`` like the lists, close_match edges in ``evidence_path``.
+
+    A native source's own list (one of ``native_list_sources``, such as RefMet's) that puts the id in its own clique
+    counts like a mapping edge there: RefMet lists HMDB:HMDB0029044 with CHEBI:144702 and its stereo InChIKey. It
+    can keep an id, but not move one: those lists often hold ids of several cliques (on the 2.4.0 inputs, 42 of the
+    319 ids a mapping edge would move have one into the clique the name matches as well).
+    """
+    members = clique_members(cliques_path, {h for hub, name_hub, _n in candidates.values() for h in (hub, name_hub)})
+
     corroborated = set()
+    mapped_to_own = set()
+    mapped_to_name = set()
+
+    def note_mapping(a: str, b: str, can_move: bool = True) -> None:
+        for one, other in ((a, b), (b, a)):
+            if one in candidates:
+                hub, name_hub, _n = candidates[one]
+                if other in members[hub]:
+                    mapped_to_own.add(one)
+                elif can_move and other in members[name_hub]:
+                    mapped_to_name.add(one)
+
     with open(deferred_path) as fin:
         for line in fin:
-            a, b, _rest = line.split(SEP, 2)
+            a, b, group, _weight, kind = line.rstrip("\n").split(SEP)
             for one, other in ((a, b), (b, a)):
-                hub = candidates.get(one, (None,))[0]
-                if hub is not None and other in members.get(hub, ()):
+                if one in candidates and other in members[candidates[one][0]]:
                     corroborated.add(one)
-    return {curie: info for curie, info in candidates.items() if curie not in corroborated}
+            if _is_primary_mapping(group, kind):
+                note_mapping(a, b)
+    with open(evidence_path or os.devnull) as fin:
+        for line in fin:
+            if MAPPING_EDGE_MARK in line or LIST_MARK in line:
+                a, b, group, _weight, kind = line.rstrip("\n").split(SEP)
+                if _is_primary_mapping(group, kind):
+                    note_mapping(a, b)
+                elif kind.startswith(LIST_KIND) and kind[len(LIST_KIND) :] in native_list_sources:
+                    note_mapping(a, b, can_move=False)
+    return {
+        curie: info
+        for curie, info in candidates.items()
+        if curie not in corroborated or (curie in mapped_to_name and curie not in mapped_to_own)
+    }
 
 
 def log_babel_outliers(outliers: dict[str, tuple[str, str, int]], report_path: Path | None = None) -> None:

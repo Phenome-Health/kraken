@@ -64,3 +64,42 @@ def test_an_id_the_aggregators_place_with_babel_is_left_alone(tmp_path):
 
     deferred.write_text("")  # nothing either way: the name still decides
     assert drop_corroborated(candidates, cliques, deferred) == candidates
+
+
+def test_a_primary_source_mapping_beats_a_list_copied_from_an_older_babel(tmp_path):
+    """DOID:1827 "generalized epilepsy" sits in idiopathic generalized epilepsy's clique, kg2's and ROBOKOP's lists copy
+    that, and DOID's own xref (a kg2 close_match on the original ids) points at generalized epilepsy's clique."""
+    from kraken.entity_resolution.babel_outliers import drop_corroborated
+
+    candidates = {"X": ("H1", "H2", 3)}
+    cliques = tmp_path / "cliques.tsv"
+    cliques.write_text("".join(f"{m}\tH1\t4\n" for m in ("H1", "A", "B", "X")) + "H2\tH2\t2\nP\tH2\t2\n")
+    deferred = tmp_path / "deferred.tsv"
+    deferred.write_text("A\tX\tbabel_derived\t0.5\tequiv:kg2\n")
+    evidence = tmp_path / "evidence.tsv"
+
+    def kept(rows: str) -> bool:
+        evidence.write_text(rows)
+        return drop_corroborated(candidates, cliques, deferred, evidence, native_list_sources={"refmet"}) == candidates
+
+    doid = "babel_derived|ks:infores:disease-ontology"
+    assert kept(f"P\tX\t{doid}\t0.1\tmatch:kg2\n")
+
+    assert not kept("P\tX\tname_similarity\t0.45\tname_sim\n"), "a name match is what made it a candidate"
+    assert not kept("P\tX\tbabel_derived\t0.1\tmatch:kg2\n"), "no primary source named"
+    assert not kept("P\tX\tbabel_derived|ks:infores:sri-node-normalizer\t0.1\tmatch:kg2\n"), "Babel confirming itself"
+    assert not kept(f"P\tX\t{doid}\t0.05\tmatch_with_subclass:kg2\n"), "kg2 also says subclass: a hierarchy"
+
+    # primary sources disagree: no override, whichever file the edge pointing at its own clique is in
+    assert not kept(f"P\tX\t{doid}\t0.1\tmatch:kg2\nA\tX\t{doid}\t0.1\tmatch:kg2\n")
+    assert not kept(f"P\tX\t{doid}\t0.1\tmatch:kg2\nB\tX\tsrc:refmet\t1.0\tequiv:refmet\n"), "RefMet's own list"
+    assert kept(f"P\tX\t{doid}\t0.1\tmatch:kg2\nB\tX\tbabel_derived\t0.5\tequiv:kg2\n"), "an aggregator's is not"
+    assert not kept("P\tX\tsrc:refmet\t1.0\tequiv:refmet\n"), "a native list can keep an id, not move it"
+    deferred.write_text(f"A\tX\t{doid}\t1.0\tmatch:kg2\n")
+    assert not kept(f"P\tX\t{doid}\t0.1\tmatch:kg2\n")
+
+    # a same_as is set aside with the lists, and counts from there, unless kg2 also says subclass
+    deferred.write_text(f"A\tX\tbabel_derived\t0.5\tequiv:kg2\nP\tX\t{doid}\t1.0\tmatch:kg2\n")
+    assert kept("")
+    deferred.write_text(f"A\tX\tbabel_derived\t0.5\tequiv:kg2\nP\tX\t{doid}\t0.5\tmatch_with_subclass:kg2\n")
+    assert not kept("")

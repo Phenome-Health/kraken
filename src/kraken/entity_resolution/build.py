@@ -40,6 +40,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from kraken.entity_resolution.babel_outliers import (
+    clique_members,
     compatible_name_pairs,
     drop_corroborated,
     families_signature,
@@ -74,6 +75,7 @@ from kraken.entity_resolution.uncanonicalize import (
     original_endpoints as _original_endpoints,
 )
 from kraken.entity_resolution.weights import NAME_SIMILARITY_GROUP, ERWeights
+from kraken.harmonizers.translator_kg_open import release_babel_version
 from kraken.utils.constants import (
     BABEL_RELATION_ATTRIBUTE,
     EDGE_ATTRIBUTES,
@@ -94,6 +96,7 @@ from kraken.utils.constants import (
 from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_nodes_from_jsonl
 
 SEP = "\t"
+TRANSLATOR_KG_OPEN = "translator-kg-open"
 
 # Set in an id's ``seeds`` mask when it was seeded ONLY by an alias (not by any node or equivalency list), so the
 # edge pass can tell "already in the graph" from "introduced by an earlier alias". Far above any source's bit.
@@ -246,6 +249,7 @@ def _stage1_write_evidence_and_facts(
     # Babel FIRST, so every other source's lists can be tested against what Babel knows (see below); the rest in
     # a fixed order so a build is reproducible.
     sources = sorted(config.all_harmonized_paths_resolved.items(), key=lambda kv: (kv[0] != "babel", kv[0]))
+    on_our_babel = _sources_on_our_babel(config)
     babel_facts: list[tuple[str, IdFacts]] = []
     dropped_known_pairs = 0
     with (
@@ -295,7 +299,7 @@ def _stage1_write_evidence_and_facts(
                     # for them.
                     aggregator_list = source in weights.aggregator_list_sources
                     head_known = aggregator_list and facts.knows(node_id)
-                    echoes_babel = source in weights.same_babel_sources
+                    echoes_babel = source in on_our_babel
                     for a, b, group, weight in clique_evidence(equiv_ids, source, weights, head=node_id):
                         row = _evidence_row(a, b, group, weight, kind=f"equiv:{source}")
                         if aggregator_list:
@@ -407,6 +411,29 @@ def _stage1_write_evidence_and_facts(
                 source,
             )
     return inherited_cats, node_taxon, node_ids, seeds, source_provided_by
+
+
+def _sources_on_our_babel(config) -> set[str]:
+    """Aggregators normalized with the Babel release we load: where Babel knows both ids, their lists only copy our
+    cliques. Only translator-kg-open says which release it used (kg2 and robokop publish no such metadata), in the
+    metadata its harmonizer copies beside the harmonized files."""
+    if not {TRANSLATOR_KG_OPEN, "babel"} <= config.all_harmonized_paths_resolved.keys():
+        return set()
+    nodes_path, _edges_path = config.all_harmonized_paths_resolved[TRANSLATOR_KG_OPEN]
+    if not Path(nodes_path).exists():
+        return set()  # not harmonized, so nothing of it to integrate (stage 1 skips it too)
+    theirs = release_babel_version(nodes_path)
+    ours = config.sources["babel"].version
+    if theirs == ours:
+        return {TRANSLATOR_KG_OPEN}
+    logging.warning(
+        "entity_resolution: %s was normalized with Babel %s and we load %s, so its lists now count as evidence of "
+        "their own, like kg2's",
+        TRANSLATOR_KG_OPEN,
+        theirs,
+        ours,
+    )
+    return set()
 
 
 def _babel_decides(a: str, b: str, predicate: str, source: str, weights: ERWeights, facts: IdFactsStore) -> bool:
@@ -579,10 +606,14 @@ def _write_kg2_match_evidence(
 
     for a, b, predicate, primary_ks, babel_decides in match_pairs:
         base = weights.predicate_weight(predicate)
-        weight = _subclass_penalized_weight(base, hierarchical_counts.get((a, b), 0), weights.subclass_penalty_decay)
+        hierarchical_count = hierarchical_counts.get((a, b), 0)
+        weight = _subclass_penalized_weight(base, hierarchical_count, weights.subclass_penalty_decay)
         # Per-primary-KS group, so parallel close_matches on this pair from different KSes sum.
         group = weights.predicate_group("kg2", primary_ks)
-        row = _evidence_row(a, b, group, weight, kind="match:kg2")
+        # Its own kind, so later stages can tell a hierarchy from an equivalence without guessing from the weight
+        # (see babel_outliers.drop_corroborated).
+        kind = "match_with_subclass:kg2" if hierarchical_count else "match:kg2"
+        row = _evidence_row(a, b, group, weight, kind=kind)
         if not babel_decides:
             ev.write(row)
         elif deferred is not None:
@@ -639,13 +670,22 @@ def _stage1b_append_name_similarity(
         remove_file(sorted_names)
 
 
-def _restore_deferred_evidence(deferred_path: Path, evidence_path: Path, ids: set[str] | dict) -> int:
-    """Append the set-aside aggregator evidence (see ``deferred_path`` in stage 1) that touches any of ``ids``."""
+def _restore_deferred_evidence(
+    deferred_path: Path, evidence_path: Path, outliers: dict[str, tuple[str, str, int]], cliques_path: Path
+) -> int:
+    """Append the set-aside aggregator evidence (see ``deferred_path`` in stage 1) that touches an outlier, except the
+    rows linking it back into its own Babel clique. An outlier has those only when a primary source's mapping
+    overruled them (see ``drop_corroborated``): restored, these copies of Babel would pull it back."""
+    own_cliques = clique_members(cliques_path, {hub for hub, _name_hub, _n in outliers.values()})
+
+    def back_into_own_clique(one: str, other: str) -> bool:
+        return one in outliers and other in own_cliques[outliers[one][0]]
+
     restored = 0
     with open(deferred_path) as fin, open(evidence_path, "a") as ev:
         for line in fin:
             a, b, _rest = line.split(SEP, 2)
-            if a in ids or b in ids:
+            if (a in outliers or b in outliers) and not (back_into_own_clique(a, b) or back_into_own_clique(b, a)):
                 ev.write(line)
                 restored += 1
     return restored
@@ -1219,8 +1259,8 @@ def _report_oversized_cluster_evidence(
     members INSIDE it, plus its id-prefix mix and a sample of ids -- one JSON line per cluster, largest first.
 
     One pass over the evidence file, and only when such a cluster exists. The kind column (``equiv:<source>``,
-    ``alias:<source>``, ``match:<source>``, ``babel``, ``name_sim``) is what separates a Babel clique from an
-    aggregator list; the de-correlation group alone can't.
+    ``alias:<source>``, ``match:<source>``, ``match_with_subclass:kg2``, ``babel``, ``name_sim``) is what separates a
+    Babel clique from an aggregator list; the de-correlation group alone can't.
     """
     sizes = Counter(curie_to_cluster.values())
     ranked = [cid for cid, n in sizes.most_common() if n >= OVERSIZED_EVIDENCE_REPORT_MIN_SIZE]
@@ -1321,7 +1361,8 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             name_pairs_path=name_pairs_path,
         )
         candidates = find_babel_outliers(name_pairs_path, cliques_path, weights.clique_cap, temp_dir)
-        outliers = drop_corroborated(candidates, cliques_path, deferred_path)
+        native_list_sources = config.all_harmonized_paths_resolved.keys() - weights.aggregator_list_sources - {"babel"}
+        outliers = drop_corroborated(candidates, cliques_path, deferred_path, evidence_path, native_list_sources)
         logging.info(
             "entity_resolution: %d Babel clique outlier candidates, %d left alone because the aggregators place "
             "them where Babel does",
@@ -1330,7 +1371,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         )
         log_babel_outliers(outliers, _debug_dir(config) / BABEL_OUTLIERS_REPORT_FILENAME)
         if outliers:
-            restored = _restore_deferred_evidence(deferred_path, evidence_path, outliers)
+            restored = _restore_deferred_evidence(deferred_path, evidence_path, outliers, cliques_path)
             logging.info("entity_resolution: restored %d aggregator evidence rows about Babel outliers", restored)
         _record_debug_babel_cliques(debug_db, cliques_path)
         _stage_banner(f"ER STAGE 1b DONE ({time.perf_counter() - t:.1f}s)")
