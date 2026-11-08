@@ -65,10 +65,12 @@ from kraken.entity_resolution.match_graph import alias_evidence, clique_evidence
 from kraken.entity_resolution.materialize import PrefixRanking, materialize_cluster
 from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, name_keys, normalize_name
 from kraken.entity_resolution.prefix_backups import infer_category, infer_taxon
+from kraken.entity_resolution.umls_minted_codes import attach_orphan_codes, is_umls_minted_code
 from kraken.entity_resolution.uncanonicalize import (
     ALIAS_EVIDENCE_SOURCES,
     CANONICALIZED_AGGREGATOR_SOURCES,
     is_coarser_than_canonical,
+    kg2_pre_id_triples,
     original_alias_pairs,
 )
 from kraken.entity_resolution.uncanonicalize import (
@@ -86,6 +88,7 @@ from kraken.utils.constants import (
     EXACT_MATCH_PREDICATES,
     GENE_PROTEIN_CONFLATION_RELATION,
     NODE_CATEGORIES,
+    NODE_DESCRIPTION,
     NODE_EQUIVALENT_IDS,
     NODE_ID,
     NODE_NAME,
@@ -143,6 +146,7 @@ def _stage1_write_evidence_and_facts(
     *,
     deferred_path: Path | None = None,
     cliques_path: Path | None = None,
+    umls_minted_codes: dict[str, str] | None = None,
 ) -> tuple[dict[str, frozenset[str]], dict[str, str], set[str], dict[str, int], dict[str, set[str]]]:
     """One streaming pass over harmonized nodes+edges. Writes equivalency-clique
     (native sources only) and match-predicate evidence, writes
@@ -375,7 +379,15 @@ def _stage1_write_evidence_and_facts(
             if not Path(edges_path).exists():
                 continue
             if source == "kg2":
-                _write_kg2_match_evidence(Path(edges_path), weights, ev, facts, dropped_known_matches, deferred)
+                _write_kg2_match_evidence(
+                    Path(edges_path),
+                    weights,
+                    ev,
+                    facts,
+                    dropped_known_matches,
+                    deferred,
+                    umls_minted_codes=umls_minted_codes,
+                )
                 continue
             if source == "babel":
                 _write_babel_evidence(Path(edges_path), weights, ev, cliques)
@@ -571,7 +583,13 @@ def _subclass_penalized_weight(base_weight: float, hierarchical_count: int, deca
 
 
 def _write_kg2_match_evidence(
-    edges_path: Path, weights: ERWeights, ev, facts: IdFactsStore, dropped_known_matches: Counter, deferred=None
+    edges_path: Path,
+    weights: ERWeights,
+    ev,
+    facts: IdFactsStore,
+    dropped_known_matches: Counter,
+    deferred=None,
+    umls_minted_codes: dict[str, str] | None = None,
 ) -> None:
     """Emit KG2 match-predicate evidence on un-canonicalized endpoints, down-weighting
     each close_match by how many subclass/superclass edges the same original pair has,
@@ -592,6 +610,10 @@ def _write_kg2_match_evidence(
         is_hierarchical = predicate in SUBCLASS_PREDICATES
         if not is_hierarchical and weights.predicate_weight(predicate) is None:
             continue
+        if umls_minted_codes is not None:
+            for subject, relation, object_ in kg2_pre_id_triples(edge):
+                if is_umls_minted_code(subject, relation):
+                    umls_minted_codes[subject] = object_
         for subject, object_ in _original_endpoints(edge, "kg2") or []:
             if subject == object_:
                 continue
@@ -767,18 +789,23 @@ def _stage3_cluster(
     facts: IdFactsStore,
     seed: int,
     cliques_path: Path | None = None,
-) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, tuple[str, ...]]]:
+    *,
+    umls_minted_codes: dict[str, str] | None = None,
+    ranking: PrefixRanking | None = None,
+) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, tuple[str, ...]], set[str]]:
     """Cluster the weighted pair graph. Returns ``curie -> cluster_id`` for every
-    CURIE appearing in a pair, the ids-per-prefix histogram, and ``curie -> single
-    intrinsic category`` for every match-graph node.
+    CURIE appearing in a pair, the ids-per-prefix histogram, ``curie -> single
+    intrinsic category`` for every match-graph node, and the UMLS-minted codes put into
+    their concept's node.
 
     Uses int codes (numpy) and scipy connected components; Leiden + guardrails run
     per non-trivial component so peak memory is bounded by the largest component.
     """
     if os.path.getsize(pairs_path) == 0:
-        return {}, {}, {}
-
-    df = pd.read_csv(pairs_path, sep=SEP, names=["a", "b", "w"], dtype={"a": str, "b": str, "w": "float32"})
+        # pandas cannot read an empty file. An empty graph clusters nothing, but the minted codes below still join.
+        df = pd.DataFrame({"a": pd.Series(dtype=str), "b": pd.Series(dtype=str), "w": pd.Series(dtype="float32")})
+    else:
+        df = pd.read_csv(pairs_path, sep=SEP, names=["a", "b", "w"], dtype={"a": str, "b": str, "w": "float32"})
     codes, uniques = pd.factorize(pd.concat([df["a"], df["b"]], ignore_index=True), sort=False)
     n = len(df)
     a_codes = codes[:n].astype(np.int64)
@@ -844,18 +871,9 @@ def _stage3_cluster(
         if not cats:
             cats = ("biolink:NamedThing",)  # 4. untyped/ambiguous -> NamedThing (a guardrail wildcard)
         mg_categories[curie] = shared_category_tuples.setdefault(cats, cats)
-        # Taxon precedence (mirrors category): 1. Babel (source of truth);
-        # 2. the harmonized node's (source) taxon; 3. the single-species prefix backup
-        # -- LAST, never before source; else untaxoned (a guardrail wildcard).
-        taxa = norm.taxa if norm else ()
-        if taxa:
-            mg_taxon[curie] = sys.intern(taxa[0])
-        elif curie in node_taxon:
-            mg_taxon[curie] = node_taxon[curie]
-        else:
-            inferred_taxon = infer_taxon(curie)
-            if inferred_taxon:
-                mg_taxon[curie] = inferred_taxon
+        taxon = _id_taxon(curie, norm, node_taxon)
+        if taxon:
+            mg_taxon[curie] = taxon
 
     def info_provider(curie: str) -> NodeInfo:
         # Stamp the node with its resolved branch-FAMILY set (category -> family done
@@ -962,9 +980,62 @@ def _stage3_cluster(
             if len(rejoined) >= guardrail_config.oversized_cluster_log_threshold:
                 oversized.append(rejoined)
 
+    # Last, on the final clusters. It may open a cluster, so it hands back the next free cluster id.
+    attached_minted_codes: set[str] = set()
+    if umls_minted_codes:
+        # Most of these never reached tau, so they have no category or taxon yet, and an id without one is a
+        # guardrail wildcard. Category: Babel's, else their source's. Taxon: as for every match-graph id.
+        for curie in {curie for pair in umls_minted_codes.items() for curie in pair} - mg_categories.keys():
+            babel = facts.get(curie)
+            mg_categories[curie] = _unclustered_id_categories(curie, babel, inherited_cats, families)
+            taxon = _id_taxon(curie, babel, node_taxon)
+            if taxon:
+                mg_taxon[curie] = taxon
+
+        def babel_label(curie: str) -> str | None:
+            info = facts.get(curie)
+            return info.label if info else None
+
+        attached_minted_codes, next_cluster_id = attach_orphan_codes(
+            umls_minted_codes,
+            curie_to_cluster,
+            info_of=info_provider,
+            categories_of=mg_categories,
+            label_of=babel_label,
+            ranking=ranking,
+            guardrail_config=guardrail_config,
+            next_cluster_id=next_cluster_id,
+        )
+
     log_one_id_repairs(repairs, guardrail_config)
     log_oversized_clusters(oversized, guardrail_config)
-    return curie_to_cluster, {prefix: dict(counts) for prefix, counts in histogram.items()}, mg_categories
+    return (
+        curie_to_cluster,
+        {prefix: dict(counts) for prefix, counts in histogram.items()},
+        mg_categories,
+        attached_minted_codes,
+    )
+
+
+def _unclustered_id_categories(
+    curie: str, babel: IdFacts | None, inherited_cats: dict[str, frozenset[str]], families: BranchFamilies
+) -> tuple[str, ...]:
+    if babel and babel.categories:
+        return tuple(babel.categories)
+    inherited = inherited_cats.get(curie)
+    if inherited and len(families.branches(tuple(inherited))) == 1:
+        return tuple(sorted(inherited))
+    return ()
+
+
+def _id_taxon(curie: str, babel: IdFacts | None, node_taxon: dict[str, str]) -> str | None:
+    """Taxon precedence (mirrors category): 1. Babel (source of truth); 2. the harmonized node's (source) taxon;
+    3. the single-species prefix backup -- LAST, never before source; else untaxoned (a guardrail wildcard)."""
+    if babel and babel.taxa:
+        return sys.intern(babel.taxa[0])
+    if curie in node_taxon:
+        return node_taxon[curie]
+    return infer_taxon(curie)
 
 
 def _clique_membership(cliques_path: Path, wanted: set[str], clique_cap: int) -> dict[str, str]:
@@ -1011,6 +1082,8 @@ def _stage4_materialize(
     biolink,
     temp_dir: Path,
     debug_db: DebugDbWriter | None = None,
+    *,
+    attached_minted_codes: set[str] | None = None,
 ) -> dict[str, str]:
     """Stream harmonized nodes, group by cluster on disk, reconcile one cluster at a
     time, and write the canonical nodes file (and each id's row of ``debug_db``, if given). Returns
@@ -1094,6 +1167,10 @@ def _stage4_materialize(
                     # category, so the merged node's categories are the union of its members' true types, not
                     # conflation leftovers.
                     node[NODE_CATEGORIES] = node_category(node_id, node.get(NODE_CATEGORIES))
+                    if attached_minted_codes and node_id in attached_minted_codes:
+                        # It joined on condition that it changes nothing about its node (see umls_minted_codes), so
+                        # its description, mostly kg2's label of its concept's UMLS semantic type, cannot be the node's.
+                        node.pop(NODE_DESCRIPTION, None)
                     # Taxon: Babel wins; else keep the source taxon already on the dict; else
                     # the single-species prefix backup (last resort, never before source).
                     babel_taxon = taxon_of(node_id)
@@ -1334,6 +1411,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
     try:
         t = time.perf_counter()
         _stage_banner("ER STAGE 1 -- streaming harmonized nodes/edges -> match evidence, names, guardrail facts")
+        umls_minted_codes: dict[str, str] = {}
         inherited_cats, node_taxon, node_ids, seeds, source_provided_by = _stage1_write_evidence_and_facts(
             config,
             weights,
@@ -1344,6 +1422,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             facts,
             deferred_path=deferred_path,
             cliques_path=cliques_path,
+            umls_minted_codes=umls_minted_codes,
         )
         _stage_banner(
             f"ER STAGE 1 DONE ({time.perf_counter() - t:.1f}s) -- {len(node_ids)} harmonized node ids, "
@@ -1383,7 +1462,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
 
         t = time.perf_counter()
         _stage_banner("ER STAGE 3 -- clustering (connected components -> label propagation -> guardrails)")
-        curie_to_cluster, histogram, mg_categories = _stage3_cluster(
+        curie_to_cluster, histogram, mg_categories, attached_minted_codes = _stage3_cluster(
             pairs_path,
             weights,
             families,
@@ -1394,6 +1473,8 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             facts,
             DEFAULT_SEED,
             cliques_path,
+            umls_minted_codes=umls_minted_codes,
+            ranking=ranking,
         )
         _stage_banner(
             f"ER STAGE 3 DONE ({time.perf_counter() - t:.1f}s) -- "
@@ -1423,6 +1504,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             biolink,
             temp_dir,
             debug_db,
+            attached_minted_codes=attached_minted_codes,
         )
         _stage_banner(
             f"ER STAGE 4 DONE ({time.perf_counter() - t:.1f}s) -- "

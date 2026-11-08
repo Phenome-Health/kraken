@@ -47,6 +47,11 @@ serve this; if the code and this doc disagree, this doc is the north star.
    that mix two species' orthologs apart. Only this family: elsewhere a torn Babel clique
    is usually label propagation correctly separating a class from its members.
 
+   Then put each id UMLS minted itself (`OMIM:MTH*`, a term that exists only inside one UMLS
+   concept) that nothing else ties down into the node of that concept, if the guardrails allow
+   it and the node keeps its id, name, types and taxon. This comes after clustering so that it
+   cannot move anything else (see `umls_minted_codes`).
+
 7. Now we're ready to merge nodes. The "canonical" id for the merged node is chosen based
    on our prefix ranking. The chosen name should preferably be the label for that exact
    chosen id per Babel, backing up as appropriate. The description preferably comes
