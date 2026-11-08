@@ -31,6 +31,7 @@ import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from pathlib import Path
 
 import jsonlines
@@ -47,6 +48,7 @@ from kraken.entity_resolution.babel_outliers import (
     find_babel_outliers,
     log_babel_outliers,
 )
+from kraken.entity_resolution.chemical_cohesion import plan_chemical_clique_repairs
 from kraken.entity_resolution.clustering import DEFAULT_SEED, label_propagation
 from kraken.entity_resolution.debug_db import DebugDbWriter, debug_db_path
 from kraken.entity_resolution.families import ALL_FAMILIES, GENE_PROTEIN_FAMILY, BranchFamilies
@@ -789,6 +791,7 @@ def _stage3_cluster(
     facts: IdFactsStore,
     seed: int,
     cliques_path: Path | None = None,
+    babel_outliers: set[str] | dict | None = None,
     *,
     umls_minted_codes: dict[str, str] | None = None,
     ranking: PrefixRanking | None = None,
@@ -965,20 +968,51 @@ def _stage3_cluster(
             ):
                 record(part)
 
+    def untally(cluster: list[str]) -> None:
+        for prefix, count in ids_per_cluster_histogram([cluster]).items():
+            for ids_of_prefix, clusters in count.items():
+                histogram[prefix][ids_of_prefix] -= clusters
+
+    def label_of(curie: str) -> str | None:
+        known = facts.get(curie)
+        return known.label if known else None
+
     # A Babel gene/protein clique that label propagation tore in two is put back (see gene_protein_cohesion),
     # and what it counted per cluster retallied for the clusters that changed.
     if cliques_path is not None:
         for group in rejoin_split_gene_protein_cliques(curie_to_cluster, cliques_path, info_provider, guardrail_config):
             for cluster in group:
-                for prefix, count in ids_per_cluster_histogram([cluster]).items():
-                    for ids_of_prefix, clusters in count.items():
-                        histogram[prefix][ids_of_prefix] -= clusters
+                untally(cluster)
             rejoined = [curie for cluster in group for curie in cluster]
             for prefix, count in ids_per_cluster_histogram([rejoined]).items():
                 for ids_of_prefix, clusters in count.items():
                     histogram[prefix][ids_of_prefix] += clusters
             if len(rejoined) >= guardrail_config.oversized_cluster_log_threshold:
                 oversized.append(rejoined)
+
+        def pairs_among(curies: set[str]) -> Iterator[tuple[str, str]]:
+            held = np.zeros(num_nodes, dtype=bool)
+            held[uniques.get_indexer(list(curies))] = True  # every id asked about is a match-graph node
+            for i in np.flatnonzero(held[a_codes] & held[b_codes]):
+                yield uniques[a_codes[i]], uniques[b_codes[i]]
+
+        # Likewise the members of a chemical's clique (see chemical_cohesion).
+        chemical_repairs = plan_chemical_clique_repairs(
+            curie_to_cluster,
+            cliques_path,
+            mg_categories,
+            info_provider,
+            label_of,
+            pairs_among,
+            guardrail_config,
+            weights.clique_cap,
+            babel_outliers or (),
+        )
+        mg_categories.update(chemical_repairs.retyped)
+        for cluster in chemical_repairs.replaced:
+            untally(cluster)
+        for cluster in chemical_repairs.remade:
+            record(cluster)
 
     # Last, on the final clusters. It may open a cluster, so it hands back the next free cluster id.
     attached_minted_codes: set[str] = set()
@@ -992,16 +1026,12 @@ def _stage3_cluster(
             if taxon:
                 mg_taxon[curie] = taxon
 
-        def babel_label(curie: str) -> str | None:
-            info = facts.get(curie)
-            return info.label if info else None
-
         attached_minted_codes, next_cluster_id = attach_orphan_codes(
             umls_minted_codes,
             curie_to_cluster,
             info_of=info_provider,
             categories_of=mg_categories,
-            label_of=babel_label,
+            label_of=label_of,
             ranking=ranking,
             guardrail_config=guardrail_config,
             next_cluster_id=next_cluster_id,
@@ -1473,6 +1503,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             facts,
             DEFAULT_SEED,
             cliques_path,
+            outliers,
             umls_minted_codes=umls_minted_codes,
             ranking=ranking,
         )

@@ -1350,3 +1350,43 @@ def test_a_one_id_repair_cuts_between_the_babel_cliques(tmp_path):
     assert m[racemic_key] != m[r_key], "two structures cannot share a node"
     assert m[racemic_key] == m["CHEBI:5855"] == m["MESH:D007052"], "the racemic key stays with its own clique"
     assert m[r_key] == m["CHEBI:47835"] == m["UNII:2R43V6L3EG"], "and the (R) key with its own"
+
+
+def test_a_protein_typed_umls_concept_joins_the_chemical_it_shares_a_mesh_id_with(tmp_path):
+    """N-acetyl-S-allylcysteine end to end: the MeSH id is in a Protein clique and a SmallMolecule clique, so the
+    UMLS concept is pruned from it and left alone as a Protein. It must end in the chemical's node, typed as one."""
+    key = "INCHIKEY:LKRAEHUDIUJBSF-ZETCQYMHSA-N"
+
+    def node(curie, category, name=None):
+        return {"id": curie, "name": name, "categories": [category], "provided_by": ["infores:sri-node-normalizer"]}
+
+    def same_as(hub, member):
+        return {"subject": hub, "predicate": "biolink:same_as", "object": member}
+
+    babel = _write_source_with_edges(
+        tmp_path,
+        "babel",
+        [
+            node("UMLS:C0526228", "biolink:Protein", "N-acetyl-S-allylcysteine"),
+            node("MESH:C054604", "biolink:Protein", "N-acetyl-S-allylcysteine"),
+            node("CHEBI:189718", "biolink:SmallMolecule", "N-acetyl-S-allylcysteine"),
+            node("MESH:C054604", "biolink:SmallMolecule", "N-acetyl-S-allylcysteine"),
+            node(key, "biolink:SmallMolecule"),
+        ],
+        [
+            same_as("UMLS:C0526228", "MESH:C054604"),
+            same_as("CHEBI:189718", "MESH:C054604"),
+            same_as("CHEBI:189718", key),
+        ],
+    )
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved={"babel": babel},
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    m = resolve_entities(config, biolink=None)
+    assert m["UMLS:C0526228"] == m["CHEBI:189718"] == m["MESH:C054604"] == m[key]
+    with jsonlines.open(config.integrated_nodes_path) as nodes:
+        [merged] = list(nodes)
+    assert merged["categories"] == ["biolink:SmallMolecule"]

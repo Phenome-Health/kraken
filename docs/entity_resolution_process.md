@@ -44,8 +44,17 @@ serve this; if the code and this doc disagree, this doc is the north star.
    at one uniform weight, so it splits whenever only one half has outside evidence (ACE).
    A gene and the protein it encodes in one species are one entity, so those clusters are
    rejoined — as long as the guardrails allow the union, which is what keeps the cliques
-   that mix two species' orthologs apart. Only this family: elsewhere a torn Babel clique
-   is usually label propagation correctly separating a class from its members.
+   that mix two species' orthologs apart. Elsewhere a torn Babel clique is usually label
+   propagation correctly separating a class from its members, with one exception: a clique
+   holding an InChIKey is one structure. When most of it sits with another stereo form's
+   InChIKey (same first block), those members join their own; ids outside the clique stay
+   where they are, and a move that would leave its donor cluster in pieces, or with a SMILES,
+   is not made (see `chemical_cohesion`).
+   Likewise a UMLS, NCIT or MeSH concept that UMLS's "Amino Acid, Peptide, or Protein" type
+   puts in a Protein clique with a chemical's MeSH id joins that chemical, typed as one, when
+   it sits alone or with its clique only, nothing holds it as a protein, and it has the exact
+   name of a member of the chemical's clique other than PubChem's (PubChem can title a record
+   with the MeSH name linked to it, whatever its structure).
 
    Then put each id UMLS minted itself (`OMIM:MTH*`, a term that exists only inside one UMLS
    concept) that nothing else ties down into the node of that concept, if the guardrails allow

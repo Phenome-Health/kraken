@@ -46,7 +46,7 @@ GENE_PROTEIN_FAMILY = "gene_protein"
 InfoProvider = Callable[[str], NodeInfo]
 
 
-def _cliques(cliques_path: Path) -> Iterator[list[str]]:
+def read_cliques(cliques_path: Path) -> Iterator[list[str]]:
     """Each clique's members, from ``id<TAB>hub<TAB>size`` rows written one clique at a time."""
     members: list[str] = []
     current = None
@@ -96,7 +96,7 @@ def rejoin_split_gene_protein_cliques(
             parent[max(root_one, root_other)] = min(root_one, root_other)
 
     split_cliques = 0
-    for members in _cliques(cliques_path):
+    for members in read_cliques(cliques_path):
         clustered = [m for m in members if m in curie_to_cluster]
         clusters = {curie_to_cluster[m] for m in clustered}
         if len(clusters) < 2 or not all(_gene_protein(info_of(m)) for m in clustered):
