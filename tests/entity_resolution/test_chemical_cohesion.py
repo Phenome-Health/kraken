@@ -204,8 +204,9 @@ NO_STEREO = ["PUBCHEM.COMPOUND:521440", "INCHIKEY:C-U"]
 
 
 def test_most_of_a_clique_with_another_inchikey_joins_its_own_and_nothing_else_moves(tmp_path):
-    """Cortisone: most of its clique sits with the no-stereo InChIKey; RefMet's id stays with the InChIKey it lists,
-    and LOINC's "Cortisone", outside the clique, stays where label propagation put it."""
+    """Cortisone: most of its clique sits with the no-stereo InChIKey; RefMet's id stays with the InChIKey it lists.
+    LOINC's "Cortisone", outside the clique, stays behind: a known remaining split (see the cortisone-stereo benchmark
+    case), since only the clique's own members move. Carrying it needs to know which source tied it where."""
     clusters = dict.fromkeys([*CORTISONE[:2], "RM:0128363"], 0) | dict.fromkeys([*CORTISONE[2:], *NO_STEREO], 1)
     clusters["LOINC:LP18544-4"] = 1
     pairs = [(a, b) for a in CORTISONE for b in CORTISONE if a < b] + [("INCHIKEY:C-Z", "RM:0128363")]
