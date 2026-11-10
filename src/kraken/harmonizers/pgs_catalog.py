@@ -377,7 +377,7 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
     def _download(url: str, dest: Path) -> Path | None:
         """Download `url` to `dest` (cached: returns immediately if it already exists). Writes to a .part file
         and renames on completion so a partial download is never cached as complete. Returns None on 404.
-        Connection failures and 5xx responses are retried; the last failure propagates and stops the build."""
+        Connection failures, 5xx and 429 responses are retried; the last failure propagates and stops the build."""
         if dest.exists():
             return dest
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -395,7 +395,8 @@ class PGSCatalogHarmonizer(BaseHarmonizer):
                     part.rename(dest)
                 return dest
             except requests.RequestException as error:
-                client_error = error.response is not None and error.response.status_code < 500
+                status = error.response.status_code if error.response is not None else None
+                client_error = status is not None and status < 500 and status != 429  # 429: rate limited, so wait
                 if client_error or attempt == DOWNLOAD_ATTEMPTS:
                     raise
                 wait = DOWNLOAD_RETRY_WAIT_SECONDS * attempt

@@ -79,6 +79,13 @@ def test_a_client_error_is_not_retried(tmp_path, replies):
         PGSCatalogHarmonizer._download(URL, tmp_path / "PGS1.txt.gz")
 
 
+def test_a_rate_limit_is_waited_out(tmp_path, replies):
+    """429 is a client error that clears with time, so it is retried like a server error."""
+    replies += [_Response(status_code=429), _Response()]
+    dest = tmp_path / "PGS1.txt.gz"
+    assert PGSCatalogHarmonizer._download(URL, dest) == dest
+
+
 def test_404_still_means_no_scoring_file(tmp_path, replies):
     """A score without a harmonized file is normal: it just gets no gene and variant edges."""
     replies.append(_Response(status_code=404))
