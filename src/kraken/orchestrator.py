@@ -38,6 +38,7 @@ from kraken.harmonizers.translator_kg_open import TranslatorKGOpenHarmonizer
 from kraken.harmonizers.umls import UMLSHarmonizer
 from kraken.integrate import integrate_sources
 from kraken.metagraph import generate_metagraph_for_source
+from kraken.post_processing.node_labels import label_nodes
 from kraken.post_processing.test_file_generator import create_test_kg_files
 from kraken.utils.constants import PROJECT_ROOT
 from kraken.utils.kg_io import unzip_files, zip_files
@@ -287,6 +288,8 @@ class KrakenBuildOrchestrator:
     def _post_process(self):
         """Run all post-processing steps on the unified KG"""
         logging.info("------------------------------ POST-PROCESSING -----------------------------------------------")
+        if not self.config.options.validation_only:
+            label_nodes(self.config.integrated_nodes_path, self.config.integrated_edges_path)
 
         if self.config.post_processing:
             if self.config.post_processing.test_export:
