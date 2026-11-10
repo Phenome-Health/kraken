@@ -11,8 +11,11 @@ serve this; if the code and this doc disagree, this doc is the north star.
    `same_as` / `exact_match` edge — and Babel knows both ids, Babel decides; the aggregator's
    claim only counts for ids Babel doesn't know — except for a Babel clique OUTLIER: an id whose
    name matches none of its clique's (which agree among themselves) but two or more of another
-   clique's. For those, Babel's evidence is dropped and the aggregators' claims count again
-   (see `babel_outliers`). Ids whose names match also get linked:
+   clique's, and that the aggregators don't place with its own clique, or that a primary source
+   maps into the other clique and not into its own (aggregator lists mostly copy Babel). For
+   those, Babel's evidence is dropped and the aggregators' claims count again, except their
+   claims back into the clique it left (see `babel_outliers`).
+   Ids whose names match also get linked:
    ignoring spacing, hyphens and possessives, and plurals outside chemistry, but never
    stereo signs, charges or primes (see `name_sim.name_keys`). A name counts only when it is
    attributable to the id itself: a native source names its own id, while a canonicalized
