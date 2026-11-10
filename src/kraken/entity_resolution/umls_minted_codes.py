@@ -17,7 +17,7 @@ A code may only add itself to the node. OMIM ranks above HP, so in 2,262 of the 
 become the node's id, and in 2,258 it would have added a type the node's own ids do not have (kg2 types it from the
 concept's UMLS semantic type). And where the node's id has no Babel label, the code's name could become the node's:
 318 nodes would have been renamed. Those codes stay apart. The ones that join lend the node no description either
-(see ``_stage4_materialize``): kg2's is mostly just the semantic type, "UMLS Semantic Type: STY:T047".
+(see ``_stage4_materialize``).
 """
 
 from __future__ import annotations

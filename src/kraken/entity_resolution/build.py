@@ -1199,7 +1199,7 @@ def _stage4_materialize(
                     node[NODE_CATEGORIES] = node_category(node_id, node.get(NODE_CATEGORIES))
                     if attached_minted_codes and node_id in attached_minted_codes:
                         # It joined on condition that it changes nothing about its node (see umls_minted_codes), so
-                        # its description, mostly kg2's label of its concept's UMLS semantic type, cannot be the node's.
+                        # its description cannot be the node's.
                         node.pop(NODE_DESCRIPTION, None)
                     # Taxon: Babel wins; else keep the source taxon already on the dict; else
                     # the single-species prefix backup (last resort, never before source).
