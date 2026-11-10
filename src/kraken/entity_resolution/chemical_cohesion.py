@@ -96,6 +96,8 @@ def plan_chemical_clique_repairs(
         return _prefix(curie) in PROTEIN_DATABASE_PREFIXES or GENE_CATEGORY in categories.get(curie, ())
 
     def typed_protein(curie: str) -> bool:
+        # An id in two Babel compendia has the type of the one read last (compendia are read in file-name order and the
+        # id facts store keeps the last write): stable from build to build, but not a statement about the id.
         return categories.get(curie) == (PROTEIN_CATEGORY,)
 
     structure_cliques: list[list[str]] = []

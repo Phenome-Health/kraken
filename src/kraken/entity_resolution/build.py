@@ -607,6 +607,7 @@ def _write_kg2_match_evidence(
     hierarchical_counts: dict[tuple[str, str], int] = defaultdict(int)
     # (a, b, predicate, primary_ks, whether Babel decides it), a <= b
     match_pairs: list[tuple[str, str, str, str | None, bool]] = []
+    minted_for_two: set[str] = set()
     for edge in stream_edges_from_jsonl(edges_path):
         predicate = edge.get(EDGE_PREDICATE, "")
         is_hierarchical = predicate in SUBCLASS_PREDICATES
@@ -614,8 +615,8 @@ def _write_kg2_match_evidence(
             continue
         if umls_minted_codes is not None:
             for subject, relation, object_ in kg2_pre_id_triples(edge):
-                if is_umls_minted_code(subject, relation):
-                    umls_minted_codes[subject] = object_
+                if is_umls_minted_code(subject, relation) and umls_minted_codes.setdefault(subject, object_) != object_:
+                    minted_for_two.add(subject)
         for subject, object_ in _original_endpoints(edge, "kg2") or []:
             if subject == object_:
                 continue
@@ -627,6 +628,15 @@ def _write_kg2_match_evidence(
                 if babel_decides:
                     dropped_known_matches["kg2"] += 1
                 match_pairs.append((a, b, predicate, _primary_ks(edge), babel_decides))
+
+    if minted_for_two:  # none on the 2.4.0 inputs: such a code can't say which concept it is, so it joins neither
+        for code in minted_for_two:
+            del umls_minted_codes[code]
+        logging.warning(
+            "entity_resolution: %d UMLS-minted codes name two concepts and join neither, e.g. %s",
+            len(minted_for_two),
+            sorted(minted_for_two)[:5],
+        )
 
     for a, b, predicate, primary_ks, babel_decides in match_pairs:
         base = weights.predicate_weight(predicate)
@@ -992,7 +1002,10 @@ def _stage3_cluster(
 
         def pairs_among(curies: set[str]) -> Iterator[tuple[str, str]]:
             held = np.zeros(num_nodes, dtype=bool)
-            held[uniques.get_indexer(list(curies))] = True  # every id asked about is a match-graph node
+            indexer = uniques.get_indexer(list(curies))
+            if (indexer < 0).any():  # get_indexer's -1 would silently mark the last node
+                raise ValueError("pairs_among is only asked about match-graph ids")
+            held[indexer] = True
             for i in np.flatnonzero(held[a_codes] & held[b_codes]):
                 yield uniques[a_codes[i]], uniques[b_codes[i]]
 
@@ -1017,6 +1030,8 @@ def _stage3_cluster(
     # Last, on the final clusters. It may open a cluster, so it hands back the next free cluster id.
     attached_minted_codes: set[str] = set()
     if umls_minted_codes:
+        if ranking is None:
+            raise ValueError("attaching UMLS-minted codes needs the prefix ranking materialize uses")
         # Most of these never reached tau, so they have no category or taxon yet, and an id without one is a
         # guardrail wildcard. Category: Babel's, else their source's. Taxon: as for every match-graph id.
         for curie in {curie for pair in umls_minted_codes.items() for curie in pair} - mg_categories.keys():
