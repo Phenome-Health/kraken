@@ -17,19 +17,19 @@ options:
 base_path: "/Volumes/AmySSD/kraken-data"
 
 harmonization:
-  output_directory: "artifacts/2.4.0-dev2/harmonized/"
+  output_directory: "artifacts/harmonized/"
   zip_inputs_after: False
   validate_output: True
 
 integration:
-  output_directory: "artifacts/2.4.0-dev2/integrated/"
+  output_directory: "artifacts/integrated/"
 
 metagraph:
-  output_directory: "artifacts/2.4.0-dev2/metagraphs"
+  output_directory: "artifacts/metagraphs"
 
 post_processing:
   test_export:
-    output_directory: "artifacts/2.4.0-dev2/integrated/"
+    output_directory: "artifacts/integrated/"
     num_edges: 10000
 
 sources:
