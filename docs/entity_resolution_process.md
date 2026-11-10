@@ -67,7 +67,9 @@ serve this; if the code and this doc disagree, this doc is the north star.
    from the same id as the name, backing up as appropriate. Synonyms should be retained
    from sources IF their equiv ids are a subset of the merged node's equiv ids. Retain the
    taxon from Babel as well — basically never throw away anything from Babel or from
-   sources.
+   sources. Two exceptions, both in `materialize`: a chemical holding a 7-character ATC
+   drug code is also typed Drug, and a few chemical names checked by hand against their
+   structure replace a wrong label (which then leaves the synonyms too).
 
 8. Now nodes are properly merged. Go through and remap edges appropriately: for aggregator
    sources, look at their ORIGINAL subj/obj, map that to what is now canonical, and

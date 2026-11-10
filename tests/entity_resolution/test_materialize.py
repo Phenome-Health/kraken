@@ -127,3 +127,59 @@ def test_chemical_holding_an_atc_substance_code_is_a_drug():
 )
 def test_what_does_not_make_a_drug(members):
     assert "biolink:Drug" not in materialize_cluster(members, _ranking(), _families())["categories"]
+
+
+GLYCOPEPTIDE = "(alpha-D-mannosyl)7-beta-D-mannosyl-diacetylchitobiosyl-L-asparagine, isoform {} (protein)"
+# (representative, its wrong label, id carrying the right name, that name, the audited InChIKey) -- literal on purpose,
+# so a test fails if an entry is dropped or changed (#29)
+AUDITED_NAMES = [
+    (
+        "HMDB:HMDB0062473",
+        "Glycoprotein-phospho-D-mannose",
+        "CHEBI:37675",
+        "aldehydo-D-mannose",
+        "GZCGUPFRVQAUEE-KVTDHHQDSA-N",
+    ),
+    ("CHEBI:25146", "Amylose", "CHEBI:27931", "alpha-maltotriose", "FYGDTMLNYKFZSV-PXXRMHSHSA-N"),
+    ("HMDB:HMDB0062251", GLYCOPEPTIDE.format("A"), "CHEBI:16449", "alanine", "QNAYBMKLOCPYGJ-UHFFFAOYSA-N"),
+    ("HMDB:HMDB0062252", GLYCOPEPTIDE.format("B"), "MESH:C108415", "4-iodoanisole", "SYSZENVIJHPFNL-UHFFFAOYSA-N"),
+]
+
+
+def _named(rep, wrong, name_from, name, inchikey, *, rep_label=None, right_label=None, drop=()):
+    members = [_member(curie, "biolink:SmallMolecule") for curie in (rep, name_from, f"INCHIKEY:{inchikey}")]
+    members = [m for m in members if m["id"] not in drop]
+    members.append({**_member("UMLS:C0385079", "biolink:SmallMolecule"), "name": wrong})  # another source repeats it
+    labels = {rep: rep_label or wrong, name_from: right_label or name}
+    return materialize_cluster(members, _ranking(), _families(), label_of=labels.get)
+
+
+@pytest.mark.parametrize("rep, wrong, name_from, name, inchikey", AUDITED_NAMES, ids=[row[3] for row in AUDITED_NAMES])
+def test_an_audited_wrong_name_is_replaced_and_leaves_the_synonyms(rep, wrong, name_from, name, inchikey):
+    node = _named(rep, wrong, name_from, name, inchikey)
+    assert node["name"] == name
+    assert wrong not in node.get("synonyms", [])
+
+
+def test_the_wrong_name_leaves_the_synonyms_even_after_upstream_fixes_the_label():
+    rep, wrong, name_from, name, inchikey = AUDITED_NAMES[0]
+    node = _named(rep, wrong, name_from, name, inchikey, rep_label="D-mannose")
+    assert node["name"] == "D-mannose"
+    assert wrong not in node["synonyms"]
+
+
+def test_the_correction_follows_its_cluster_when_the_representative_changes():
+    """Without the HMDB id, ChEBI's record of 4-iodoanisole leads the cluster, and it carries the same wrong label."""
+    _rep, wrong, name_from, name, inchikey = AUDITED_NAMES[3]
+    assert _named("CHEBI:174192", wrong, name_from, name, inchikey)["name"] == name
+
+
+@pytest.mark.parametrize("change", ["no structure", "no id with the right name", "its label changed"])
+def test_a_correction_only_touches_the_cluster_that_was_checked(change):
+    rep, wrong, name_from, name, inchikey = AUDITED_NAMES[0]
+    if change == "its label changed":
+        node = _named(rep, wrong, name_from, name, inchikey, right_label="D-mannose")
+    else:
+        drop = f"INCHIKEY:{inchikey}" if change == "no structure" else name_from
+        node = _named(rep, wrong, name_from, name, inchikey, drop={drop})
+    assert node["name"] == wrong

@@ -7,7 +7,7 @@ reconciliation here is a function of the *set* of members, not their order:
   set-unions;
 * the representative id / name / description are chosen by a **total order**
   (ranked prefix for the cluster's family, then CURIE), which is
-  order-independent;
+  order-independent; a few chemical names are corrected by hand (NAME_CORRECTIONS);
 * categories are the leaf-filtered union, plus Drug for a chemical holding an ATC drug code;
 * taxon is the single guardrail-permitted taxon (or None on conflict).
 
@@ -18,8 +18,10 @@ members (a lower-ranked id can supply the description the top id lacks).
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -62,6 +64,47 @@ ATC_GROUP_CODES = frozenset(
         "ATC:S01AX03",  # zinc compounds
     }
 )
+
+
+@dataclass(frozen=True)
+class NameCorrection:
+    """A chemical's display name, checked by hand against its structure. It applies to the cluster holding the audited
+    structure and the id it is keyed by, while that id's own label is still the right name."""
+
+    wrong_name: str
+    name: str
+    inchikey: str
+
+
+# Id whose own label is the right name -> correction. Each wrong name is an HMDB or aggregator label for another
+# compound (#29). Keyed by that id, not by the representative, which a new member can change. The wrong name leaves
+# the synonyms too, so it is matched exactly: the same string is a fine name on the compound it belongs to.
+GLYCOPEPTIDE = "(alpha-D-mannosyl)7-beta-D-mannosyl-diacetylchitobiosyl-L-asparagine, isoform {} (protein)"
+NAME_CORRECTIONS: dict[str, NameCorrection] = {
+    "CHEBI:37675": NameCorrection(
+        wrong_name="Glycoprotein-phospho-D-mannose", name="aldehydo-D-mannose", inchikey="GZCGUPFRVQAUEE-KVTDHHQDSA-N"
+    ),
+    "CHEBI:27931": NameCorrection(
+        wrong_name="Amylose", name="alpha-maltotriose", inchikey="FYGDTMLNYKFZSV-PXXRMHSHSA-N"
+    ),
+    "CHEBI:16449": NameCorrection(
+        wrong_name=GLYCOPEPTIDE.format("A"), name="alanine", inchikey="QNAYBMKLOCPYGJ-UHFFFAOYSA-N"
+    ),
+    "MESH:C108415": NameCorrection(
+        wrong_name=GLYCOPEPTIDE.format("B"), name="4-iodoanisole", inchikey="SYSZENVIJHPFNL-UHFFFAOYSA-N"
+    ),
+}
+
+
+def _name_correction(cluster_ids: set[str], label_of: Callable[[str], str | None]) -> NameCorrection | None:
+    for curie, correction in NAME_CORRECTIONS.items():
+        if (
+            curie in cluster_ids
+            and f"INCHIKEY:{correction.inchikey}" in cluster_ids
+            and label_of(curie) == correction.name
+        ):
+            return correction
+    return None
 
 
 class PrefixRanking:
@@ -175,12 +218,23 @@ def materialize_cluster(
     # else the highest-ranked member name. Every other member name (incl. the rep's
     # own source name when the Babel label differs) is retained as a synonym below.
     chosen_name = label_of(representative[NODE_ID]) or (name_src.get(NODE_NAME) if name_src else None)
+    correction = _name_correction(cluster_ids, label_of)
+    if correction and chosen_name == correction.wrong_name:
+        logging.info(
+            "materialize: %s is named %r, not %r (hand-checked)",
+            representative[NODE_ID],
+            correction.name,
+            correction.wrong_name,
+        )
+        chosen_name = correction.name
     for m in members:
-        # keep each member's source name AND its own Babel label (never throw either away)
+        # keep each member's source name AND its own Babel label (only an audited wrong name goes, below)
         for candidate in (m.get(NODE_NAME), label_of(m[NODE_ID])):
             if candidate and candidate != chosen_name:
                 synonyms.add(candidate)
     synonyms.discard(chosen_name)
+    if correction:
+        synonyms.discard(correction.wrong_name)
 
     # categories: leaf-filtered union is deferred to the caller (needs BiolinkClient);
     # here we emit the raw union (plus a derived Drug) and let resolve/postprocess leaf-filter.
