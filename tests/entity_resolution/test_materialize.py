@@ -3,6 +3,8 @@
 import random
 from pathlib import Path
 
+import pytest
+
 from kraken.entity_resolution.families import BranchFamilies
 from kraken.entity_resolution.materialize import PrefixRanking, materialize_cluster
 
@@ -97,3 +99,31 @@ def test_description_from_lower_ranked_when_top_lacks_it():
     canonical = materialize_cluster(members, _ranking(), _families())
     assert canonical["id"] == "MONDO:1"  # MONDO ranks above OMIM
     assert canonical["description"] == "A described disease."  # from OMIM
+
+
+def _member(curie: str, category: str) -> dict:
+    return {"id": curie, "categories": [category], "provided_by": ["x"], "equivalent_ids": [curie]}
+
+
+def test_chemical_holding_an_atc_substance_code_is_a_drug():
+    """Tezepelumab: no id of it is Drug-typed, so queries filtered to biolink:Drug missed an approved antibody."""
+    members = [_member("UNII:RJ1IW3B4QX", "biolink:ChemicalEntity"), _member("ATC:R03DX11", "biolink:NamedThing")]
+    assert "biolink:Drug" in materialize_cluster(members, _ranking(), _families())["categories"]
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        # a shorter code is a drug class
+        [_member("CHEBI:1", "biolink:ChemicalEntity"), _member("ATC:R03DX", "biolink:NamedThing")],
+        # a few 7-character codes name a group: carbohydrates on the ChEBI class "carbohydrate"
+        [_member("CHEBI:16646", "biolink:MolecularEntity"), _member("ATC:B05BA03", "biolink:NamedThing")],
+        # the same codes sit on organisms: Lactobacillus is not a drug
+        [_member("NCBITaxon:1578", "biolink:OrganismTaxon"), _member("ATC:A07FA01", "biolink:NamedThing")],
+        # a code only a member's source list names went to another node
+        [{**_member("CHEBI:2", "biolink:ChemicalEntity"), "equivalent_ids": ["CHEBI:2", "ATC:A01AB08"]}],
+    ],
+    ids=["class code", "group code", "organism", "spilled list"],
+)
+def test_what_does_not_make_a_drug(members):
+    assert "biolink:Drug" not in materialize_cluster(members, _ranking(), _families())["categories"]

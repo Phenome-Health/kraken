@@ -26,13 +26,12 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 
-from kraken.entity_resolution.families import ALL_FAMILIES, BranchFamilies
+from kraken.entity_resolution.families import ALL_FAMILIES, CHEMICAL_FAMILY, BranchFamilies
 from kraken.entity_resolution.guardrails import GuardrailConfig, NodeInfo, cluster_violations
 from kraken.entity_resolution.materialize import PrefixRanking
 
 UMLS_XREF_RELATION = "UMLS:xref"
 UMLS_MINTED_PREFIX = "OMIM:MTH"
-CHEMICAL_FAMILY = "chemical"
 
 
 def is_umls_minted_code(curie: str, relation: str) -> bool:

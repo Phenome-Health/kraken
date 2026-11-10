@@ -8,7 +8,7 @@ reconciliation here is a function of the *set* of members, not their order:
 * the representative id / name / description are chosen by a **total order**
   (ranked prefix for the cluster's family, then CURIE), which is
   order-independent;
-* categories are the leaf-filtered union;
+* categories are the leaf-filtered union, plus Drug for a chemical holding an ATC drug code;
 * taxon is the single guardrail-permitted taxon (or None on conflict).
 
 The representative id is cosmetic (queries resolve through the membership map),
@@ -18,12 +18,13 @@ members (a lower-ranked id can supply the description the top id lacks).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 import yaml
 
-from kraken.entity_resolution.families import ALL_FAMILIES, BranchFamilies
+from kraken.entity_resolution.families import ALL_FAMILIES, CHEMICAL_FAMILY, BranchFamilies
 from kraken.utils.constants import (
     NODE_ATTRIBUTES,
     NODE_CATEGORIES,
@@ -44,6 +45,23 @@ from kraken.utils.constants import (
 DEFAULT_RANKING_PATH = PROJECT_ROOT / "config" / "entity_resolution" / "prefix_ranking.yaml"
 
 _UNRANKED = 10_000
+
+# Babel types an id by its structure, and many drugs have no Drug-typed id: tezepelumab is ChemicalEntity from Babel,
+# and the aggregators' Drug + Protein spans two families, so its other ids inherit nothing. ATC gives a 7-character
+# code almost only to a therapeutic substance, so a chemical holding one is a drug whatever its ids are typed. Set here,
+# after clustering, it cannot change what merges. Chemicals only: the same codes sit on organisms (probiotics), cells,
+# devices and proteins. A few 7-character codes name a group instead; these are the ones found on chemical nodes.
+DRUG_CATEGORY = "biolink:Drug"
+ATC_SUBSTANCE_CODE = re.compile(r"ATC:[A-Z]\d{2}[A-Z]{2}\d{2}")
+ATC_GROUP_CODES = frozenset(
+    {
+        "ATC:A07XA03",  # calcium compounds
+        "ATC:B05BA03",  # carbohydrates (on the ChEBI class "carbohydrate")
+        "ATC:D11AC02",  # cadmium compounds
+        "ATC:D11AC08",  # sulfur compounds
+        "ATC:S01AX03",  # zinc compounds
+    }
+)
 
 
 class PrefixRanking:
@@ -165,8 +183,12 @@ def materialize_cluster(
     synonyms.discard(chosen_name)
 
     # categories: leaf-filtered union is deferred to the caller (needs BiolinkClient);
-    # here we emit the raw union and let resolve/postprocess leaf-filter.
+    # here we emit the raw union (plus a derived Drug) and let resolve/postprocess leaf-filter.
     categories = _union_field(members, NODE_CATEGORIES)
+    if family == CHEMICAL_FAMILY and any(
+        ATC_SUBSTANCE_CODE.fullmatch(curie) and curie not in ATC_GROUP_CODES for curie in cluster_ids
+    ):
+        categories = sorted({*categories, DRUG_CATEGORY})
 
     # taxon: guardrail guarantees <=1 distinct; None on any residual conflict
     taxa = {m.get(NODE_TAXON) for m in members if m.get(NODE_TAXON)}
