@@ -64,7 +64,7 @@ Splitter = Callable[[list[str]], list[list[str]]]
 #     structure is C25H42O4 (FFRRRORQFBLEJM), a carbon heavier than deoxycholate's C24H39O4- (KXGVEGMKQFWNSR), and
 #     a name match alone reaches tau. No normalization can catch that -- the names are identical, the SOURCE is
 #     wrong -- so the structures have to veto it.
-#   * ICD10CM -- a code and its child are different diagnoses even when CDC gives them one name (726 such name groups:
+#   * ICD10CM -- a code and its child are different diagnoses even when CDC gives them one name (728 such name groups:
 #     A08.3 and A08.39 are both "Other viral enteritis"), so a name match must not fold one code into another.
 DEFAULT_ENFORCED_PREFIXES: frozenset[str] = frozenset(
     {"RM", "LM", "MONDO", "CAID", "ICD10CM", SMILES_PREFIX, INCHIKEY_PREFIX}
