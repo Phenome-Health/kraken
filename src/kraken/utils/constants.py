@@ -123,3 +123,7 @@ EDGE_ATTRIBUTES = EdgeModel.attributes.name
 # canonical pairing as equivalence evidence) read them, so the names live here rather than in either.
 ORIGINAL_SUBJECT_ATTR = "original_subject"
 ORIGINAL_OBJECT_ATTR = "original_object"
+# KG2 keeps the statements an edge was built from, each "subject---relation---q---q---q---object---upstream source"
+# (one merged edge can carry several). Its harmonizer corrects them, and entity resolution reads their endpoints.
+KG2_PRE_IDS_ATTR = "kg2pre_ids"
+KG2_STATEMENT_SEPARATOR = "---"

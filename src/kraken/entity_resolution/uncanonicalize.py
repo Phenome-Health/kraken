@@ -19,6 +19,8 @@ from kraken.utils.constants import (
     EDGE_ATTRIBUTES,
     EDGE_OBJECT,
     EDGE_SUBJECT,
+    KG2_PRE_IDS_ATTR,
+    KG2_STATEMENT_SEPARATOR,
     ORIGINAL_OBJECT_ATTR,
     ORIGINAL_SUBJECT_ATTR,
 )
@@ -44,11 +46,8 @@ CANONICALIZED_AGGREGATOR_SOURCES: frozenset[str] = frozenset({"kg2", "robokop", 
 # and Translator's originals are real ids nothing else supplies (HGVS -> CAID, Ensembl -> NCBIGene), 1:1 with the
 # stored endpoint.
 ALIAS_EVIDENCE_SOURCES: frozenset[str] = frozenset({"robokop", "translator-kg-open"})
-# KG2's per-edge original ids: "orig_subject---relation---q---q---q---orig_object---src".
-KG2_PRE_IDS_ATTR = "kg2pre_ids"
-_KG2_ID_SEP = "---"
-# (The other aggregators keep the original endpoints as plain attributes; those attribute names live
-# in utils.constants because the harmonizers write them and entity resolution reads them.)
+# (KG2's per-edge original statements and the other aggregators' original endpoints are named in utils.constants,
+# because the harmonizers write them and entity resolution reads them.)
 
 
 def kg2_pre_id_triples(edge: dict) -> list[tuple[str, str, str]]:
@@ -63,7 +62,7 @@ def kg2_pre_id_triples(edge: dict) -> list[tuple[str, str, str]]:
         if not isinstance(attrs, dict):
             continue
         for raw in attrs.get(KG2_PRE_IDS_ATTR) or []:
-            parts = raw.split(_KG2_ID_SEP)
+            parts = raw.split(KG2_STATEMENT_SEPARATOR)
             if len(parts) >= 6 and parts[0] not in ("", "None") and parts[5] not in ("", "None"):
                 triples.append((parts[0], parts[1], parts[5]))
     return triples
@@ -77,7 +76,7 @@ def _kg2_pre_id_pairs(edge: dict) -> list[tuple[str, str]]:
         if not isinstance(attrs, dict):
             continue
         for raw in attrs.get(KG2_PRE_IDS_ATTR) or []:
-            parts = raw.split(_KG2_ID_SEP)
+            parts = raw.split(KG2_STATEMENT_SEPARATOR)
             if len(parts) >= 6 and parts[0] not in ("", "None") and parts[5] not in ("", "None"):
                 pairs.append((parts[0], parts[5]))
     return pairs

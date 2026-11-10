@@ -11,6 +11,10 @@ from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.helpers.name_overrides import ORIGINAL_NAME_ATTRIBUTE, apply_name_override
 from kraken.harmonizers.helpers.source_corrections import (
     EDGE_CORRECTIONS,
+    MOVE_TARGET,
+    MOVED_EQUIVALENT_IDS,
+    MOVED_OFF,
+    MOVED_ON,
     NO_CORRECTION,
     NODE_CORRECTIONS,
     expected_corrections,
@@ -179,7 +183,7 @@ class BaseHarmonizer(ABC):
         self.multi_taxon_examples: list[str] = []
         self.taxa_dropped_off_non_gene_nodes = 0
         self.name_override_count = 0
-        self.applied_corrections: set[tuple[str, ...]] = set()  # statements source_corrections removed, as found
+        self.applied_corrections: set[tuple[str, ...]] = set()  # statements source_corrections changed, as found
 
         self.core_node_props = (
             {
@@ -292,6 +296,8 @@ class BaseHarmonizer(ABC):
                 else:
                     # Add this edge, unless it is a hand-checked wrong statement (see source_corrections.py)
                     harmonized = self._harmonize_edge(edge)
+                    if harmonized is None:  # a source-specific correction found the whole edge wrong
+                        continue
                     key = (
                         self.source_infores,
                         harmonized[EDGE_SUBJECT],
@@ -447,8 +453,8 @@ class BaseHarmonizer(ABC):
             )
         return primary_ks, aggregator_kses, supporting_sources
 
-    def _harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
-        """Harmonize a single edge. Override for source-specific logic."""
+    def _harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any] | None:
+        """Harmonize a single edge. Override for source-specific logic; an override returns None to drop the edge."""
         # Drop ignored source fields up front so they reach neither a top-level property nor attributes
         edge = {k: v for k, v in edge.items() if k not in self.ignore_edge_props}
 
@@ -534,15 +540,31 @@ class BaseHarmonizer(ABC):
             )
 
     def log_source_corrections(self) -> None:
-        """Report this source's hand-checked corrections (see source_corrections.py), and any statement they remove
-        that the source no longer makes: those entries are stale, most likely because the source fixed its record."""
+        """Report this source's hand-checked corrections (see source_corrections.py), and any statement they change
+        that the source no longer makes: those entries are stale, most likely because the source fixed its record.
+        A moved id whose right record never came is reported apart: it was taken off the wrong one, so it has none."""
         expected = expected_corrections(self.source_infores)
         if not expected:
             return
         stale = sorted(expected - self.applied_corrections)
-        logging.info(f"{self.source_name}: removed {len(expected) - len(stale)} hand-checked wrong statements")
-        if stale:
-            logging.warning(f"{self.source_name}: {len(stale)} corrected statements not found, retire them: {stale}")
+        logging.info(f"{self.source_name}: applied {len(expected) - len(stale)} hand-checked corrections")
+        lost = [entry for entry in stale if self._moved_off_without_target(entry)]
+        if lost:
+            logging.warning(
+                f"{self.source_name}: {len(lost)} moved ids found no record to move to, so they and their edges are "
+                f"dropped; point them at the source's current record: {lost}"
+            )
+        if retired := [entry for entry in stale if entry not in lost]:
+            logging.warning(
+                f"{self.source_name}: {len(retired)} corrected statements not found, retire them: {retired}"
+            )
+
+    def _moved_off_without_target(self, entry: tuple[str, ...]) -> bool:
+        if entry[2] != MOVE_TARGET:
+            return False
+        source, _right_record, _kind, curie = entry
+        wrong_record = MOVED_EQUIVALENT_IDS[(source, curie)].wrong_record
+        return (source, wrong_record, "equivalent_id", curie) in self.applied_corrections
 
     def log_normalization_report(self) -> None:
         """Report every curie biomapper2 could not fully normalize -- a work queue, not a failure log.
@@ -635,7 +657,8 @@ class BaseHarmonizer(ABC):
 
         # Assemble the node, with properties in a specific order (for convenient review)
         curie_normalized = self.normalize_curie(curie)
-        correction = NODE_CORRECTIONS.get((self.source_infores, curie_normalized), NO_CORRECTION)
+        record = (self.source_infores, curie_normalized)
+        correction = NODE_CORRECTIONS.get(record, NO_CORRECTION)
 
         # Categories are resolved before the name because name overrides key on them
         categories_cleaned = [fix_repeated_prefix(category) for category in to_list(categories)]
@@ -693,9 +716,13 @@ class BaseHarmonizer(ABC):
             if not equiv_id.startswith("INCHI:"):
                 normalized_equiv_id = self.normalize_curie(equiv_id)
                 cleaned_equiv_ids.add(normalized_equiv_id)
-        for curie_dropped in cleaned_equiv_ids & correction.equivalent_ids:
-            self.applied_corrections.add((self.source_infores, curie_normalized, "equivalent_id", curie_dropped))
-        equivalent_ids_final = list((cleaned_equiv_ids - correction.equivalent_ids) | {curie_normalized})
+        dropped_ids = correction.equivalent_ids | MOVED_OFF.get(record, frozenset())
+        added_ids = MOVED_ON.get(record, frozenset())
+        for curie_dropped in cleaned_equiv_ids & dropped_ids:
+            self.applied_corrections.add((*record, "equivalent_id", curie_dropped))
+        for curie_moved in added_ids:  # found its right record, which may list it already
+            self.applied_corrections.add((*record, MOVE_TARGET, curie_moved))
+        equivalent_ids_final = list((cleaned_equiv_ids - dropped_ids) | added_ids | {curie_normalized})
         node[NODE_EQUIVALENT_IDS] = equivalent_ids_final
 
         # `taxon` is single-valued (per Biolink). A node naming several taxa means the source has conflated

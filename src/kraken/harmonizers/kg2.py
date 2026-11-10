@@ -1,8 +1,13 @@
 import re
+from functools import cached_property
 from typing import Any
 
 from kraken.harmonizers.base import BaseHarmonizer
+from kraken.harmonizers.helpers.source_corrections import ORIGINAL_STATEMENT_CORRECTIONS
 from kraken.utils.constants import (
+    EDGE_ATTRIBUTES,
+    KG2_PRE_IDS_ATTR,
+    KG2_STATEMENT_SEPARATOR,
     OBJ_ASPECT_QUALIFIER,
     OBJ_DIRECTION_QUALIFIER,
 )
@@ -56,7 +61,7 @@ class KG2Harmonizer(BaseHarmonizer):
     ignore_edge_props = {"domain_range_exclusion"}
     rename_edge_attrs_or_quals = {
         "id": "kg2c_ids",
-        "kg2_ids": "kg2pre_ids",
+        "kg2_ids": KG2_PRE_IDS_ATTR,
         "qualified_object_direction": OBJ_DIRECTION_QUALIFIER,
         "qualified_object_aspect": OBJ_ASPECT_QUALIFIER,
     }
@@ -72,3 +77,32 @@ class KG2Harmonizer(BaseHarmonizer):
             if semantic_types:
                 node = {**node, self.description_prop: text, UMLS_SEMANTIC_TYPES_ATTRIBUTE: semantic_types}
         return super()._harmonize_node(node)
+
+    @cached_property
+    def _corrected_original_ids(self) -> frozenset[str]:
+        return frozenset(curie for source, curie, _ in ORIGINAL_STATEMENT_CORRECTIONS if source == self.source_infores)
+
+    def _harmonize_edge(self, edge: dict[str, Any]) -> dict[str, Any] | None:
+        # Drop the original statements source_corrections.py names. They decide where integration puts the edge
+        harmonized = super()._harmonize_edge(edge)
+        attributes = harmonized.get(EDGE_ATTRIBUTES, {}).get(self.source_infores, {})
+        statements = attributes.get(KG2_PRE_IDS_ATTR)
+        corrected_ids = self._corrected_original_ids
+        if not statements or not any(curie in statement for statement in statements for curie in corrected_ids):
+            return harmonized
+        kept = [statement for statement in statements if not self._is_corrected_statement(statement)]
+        if not kept:
+            return None
+        attributes[KG2_PRE_IDS_ATTR] = kept
+        return harmonized
+
+    def _is_corrected_statement(self, statement: str) -> bool:
+        parts = statement.split(KG2_STATEMENT_SEPARATOR)
+        if len(parts) < 7:  # the upstream source is the 7th part
+            return False
+        for curie in (parts[0], parts[5]):
+            key = (self.source_infores, curie, parts[-1])
+            if key in ORIGINAL_STATEMENT_CORRECTIONS:
+                self.applied_corrections.add(key)
+                return True
+        return False
