@@ -9,6 +9,12 @@ from biomapper2.core.normalizer import Normalizer
 
 from kraken.biolink_client import BiolinkClient
 from kraken.harmonizers.helpers.name_overrides import ORIGINAL_NAME_ATTRIBUTE, apply_name_override
+from kraken.harmonizers.helpers.source_corrections import (
+    EDGE_CORRECTIONS,
+    NO_CORRECTION,
+    NODE_CORRECTIONS,
+    expected_corrections,
+)
 from kraken.utils.constants import (
     EDGE_AGENT_TYPE,
     EDGE_AGGREGATOR_KS,
@@ -173,6 +179,7 @@ class BaseHarmonizer(ABC):
         self.multi_taxon_examples: list[str] = []
         self.taxa_dropped_off_non_gene_nodes = 0
         self.name_override_count = 0
+        self.applied_corrections: set[tuple[str, ...]] = set()  # statements source_corrections removed, as found
 
         self.core_node_props = (
             {
@@ -283,8 +290,18 @@ class BaseHarmonizer(ABC):
                 if self.source_exclusions & self._edge_knowledge_sources(edge):
                     excluded_count += 1
                 else:
-                    # Add this edge
+                    # Add this edge, unless it is a hand-checked wrong statement (see source_corrections.py)
                     harmonized = self._harmonize_edge(edge)
+                    key = (
+                        self.source_infores,
+                        harmonized[EDGE_SUBJECT],
+                        harmonized[EDGE_PREDICATE],
+                        harmonized[EDGE_OBJECT],
+                        harmonized[EDGE_PRIMARY_KS],
+                    )
+                    if key in EDGE_CORRECTIONS:
+                        self.applied_corrections.add(key)
+                        continue
                     writer.write(harmonized)
                     count += 1
         logging.info("Finished harmonizing edges.")
@@ -516,6 +533,17 @@ class BaseHarmonizer(ABC):
                 f"neither gene nor protein (it guards ortholog merges, and elsewhere only blocks correct ones)"
             )
 
+    def log_source_corrections(self) -> None:
+        """Report this source's hand-checked corrections (see source_corrections.py), and any statement they remove
+        that the source no longer makes: those entries are stale, most likely because the source fixed its record."""
+        expected = expected_corrections(self.source_infores)
+        if not expected:
+            return
+        stale = sorted(expected - self.applied_corrections)
+        logging.info(f"{self.source_name}: removed {len(expected) - len(stale)} hand-checked wrong statements")
+        if stale:
+            logging.warning(f"{self.source_name}: {len(stale)} corrected statements not found, retire them: {stale}")
+
     def log_normalization_report(self) -> None:
         """Report every curie biomapper2 could not fully normalize -- a work queue, not a failure log.
 
@@ -607,6 +635,7 @@ class BaseHarmonizer(ABC):
 
         # Assemble the node, with properties in a specific order (for convenient review)
         curie_normalized = self.normalize_curie(curie)
+        correction = NODE_CORRECTIONS.get((self.source_infores, curie_normalized), NO_CORRECTION)
 
         # Categories are resolved before the name because name overrides key on them
         categories_cleaned = [fix_repeated_prefix(category) for category in to_list(categories)]
@@ -650,7 +679,11 @@ class BaseHarmonizer(ABC):
         if exact_mass:
             node[NODE_EXACT_MASS] = float(exact_mass)
         if description:
-            node[NODE_DESCRIPTION] = clean_text(description)
+            description = clean_text(description)
+            if correction.description_containing and correction.description_containing in description:
+                self.applied_corrections.add((self.source_infores, curie_normalized, "description"))
+            else:
+                node[NODE_DESCRIPTION] = description
 
         node[NODE_PROVIDED_BY] = to_list(provided_by)  # Convert to list so these will merge
 
@@ -660,7 +693,9 @@ class BaseHarmonizer(ABC):
             if not equiv_id.startswith("INCHI:"):
                 normalized_equiv_id = self.normalize_curie(equiv_id)
                 cleaned_equiv_ids.add(normalized_equiv_id)
-        equivalent_ids_final = list(cleaned_equiv_ids | {curie_normalized})
+        for curie_dropped in cleaned_equiv_ids & correction.equivalent_ids:
+            self.applied_corrections.add((self.source_infores, curie_normalized, "equivalent_id", curie_dropped))
+        equivalent_ids_final = list((cleaned_equiv_ids - correction.equivalent_ids) | {curie_normalized})
         node[NODE_EQUIVALENT_IDS] = equivalent_ids_final
 
         # `taxon` is single-valued (per Biolink). A node naming several taxa means the source has conflated
@@ -683,7 +718,9 @@ class BaseHarmonizer(ABC):
 
         if synonyms:
             cleaned_synonyms = [clean_text(synonym) for synonym in synonyms if not is_empty(synonym)]
-            node[NODE_SYNONYMS] = [s for s in cleaned_synonyms if s]
+            for synonym_dropped in set(cleaned_synonyms) & correction.synonyms:
+                self.applied_corrections.add((self.source_infores, curie_normalized, "synonym", synonym_dropped))
+            node[NODE_SYNONYMS] = [s for s in cleaned_synonyms if s and s not in correction.synonyms]
 
         if publications:
             node[NODE_PUBLICATIONS] = to_list(publications)
