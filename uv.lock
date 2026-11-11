@@ -80,8 +80,8 @@ wheels = [
 
 [[package]]
 name = "biomapper2"
-version = "1.1.1"
-source = { git = "https://github.com/Phenome-Health/biomapper2.git?rev=v1.1.1#12ba444e399ba8180f30c7f99dfd390a66631995" }
+version = "1.4.0"
+source = { git = "https://github.com/Phenome-Health/biomapper2.git?rev=v1.4.0#315cc6a1db68138d01b88fbe2aed54e3f60a4ee9" }
 dependencies = [
     { name = "adjusttext" },
     { name = "bmt" },
@@ -952,7 +952,7 @@ viz = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
-    { name = "biomapper2", git = "https://github.com/Phenome-Health/biomapper2.git?rev=v1.1.1" },
+    { name = "biomapper2", git = "https://github.com/Phenome-Health/biomapper2.git?rev=v1.4.0" },
     { name = "bmt", specifier = ">=1.4.5" },
     { name = "igraph", specifier = ">=1.0.0" },
     { name = "jsonlines", specifier = ">=4.0.0" },
