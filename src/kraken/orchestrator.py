@@ -260,13 +260,15 @@ class KrakenBuildOrchestrator:
             )
 
     def _integrate_sources(self):
-        """Integrate sources into unified KG with entity resolution"""
+        """Integrate sources into unified KG with entity resolution, then label its nodes"""
         logging.info("-------------------------- INTEGRATING SOURCES -----------------------------------------------")
         if self.config.options.validation_only:
             logging.warning("Skipping integration step because you selected validation_only=True in build config")
 
         if not self.config.options.validation_only:
             integrate_sources(self.config, self.biolink_client)
+            # Every built graph needs the labels, so they run here, not in the optional post-process step
+            label_nodes(self.config.integrated_nodes_path, self.config.integrated_edges_path)
 
         if self.config.options.validate_output or self.config.options.validation_only:
             self.validator.validate(
@@ -288,9 +290,6 @@ class KrakenBuildOrchestrator:
     def _post_process(self):
         """Run all post-processing steps on the unified KG"""
         logging.info("------------------------------ POST-PROCESSING -----------------------------------------------")
-        if not self.config.options.validation_only:
-            label_nodes(self.config.integrated_nodes_path, self.config.integrated_edges_path)
-
         if self.config.post_processing:
             if self.config.post_processing.test_export:
                 logging.info("Generating test files for this kraken build..")

@@ -33,7 +33,7 @@ To build KRAKEN yourself, including getting the input data and the hardware it n
 ## Build process
 
 1. **Harmonize** - convert each source to a common Biolink format/schema
-2. **Integrate** - merge sources, performing entity resolution using each source's equivalency mappings
+2. **Integrate** - merge sources, performing entity resolution using each source's equivalency mappings, then label pathway template copies and same-name vocabulary nodes
 3. **Post-process** - generate a coherent, small test version of the graph
 
 Validation and metagraph creation are done both on each harmonized artifact and on the final integrated graph.

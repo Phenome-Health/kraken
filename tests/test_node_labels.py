@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from kraken import orchestrator
+from kraken.config import KrakenConfig
 from kraken.post_processing.node_labels import label_nodes, template_family
 
 
@@ -143,3 +145,27 @@ def test_a_second_run_changes_nothing_and_a_stale_label_goes(graph):
     _write(edges, [_edge("LOINC:105571-4", "affects", "MONDO:1")])  # now it has an edge of its own
     label_nodes(nodes, edges)
     assert _read(nodes)["LOINC:105571-4"]["attributes"] == {"infores:loinc": {"kept": True}}  # only the label went
+
+
+@pytest.mark.parametrize("postprocess", [False, True])
+def test_a_build_labels_its_graph_once_after_integrating_it(tmp_path, monkeypatch, postprocess):
+    """Whatever the optional post-process switch says (it is off in the build config): a graph shipped without the
+    labels floods results again. Labels written before integration would be overwritten by it."""
+    calls = []
+    monkeypatch.setattr(orchestrator, "integrate_sources", lambda config, biolink_client: calls.append("integrate"))
+    monkeypatch.setattr(orchestrator, "label_nodes", lambda nodes, edges: calls.append(("label", nodes)))
+    build = object.__new__(orchestrator.KrakenBuildOrchestrator)  # __init__ loads the repo's config and Biolink
+    build.biolink_client = None
+    build.config = KrakenConfig(
+        kraken_version="t",
+        biolink_version="4.2.5",
+        steps={"harmonize": False, "integrate": True, "postprocess": postprocess},
+        options={"validate_output": False, "confirm_source_versions": False},
+        base_path=str(tmp_path),
+        harmonization={"output_directory": "harmonized/"},
+        integration={"output_directory": "integrated/"},
+        metagraph={"output_directory": "metagraphs/"},
+        sources={"kg2": {"source_id": "infores:rtx-kg2", "version": "1", "input_file": "x"}},
+    )
+    build.run()
+    assert calls == ["integrate", ("label", build.config.integrated_nodes_path)]
