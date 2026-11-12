@@ -1412,7 +1412,7 @@ def _stage_3(tmp_path, pairs, cliques: str = "", outliers=()) -> tuple[list[list
     stage_args = (pairs, ERWeights(), BranchFamilies.load(), GuardrailConfig(), {}, {}, set(), facts)
     try:
         cluster_of, *_ = _stage3_cluster(
-            *stage_args, _rows(tmp_path / "cliques.tmp", cliques), outliers, ties_path=ties
+            *stage_args, _rows(tmp_path / "cliques.tmp", cliques), outliers, ties_path=ties, clique_taxon_overrides={}
         )
     finally:
         facts.close()
@@ -1555,3 +1555,114 @@ def test_stage_3_stops_on_a_cluster_that_breaks_a_guardrail(tmp_path, monkeypatc
     monkeypatch.setattr(build_mod, "cluster_component", one_cluster)
     with pytest.raises(RuntimeError, match="breaks a guardrail"):
         _stage_3(tmp_path, pairs="MONDO:1 UMLS:C1 0.5\nMONDO:2 UMLS:C1 0.5")
+
+
+def _babel_gene(curie, taxon=None, name=None):
+    node = {"id": curie, "categories": ["biolink:Gene"], "provided_by": ["infores:sri-node-normalizer"], "name": name}
+    return {**node, "taxon": taxon} if taxon else node
+
+
+def _resolve(tmp_path, **sources):
+    """Entity resolution over the given harmonized sources: ``id -> representative`` and each id's canonical node."""
+    integrated = tmp_path / "integrated"
+    config = SimpleNamespace(
+        all_harmonized_paths_resolved=sources,
+        integrated_dir=integrated,
+        integrated_nodes_path=integrated / "nodes.jsonl",
+    )
+    representative = resolve_entities(config, biolink=None)
+    with jsonlines.open(config.integrated_nodes_path) as reader:
+        return representative, {member: node for node in reader for member in node["equivalent_ids"]}
+
+
+def test_an_rgd_id_takes_the_species_of_its_babel_clique(tmp_path):
+    """RGD names dog and pig genes too, and Babel has those ids in the gene's clique without a taxon. Guessed rat
+    from its prefix, pig insulin's RGD id broke the taxon guardrail inside its own clique, the clique did not start
+    as one group, and the gene came out as three nodes in the 2.4.0-dev3 build."""
+    pig_insulin = ["NCBIGene:397415", "ENSEMBL:ENSSSCG00000033740", "RGD:14043101"]
+    babel = _write_source_with_edges(
+        tmp_path,
+        "babel",
+        [
+            _babel_gene("NCBIGene:397415", "NCBITaxon:9823", "INS"),
+            _babel_gene("ENSEMBL:ENSSSCG00000033740"),
+            _babel_gene("RGD:14043101"),
+            _babel_gene("RGD:2493", name="Ace"),  # in no clique: nothing says it is not a rat gene
+        ],
+        [
+            {
+                "subject": pig_insulin[0],
+                "predicate": "biolink:same_as",
+                "object": member,
+                "primary_knowledge_source": "infores:sri-node-normalizer",
+            }
+            for member in pig_insulin[1:]
+        ],
+    )
+    representative, node_of = _resolve(tmp_path, babel=babel)
+
+    assert len({representative[curie] for curie in pig_insulin}) == 1
+    assert node_of["RGD:14043101"]["taxon"] == "NCBITaxon:9823"
+    assert node_of["RGD:2493"]["taxon"] == "NCBITaxon:10116"
+
+
+def test_an_rgd_default_yields_only_to_cliques_that_name_one_other_species(tmp_path):
+    from kraken.entity_resolution.build import _clique_taxon_overrides
+    from kraken.entity_resolution.id_facts import IdFacts
+
+    pig, dog, rat = "NCBITaxon:9823", "NCBITaxon:9612", "NCBITaxon:10116"
+    cliques = {  # hub -> its other members; a taxon is Babel's own, "source:" marks one only a source gives
+        "NCBIGene:1": ["RGD:1", "ENSEMBL:1"],  # a pig gene's clique: RGD:1 is a pig gene's id
+        "NCBIGene:2": ["RGD:2"],  # a rat gene's clique: the default is right
+        "NCBIGene:3": ["UniProtKB:P3", "RGD:3"],  # one clique, two species
+        "ENSEMBL:4": ["RGD:4"],  # nothing known about any member
+        "NCBIGene:5": ["RGD:5"],  # a source gave RGD:5 itself a taxon
+        "NCBIGene:6": ["RGD:6", "RGD:7", "RGD:8"],  # pig; each of these is in a second clique below
+        "NCBIGene:60": ["RGD:6"],  # dog
+        "NCBIGene:70": ["RGD:7"],  # rat
+        "NCBIGene:80": ["UniProtKB:P80", "RGD:8"],  # two species
+        "NCBIGene:9": ["HGNC:9"],  # HGNC defines its species: the clique is what is wrong
+        "ENSEMBL:10": ["RGD:10"],  # the only known member is one a source typed
+        "NCBIGene:11": ["ENSEMBL:11", "RGD:11"],  # Babel says pig, a source says rat of another member
+        "MGI:12": ["RGD:12"],  # the only hint is another prefix's guess, and a guess is not evidence
+    }
+    babel_taxon = {"NCBIGene:1": pig, "NCBIGene:2": rat, "NCBIGene:3": pig, "UniProtKB:P3": dog, "NCBIGene:5": pig}
+    babel_taxon |= {"NCBIGene:6": pig, "NCBIGene:60": dog, "NCBIGene:70": rat, "NCBIGene:80": pig}
+    babel_taxon |= {"UniProtKB:P80": dog, "NCBIGene:9": pig, "NCBIGene:11": pig}
+    source_taxon = {"RGD:5": rat, "ENSEMBL:10": dog, "ENSEMBL:11": rat}
+    facts = IdFactsStore(tmp_path / "facts.sqlite")
+    ids = {curie for hub, members in cliques.items() for curie in (hub, *members)}
+    gene = ("biolink:Gene",)
+    facts.record((c, IdFacts(None, gene, (babel_taxon[c],) if c in babel_taxon else ())) for c in ids)
+    rows = [f"{curie} {hub} {len(members) + 1}" for hub, members in cliques.items() for curie in (hub, *members)]
+    try:
+        for order in (rows, rows[::-1]):  # the same whichever of an id's cliques is read first
+            overrides = _clique_taxon_overrides(_rows(tmp_path / "cliques.tmp", "\n".join(order)), facts, source_taxon)
+            assert overrides == {"RGD:1": pig, "RGD:10": dog}
+    finally:
+        facts.close()
+
+
+def test_an_sgd_id_joins_the_yeast_gene_babel_types_by_species(tmp_path):
+    """Every taxon in the graph is rolled up to species. Guessed as its reference strain, an SGD id could never
+    share a node with the same gene's other ids."""
+    babel = _write_source(
+        tmp_path, "babel", [_babel_gene("NCBIGene:851262", "NCBITaxon:4932", "TFC3"), _babel_gene("SGD:S000000002")]
+    )
+    yeast_gene = ["NCBIGene:851262", "SGD:S000000001"]
+    ncbigene = _write_source(
+        tmp_path,
+        "ncbigene",
+        [
+            {
+                "id": "NCBIGene:851262",
+                "categories": ["biolink:Gene"],
+                "provided_by": ["infores:ncbi-gene"],
+                "equivalent_ids": yeast_gene,
+            }
+        ],
+    )
+    representative, node_of = _resolve(tmp_path, babel=babel, ncbigene=ncbigene)
+
+    assert representative["SGD:S000000001"] == representative["NCBIGene:851262"]
+    assert node_of["SGD:S000000002"]["taxon"] == "NCBITaxon:4932", "alone, an SGD id is still a yeast gene's"

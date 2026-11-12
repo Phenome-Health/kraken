@@ -24,7 +24,10 @@ serve this; if the code and this doc disagree, this doc is the north star.
    carries no name into the match graph at all and can never match anything.
 
 2. Set those nodes' id / category / name / taxon based on Babel's node for that exact id
-   (its own label, etc.), backing up to deriving it from the source if possible.
+   (its own label, etc.), backing up to deriving it from the source if possible. A taxon that
+   neither gives is guessed from a single-species prefix (`HGNC`, `MGI`). `RGD` names dog and
+   pig genes as well as rat ones, so there the guess is only a default: an `RGD` id takes the
+   species the other members of its Babel clique are known to have, when they agree on one.
 
 3. Convert each of those individual nodes' categories to a "family" per our curated
    mappings.

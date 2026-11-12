@@ -31,7 +31,7 @@ import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Mapping
 from pathlib import Path
 
 import jsonlines
@@ -52,7 +52,7 @@ from kraken.entity_resolution.chemical_cohesion import plan_chemical_clique_repa
 from kraken.entity_resolution.clustering import Tie, cluster_component, log_ties
 from kraken.entity_resolution.debug_db import DebugDbWriter, debug_db_path
 from kraken.entity_resolution.families import ALL_FAMILIES, GENE_PROTEIN_FAMILY, BranchFamilies
-from kraken.entity_resolution.gene_protein_cohesion import rejoin_split_gene_protein_cliques
+from kraken.entity_resolution.gene_protein_cohesion import read_cliques, rejoin_split_gene_protein_cliques
 from kraken.entity_resolution.guardrails import (
     GuardrailConfig,
     NodeInfo,
@@ -64,7 +64,7 @@ from kraken.entity_resolution.id_facts import IdFacts, IdFactsStore
 from kraken.entity_resolution.match_graph import alias_evidence, clique_evidence, match_predicate_evidence
 from kraken.entity_resolution.materialize import PrefixRanking, materialize_cluster
 from kraken.entity_resolution.name_sim import DEFAULT_STOPLIST, is_droppable, name_keys, normalize_name
-from kraken.entity_resolution.prefix_backups import infer_category, infer_taxon
+from kraken.entity_resolution.prefix_backups import DEFAULT_ONLY_TAXON_PREFIXES, infer_category, infer_taxon
 from kraken.entity_resolution.umls_minted_codes import attach_orphan_codes, is_umls_minted_code
 from kraken.entity_resolution.uncanonicalize import (
     ALIAS_EVIDENCE_SOURCES,
@@ -807,6 +807,7 @@ def _stage3_cluster(
     babel_outliers: set[str] | dict | None = None,
     *,
     ties_path: Path,
+    clique_taxon_overrides: Mapping[str, str],
     umls_minted_codes: dict[str, str] | None = None,
     ranking: PrefixRanking | None = None,
 ) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, tuple[str, ...]], set[str]]:
@@ -888,7 +889,7 @@ def _stage3_cluster(
         if not cats:
             cats = ("biolink:NamedThing",)  # 4. untyped/ambiguous -> NamedThing (a guardrail wildcard)
         mg_categories[curie] = shared_category_tuples.setdefault(cats, cats)
-        taxon = _id_taxon(curie, norm, node_taxon)
+        taxon = _id_taxon(curie, norm, node_taxon, clique_taxon_overrides)
         if taxon:
             mg_taxon[curie] = taxon
 
@@ -1015,7 +1016,7 @@ def _stage3_cluster(
         for curie in {curie for pair in umls_minted_codes.items() for curie in pair} - mg_categories.keys():
             babel = facts.get(curie)
             mg_categories[curie] = _unclustered_id_categories(curie, babel, inherited_cats, families)
-            taxon = _id_taxon(curie, babel, node_taxon)
+            taxon = _id_taxon(curie, babel, node_taxon, clique_taxon_overrides)
             if taxon:
                 mg_taxon[curie] = taxon
 
@@ -1050,14 +1051,54 @@ def _unclustered_id_categories(
     return ()
 
 
-def _id_taxon(curie: str, babel: IdFacts | None, node_taxon: dict[str, str]) -> str | None:
-    """Taxon precedence (mirrors category): 1. Babel (source of truth); 2. the harmonized node's (source) taxon;
-    3. the single-species prefix backup -- LAST, never before source; else untaxoned (a guardrail wildcard)."""
+def _known_taxon(curie: str, babel: IdFacts | None, node_taxon: Mapping[str, str]) -> str | None:
+    """What Babel says of the id, else what a source does: a taxon that is not a guess."""
     if babel and babel.taxa:
         return sys.intern(babel.taxa[0])
-    if curie in node_taxon:
-        return node_taxon[curie]
-    return infer_taxon(curie)
+    return node_taxon.get(curie)
+
+
+def _id_taxon(
+    curie: str, babel: IdFacts | None, node_taxon: Mapping[str, str], clique_taxon_overrides: Mapping[str, str]
+) -> str | None:
+    """Taxon precedence (mirrors category): 1. Babel (source of truth); 2. the harmonized node's (source) taxon;
+    3. the single-species prefix backup -- LAST, never before source; else untaxoned (a guardrail wildcard)."""
+    return _known_taxon(curie, babel, node_taxon) or _backup_taxon(curie, clique_taxon_overrides)
+
+
+def _backup_taxon(curie: str, clique_taxon_overrides: Mapping[str, str]) -> str | None:
+    """The prefix guess -- or, where that is only a default, the species the id's Babel clique names instead (see
+    ``_clique_taxon_overrides``)."""
+    return clique_taxon_overrides.get(curie) or infer_taxon(curie)
+
+
+def _clique_taxon_overrides(cliques_path: Path, facts: IdFactsStore, node_taxon: Mapping[str, str]) -> dict[str, str]:
+    """``id -> the species of its Babel clique``, for each id whose prefix gives only a default and the clique
+    names another species.
+
+    RGD names dog and pig genes as well as rat ones (``DEFAULT_ONLY_TAXON_PREFIXES``), and Babel has those ids in
+    the dog or pig gene's clique with no taxon of their own. Guessed rat, such an id breaks the taxon guardrail
+    inside its own clique: the clique cannot start clustering as one group, and pig insulin came out as three nodes.
+
+    The species is the one the clique's other members are known to have, from Babel or a source -- never a guess.
+    An id whose cliques name two species (in one clique, or one each) keeps its default: nothing says which of them
+    is right. Every other prefix is left alone: it defines its species, so a clique that names another is the one
+    that is wrong, and the guardrail should keep cutting it.
+    """
+    species_of: dict[str, str | None] = {}  # None once the id's cliques have named two species
+    for members in read_cliques(cliques_path):
+        defaults = [m for m in members if m.split(":", 1)[0] in DEFAULT_ONLY_TAXON_PREFIXES]
+        if not defaults:
+            continue
+        known = {m: taxon for m in members if (taxon := _known_taxon(m, facts.get(m), node_taxon))}
+        species = set(known.values())
+        if not species:
+            continue
+        one_species = next(iter(species)) if len(species) == 1 else None
+        for member in defaults:
+            if member not in known and species_of.setdefault(member, one_species) != one_species:
+                species_of[member] = None
+    return {m: species for m, species in species_of.items() if species and species != infer_taxon(m)}
 
 
 def _starting_cliques(
@@ -1115,6 +1156,7 @@ def _stage4_materialize(
     temp_dir: Path,
     debug_db: DebugDbWriter | None = None,
     *,
+    clique_taxon_overrides: Mapping[str, str],
     attached_minted_codes: set[str] | None = None,
 ) -> dict[str, str]:
     """Stream harmonized nodes, group by cluster on disk, reconcile one cluster at a
@@ -1209,7 +1251,7 @@ def _stage4_materialize(
                     if babel_taxon:
                         node[NODE_TAXON] = babel_taxon
                     elif not node.get(NODE_TAXON):
-                        inferred_taxon = infer_taxon(node_id)
+                        inferred_taxon = _backup_taxon(node_id, clique_taxon_overrides)
                         if inferred_taxon:
                             node[NODE_TAXON] = inferred_taxon
                     cid = curie_to_cluster.get(node_id)
@@ -1234,7 +1276,8 @@ def _stage4_materialize(
                 if info and info.taxa:
                     synthetic[NODE_TAXON] = info.taxa[0]
                 else:
-                    inferred_taxon = infer_taxon(curie)  # bare id: no source taxon; prefix backup last
+                    # bare id: no source taxon; prefix backup last
+                    inferred_taxon = _backup_taxon(curie, clique_taxon_overrides)
                     if inferred_taxon:
                         synthetic[NODE_TAXON] = inferred_taxon
                 writer.write([key, synthetic])
@@ -1487,6 +1530,11 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             restored = _restore_deferred_evidence(deferred_path, evidence_path, outliers, cliques_path)
             logging.info("entity_resolution: restored %d aggregator evidence rows about Babel outliers", restored)
         _record_debug_babel_cliques(debug_db, cliques_path)
+        clique_taxon_overrides = _clique_taxon_overrides(cliques_path, facts, node_taxon)
+        logging.info(
+            "entity_resolution: %d ids take the species of their Babel clique, not their prefix's default",
+            len(clique_taxon_overrides),
+        )
         _stage_banner(f"ER STAGE 1b DONE ({time.perf_counter() - t:.1f}s)")
 
         t = time.perf_counter()
@@ -1508,6 +1556,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             cliques_path,
             outliers,
             ties_path=_debug_dir(config) / TIES_REPORT_FILENAME,
+            clique_taxon_overrides=clique_taxon_overrides,
             umls_minted_codes=umls_minted_codes,
             ranking=ranking,
         )
@@ -1539,6 +1588,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             biolink,
             temp_dir,
             debug_db,
+            clique_taxon_overrides=clique_taxon_overrides,
             attached_minted_codes=attached_minted_codes,
         )
         _stage_banner(

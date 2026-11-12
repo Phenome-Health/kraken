@@ -31,22 +31,29 @@ PREFIX_CATEGORY: dict[str, str] = {
     # blanket guess would mis-type many nodes.
 }
 
-# Prefix -> taxon for single-species nomenclature authorities (the prefix itself DEFINES the species).
-# Multi-species prefixes (NCBIGene, UniProtKB, ENSEMBL, Xenbase) are deliberately omitted.
+# Prefix -> taxon for single-species nomenclature authorities (the prefix itself DEFINES the species), at species
+# rank like every other taxon in the graph. Multi-species prefixes (NCBIGene, UniProtKB, ENSEMBL, Xenbase) are
+# deliberately omitted.
 TAXON_BY_PREFIX: dict[str, str] = {
     "HGNC": "NCBITaxon:9606",  # human
     "MGI": "NCBITaxon:10090",  # mouse
-    "RGD": "NCBITaxon:10116",  # rat
+    "RGD": "NCBITaxon:10116",  # rat -- a default only, see DEFAULT_ONLY_TAXON_PREFIXES
     "ZFIN": "NCBITaxon:7955",  # zebrafish
     "FB": "NCBITaxon:7227",  # fruit fly (FlyBase)
     "FlyBase": "NCBITaxon:7227",
     "WB": "NCBITaxon:6239",  # C. elegans (WormBase)
     "WormBase": "NCBITaxon:6239",
-    "SGD": "NCBITaxon:559292",  # S. cerevisiae S288C
+    "SGD": "NCBITaxon:4932",  # S. cerevisiae (the species, not SGD's reference strain S288C)
     "PomBase": "NCBITaxon:4896",  # S. pombe
     "dictyBase": "NCBITaxon:44689",  # D. discoideum
     "TAIR": "NCBITaxon:3702",  # A. thaliana
 }
+
+# Prefixes above that do NOT define the species. RGD names dog and pig genes as well as rat ones, so rat is only its
+# default: entity resolution gives an RGD id the species of its Babel clique where that is known to be another one
+# (build._clique_taxon_overrides). RGD stays in the table for the rat ids nothing else gives a species. Every other
+# prefix's guess agreed with all of its Babel cliques in the 2.4.0-dev3 build.
+DEFAULT_ONLY_TAXON_PREFIXES: frozenset[str] = frozenset({"RGD"})
 
 
 def infer_category(curie: str) -> str | None:
