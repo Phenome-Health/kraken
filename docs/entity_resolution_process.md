@@ -31,28 +31,40 @@ serve this; if the code and this doc disagree, this doc is the north star.
 
 4. Remove all conflicting edges from the match graph (per ALL of our guardrails).
 
-5. Now we have a clean match graph that's ready to go. Cluster it using label propagation
-   to assign a canonical (cluster) id to every individual node in the match graph.
+5. Now we have a clean match graph that's ready to go. Cluster each connected component of
+   it (see `clustering`) to assign a canonical (cluster) id to every individual node in the
+   match graph. Every Babel clique the guardrails allow starts as one group, and every other
+   id alone: a Babel clique outlier, an id Babel has in several cliques, the members of a
+   clique that breaks a guardrail on its own (Babel cliques do mix two species) or is too
+   large to be emitted whole. The link between two groups is the summed weight of the pairs
+   between them, and its strength is that weight per id of the smaller group. The strongest
+   links merge first, and all links of one strength are decided together: a merge the
+   guardrails forbid is not made; a single id joins on a link that reaches tau, while two
+   groups of several ids need more than tau for each id of the smaller one (a weaker link
+   waits: a later merge can add weight to it); and a group with equally strong links to
+   groups that cannot all be one group joins none of the ones that rival each other (an exact
+   tie). The links of a tie, and of a chain of equal links the guardrails refuse, are
+   withdrawn for good: equal claims that contradict each other cancel, and only the
+   remaining evidence can still merge those groups. Ties that held
+   to the end, and chains of equal links the guardrails refused, are listed in `er_ties.tsv`
+   in the debug folder: one usually means two sources disagree, or a category or taxon is
+   wrong. Weights are whole numbers of millionths from the first sum on and are compared
+   exactly, so the clusters depend on the evidence only — not on a random seed, on how ids
+   are spelled, or on the order of the input.
 
-6. Split any resulting clusters that still violate a guardrail because of transitive
-   relations (conflicts the pairwise edge-prune in step 4 couldn't see). The split regrows the
-   cluster along its strongest edges, starting from whole Babel cliques rather than from single
-   ids — so a cluster holding two structures is cut BETWEEN them, instead of shedding whichever
-   id is most weakly attached (which is usually the structure id itself, since it often carries
-   nothing but clique edges). A clique that breaks a guardrail on its own is still cut: Babel
-   cliques do mix two species, and keeping one whole must never override a guardrail.
+6. No cluster breaks a guardrail at this point (the build stops if one does), and a Babel
+   clique within the size cap that the guardrails allow is never split. A larger clique is
+   only a star from its hub, so its ids can end apart, and so can a clique that shares an id
+   with another one or breaks a guardrail itself. Three repairs remain for that.
 
-   Then put back any Babel gene/protein clique that step 5 tore apart: label propagation
-   finds communities, and a gene's clique conflated with its protein's is two dense halves
-   at one uniform weight, so it splits whenever only one half has outside evidence (ACE).
-   A gene and the protein it encodes in one species are one entity, so those clusters are
-   rejoined — as long as the guardrails allow the union, which is what keeps the cliques
-   that mix two species' orthologs apart. Elsewhere a torn Babel clique is usually label
-   propagation correctly separating a class from its members, with one exception: a clique
-   holding an InChIKey is one structure. When most of it sits with another stereo form's
-   InChIKey (same first block), those members join their own; ids outside the clique stay
-   where they are, and a move that would leave its donor cluster in pieces, or with a SMILES,
-   is not made (see `chemical_cohesion`).
+   A Babel gene/protein clique that ended in several clusters is put back: a gene and the
+   protein it encodes in one species are one entity, so those clusters are rejoined — as long
+   as the guardrails allow the union, which is what keeps the cliques that mix two species'
+   orthologs apart (see `gene_protein_cohesion`).
+   For chemicals, a clique holding an InChIKey is one structure. When most of it sits with
+   another stereo form's InChIKey (same first block), those members join their own; ids
+   outside the clique stay where they are, and a move that would leave its donor cluster in
+   pieces, or with a SMILES, is not made (see `chemical_cohesion`).
    Likewise a UMLS, NCIT or MeSH concept that UMLS's "Amino Acid, Peptide, or Protein" type
    puts in a Protein clique with a chemical's MeSH id joins that chemical, typed as one, when
    it sits alone or with its clique only, nothing holds it as a protein, and it has the exact

@@ -1,5 +1,7 @@
 """Tests for hereditary guardrails and split-until-valid repair."""
 
+import random
+from functools import reduce
 from pathlib import Path
 
 from kraken.entity_resolution.families import BranchFamilies
@@ -10,7 +12,9 @@ from kraken.entity_resolution.guardrails import (
     cluster_violations,
     enforce_cluster,
     greedy_valid_partition,
+    group_state,
     ids_per_cluster_histogram,
+    join_states,
     one_id_valid,
     taxon_valid,
 )
@@ -103,6 +107,20 @@ def test_two_alleles_are_never_one_cluster():
             adjacency[c] = {"DBSNP:rs7944541": 1.0}
     parts = enforce_cluster(list(info), info, cfg, adjacency=adjacency)
     assert all(sum(m.startswith("CAID:") for m in part) <= 1 for part in parts)
+
+
+def test_joining_group_states_forbids_exactly_what_cluster_violations_reports():
+    """The guardrails exist in two forms: on a finished cluster, and step by step as clustering grows a group. Too
+    strict a step would lose merges without a trace, so the two must agree."""
+    rng = random.Random(0)
+    categories = [(), ("biolink:Gene",), ("biolink:Protein",), ("biolink:Disease",), ("biolink:Cell",)]
+    taxa = [None, None, "", "NCBITaxon:9606", "NCBITaxon:10090"]
+    cfg = GuardrailConfig()
+    for _ in range(2000):
+        members = [f"{rng.choice(['MONDO', 'RM', 'UMLS', 'NCBIGene'])}:{i}" for i in range(rng.randint(2, 5))]
+        info = {m: _ni(m, rng.choice(categories), rng.choice(taxa)) for m in members}
+        joined = reduce(join_states, (group_state(info[m], cfg.enforced_prefixes) for m in members))
+        assert (joined is None) == bool(cluster_violations(members, info, cfg))
 
 
 def test_default_config_enforces_one_refmet_lipidmaps_mondo():

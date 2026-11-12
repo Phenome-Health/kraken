@@ -7,12 +7,11 @@ function of the match graph alone:
     match_graph  -> weighted CURIE-pair evidence (equivalency cliques, source
                     match predicates, name similarity), accumulated across
                     sources and pre-filtered at tau
-    clustering   -> connected components (union-find) then Leiden/CPM per
-                    non-trivial component, deterministic (fixed seed, sorted
-                    node order)
+    clustering   -> per connected component: Babel cliques start whole, then
+                    the strongest links merge first and equal ones are decided
+                    together, on exact integer weights (no seed, no id order)
     guardrails   -> hereditary "one branch / one taxon / one structural id"
-                    rules checked on the output; violating clusters are split
-                    until valid
+                    rules that no merge may break, checked again on the output
     materialize  -> deterministic representative selection + order-independent
                     property reconciliation
 

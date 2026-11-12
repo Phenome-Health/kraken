@@ -1,30 +1,20 @@
-"""Put back the clusters a single Babel gene/protein clique was split across.
+"""Put back the clusters a single Babel gene/protein clique ended in.
 
-A Babel clique within ``clique_cap`` is a FULL clique -- every member vouching for every other at the Babel weight
--- and a gene's clique and its protein's clique are conflated into one (see ``build._write_babel_evidence``). Label
-propagation is a community algorithm, though, not a connectivity one, and a conflated clique is two dense halves
-joined at that one uniform weight. When one half has outside evidence and the other has none, the halves settle
-into different labels and the clique tears in two.
-
-ACE is the shape of it. All 11 ids sit in one Babel clique, so each has 10 edges of 0.5, and no guardrail objects.
-But the 4 gene ids also carry 6-9 points of NCBI Gene, OMIM, ENSEMBL and LOINC evidence, so they hold the gene
-label against 3.5 of Babel pull, while the 7 protein ids (PR, UniProtKB, MESH, NCIT, UMLS) have no outside evidence
-at all and only compare Babel against Babel: 3.0 among themselves against 2.0 to the gene side. The bigger half
-wins, and the gene and its protein end up in different nodes -- which our own policy says is wrong, since a gene
-and the protein it encodes in one species are one entity.
+A gene's clique and its protein's clique are conflated into one (see ``build._write_babel_evidence``): a gene and
+the protein it encodes in one species are one entity. Clustering starts such a clique within ``clique_cap`` as one
+group and never splits it (see ``clustering``), unless it breaks a guardrail by itself. Two kinds of member can
+still end apart from their clique. A clique over the cap is only a star from its hub, so a member with stronger
+evidence elsewhere can leave before the hub's link is decided. And an id Babel has in several cliques starts alone.
 
 So: when a Babel clique's members land in several clusters and EVERY id of those clusters is a gene or protein (or
 untyped), the clusters are rejoined -- if the guardrails allow the union. The guardrails are what keep this honest:
-measured on the 2.3.0 build, about 43,500 gene/protein cliques span more than one cluster, and only about a quarter
-of them are rejoined here. The other three quarters are refused on TAXON, and rightly: they are Babel cliques that
-mix orthologs across species (rat RGD ids sitting in a dog's or a pig's clique), which must stay apart.
+a clique that mixes two species is refused on TAXON.
 
-The repair is deliberately limited to this one family. Tried across all families it is a wash -- on the benchmark
-it trades 420 must-link pairs recovered against 397 cannot-link pairs lost -- because elsewhere a torn Babel clique
-is usually label propagation doing real work, quietly separating a class from its members and a part from its
-whole (it would put HMDB's "Glycolipids" back with sphingomyelin, undoing ``babel_outliers``, and merge
+The repair is deliberately limited to this one family. Tried across all families when clustering was label
+propagation, it was a wash -- on the benchmark it traded 420 must-link pairs recovered against 397 cannot-link
+pairs lost (it would put HMDB's "Glycolipids" back with sphingomyelin, undoing ``babel_outliers``, and merge
 mesonephros with adult mammalian kidney, neurocranium with chondrocranium, a GO process with a LOINC part).
-Restricted to gene/protein it costs nothing measurable: no cannot-link pair in the benchmark is lost.
+Restricted to gene/protein it cost nothing measurable: no cannot-link pair in the benchmark was lost.
 
 Babel clique outliers need no special handling here: ``babel_outliers`` never judges gene/protein ids, whose names
 are symbols rather than descriptions.

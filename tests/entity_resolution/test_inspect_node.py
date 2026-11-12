@@ -8,8 +8,6 @@ from kraken.entity_resolution.build import resolve_entities
 from kraken.entity_resolution.debug_db import DebugDb, debug_db_path
 from kraken.entity_resolution.inspect_node import render
 
-pytest.importorskip("igraph")
-
 
 @pytest.fixture
 def glycolipid_build(tmp_path):

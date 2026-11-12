@@ -335,7 +335,6 @@ def _babel_clique(hub: str, *others: str) -> list[dict]:
 def _resolve(tmp_path) -> dict[str, dict]:
     """``id -> its merged node`` from real ids: T2D's clique, UMLS's namesakes of CM codes, and a phenotype named like
     a code that Mondo calls exact to another disease."""
-    pytest.importorskip("igraph")
     harmonized = tmp_path / "harmonized"
     (harmonized / "babel").mkdir(parents=True)
     (harmonized / "icd10cm").mkdir()
@@ -388,7 +387,7 @@ def test_a_three_character_code_joins_its_disease_and_its_child_stays_out(tmp_pa
 def test_a_parent_and_child_with_one_name_stay_split(tmp_path):
     by_id = _resolve(tmp_path)
     assert by_id["ICD10CM:A08.3"] is not by_id["ICD10CM:A08.39"]
-    assert by_id["UMLS:C0494062"] is by_id["ICD10CM:A08.3"]  # the wider code takes the namesake
+    assert by_id["UMLS:C0494062"]["equivalent_ids"] == ["UMLS:C0494062"]  # the namesake of both: a tie, so neither
 
 
 def test_a_term_with_two_codes_merges_only_the_one_named_like_it(tmp_path):

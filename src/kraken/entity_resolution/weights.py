@@ -3,9 +3,9 @@
 Design (see ``docs/entity_resolution_plan.md`` §1):
 
 * Weights are **per source** and **accumulate across agreeing sources**.
-* Clustering is label propagation (no resolution parameter), so the gate is
-  **tau**: a CURIE pair whose accumulated weight reaches tau gets an edge, and
-  label propagation then merges what is connected (subject to the guardrails). So
+* The gate is **tau**: a CURIE pair whose accumulated weight reaches tau gets
+  an edge, and clustering then merges along the strongest edges (see
+  ``clustering``), subject to the guardrails. So
   a source whose weight alone reaches tau can merge a pair on its own; a source
   below tau can only *corroborate* (its weight sums with other sub-tau evidence
   to cross tau). Only ``close_match`` sits below tau (a weak "roughly the same"
@@ -29,6 +29,8 @@ via ``config/entity_resolution/weights.yaml``.
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_EVEN, Decimal
+from functools import cache
 from pathlib import Path
 
 import yaml
@@ -48,13 +50,25 @@ EXCLUDED_MATCH_PREDICATES: frozenset[str] = frozenset({"biolink:broad_match", "b
 
 NAME_SIMILARITY_GROUP = "name_similarity"
 
+# Evidence is summed and compared in whole millionths, from the first sum on, so that equal evidence is equal:
+# as floats, 0.8 and 0.6 + 0.1 + 0.1 differ, and a difference that small decided merges. A weight finer than a
+# millionth (a close_match with six subclass edges is 0.0015625) is rounded before it is summed.
+WEIGHT_UNIT = 1_000_000
+
+
+@cache
+def weight_units(weight: str | float) -> int:
+    """A weight in whole ``WEIGHT_UNIT``s: the decimal number as written, rounded half to even."""
+    return int((Decimal(str(weight)) * WEIGHT_UNIT).to_integral_value(rounding=ROUND_HALF_EVEN))
+
 
 class ERWeights(BaseModel):
     """Weights + thresholds for match-graph construction and clustering."""
 
     # Edge-existence threshold. A CURIE pair whose accumulated weight reaches tau
-    # gets an edge (and label propagation will then merge it, guardrails allowing);
-    # below tau it is dropped. This is THE merge gate under label propagation.
+    # gets an edge; below tau it is dropped. Clustering applies it per id as well: a
+    # single id joins a group on a link that reaches tau, and two groups of several
+    # ids need more than tau for each id of the smaller one (see clustering).
     tau: float = 0.3
 
     # Per-source weight for an equivalency-list assertion (one clique edge).
@@ -148,8 +162,9 @@ class ERWeights(BaseModel):
     # branch/taxon that happen to share a normalized name and carry no enforced
     # id (e.g. two CHEBI with identical labels); the eval measures that cost.
     #
-    # BELOW Babel's clique weight, so Babel wins the guardrail repair's strongest-edge-first regrowth where the two
-    # disagree (CHEBI:23614 "deoxycholate"). Measured both ways on the benchmark, with everything else equal:
+    # BELOW Babel's clique weight, so that where the two disagree Babel's link is the stronger one and is decided
+    # first (CHEBI:23614 "deoxycholate"). Measured both ways on the benchmark when clustering was label propagation,
+    # with everything else equal:
     #
     #   0.45  precision 0.9199  recall 0.9262      0.7  precision 0.9061  recall 0.9313
     #
@@ -157,8 +172,8 @@ class ERWeights(BaseModel):
     # class into a member -- "3,7-dihydroxycholan-24-oic acid, unspecified stereo" into ursodeoxycholic acid,
     # CHEBI:17234 "glucose" into RefMet's "Glucose", DrugCentral's "tixocortol" into the pivalate's cluster -- 820
     # cannot-link pairs' worth, against 263 must-link pairs it recovers. The cost 0.45 used to carry was splitting
-    # Babel's own conflated gene/protein cliques (ACE), and that is now repaired structurally rather than by edge
-    # weight (see gene_protein_cohesion), so the case for the higher value went with it.
+    # Babel's own conflated gene/protein cliques (ACE). A clique now starts clustering whole, or is put back (see
+    # gene_protein_cohesion), so the case for the higher value went with it.
     # UNTUNED placeholder like the rest — the eval sets the final value.
     name_similarity_weight: float = 0.45
 

@@ -18,8 +18,8 @@ would otherwise dominate memory are kept **out of core**:
 
 The numeric core (factorization, connected components) uses numpy/scipy, which
 are both far faster and far more memory-compact than Python dicts/objects:
-CURIE strings become int codes, components come from ``scipy`` csgraph, and label
-propagation runs per non-trivial component so peak clustering memory is bounded by
+CURIE strings become int codes, components come from ``scipy`` csgraph, and
+clustering runs per non-trivial component so peak clustering memory is bounded by
 the largest component rather than the whole graph.
 """
 
@@ -31,7 +31,7 @@ import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from pathlib import Path
 
 import jsonlines
@@ -49,7 +49,7 @@ from kraken.entity_resolution.babel_outliers import (
     log_babel_outliers,
 )
 from kraken.entity_resolution.chemical_cohesion import plan_chemical_clique_repairs
-from kraken.entity_resolution.clustering import DEFAULT_SEED, label_propagation
+from kraken.entity_resolution.clustering import Tie, cluster_component, log_ties
 from kraken.entity_resolution.debug_db import DebugDbWriter, debug_db_path
 from kraken.entity_resolution.families import ALL_FAMILIES, GENE_PROTEIN_FAMILY, BranchFamilies
 from kraken.entity_resolution.gene_protein_cohesion import rejoin_split_gene_protein_cliques
@@ -57,9 +57,7 @@ from kraken.entity_resolution.guardrails import (
     GuardrailConfig,
     NodeInfo,
     cluster_violations,
-    enforce_cluster,
     ids_per_cluster_histogram,
-    log_one_id_repairs,
     log_oversized_clusters,
 )
 from kraken.entity_resolution.id_facts import IdFacts, IdFactsStore
@@ -78,7 +76,7 @@ from kraken.entity_resolution.uncanonicalize import (
 from kraken.entity_resolution.uncanonicalize import (
     original_endpoints as _original_endpoints,
 )
-from kraken.entity_resolution.weights import NAME_SIMILARITY_GROUP, ERWeights
+from kraken.entity_resolution.weights import NAME_SIMILARITY_GROUP, WEIGHT_UNIT, ERWeights, weight_units
 from kraken.harmonizers.translator_kg_open import release_babel_version
 from kraken.utils.constants import (
     BABEL_RELATION_ATTRIBUTE,
@@ -740,26 +738,29 @@ def _stage2_accumulate_pairs(
 ) -> int:
     """Combine evidence per CURIE pair (max within source group, sum across)
     and keep pairs meeting tau, leaving out Babel's evidence about its clique outliers (see ``babel_outliers``).
+    Weights are whole ``WEIGHT_UNIT``s from the first comparison on, and that is what the pairs file holds.
     Every pair with evidence other than a shared Babel clique also goes to ``debug_db``, whether or not it reached
     tau. Returns the number of pairs written."""
     babel_outliers = babel_outliers or set()
     sorted_ev = temp_dir / "er_s2_evidence_sorted.tmp"
+    tau = weight_units(weights.tau)
     n_pairs = 0
     try:
         _external_sort(evidence_path, sorted_ev, ["-k1,1", "-k2,2", "-k3,3"], temp_dir)
         with open(sorted_ev) as fin, open(pairs_path, "w") as out:
             cur_a = cur_b = None
-            group_max: dict[str, float] = {}
+            group_max: dict[str, int] = {}
 
-            kind_max: dict[str, float] = {}
+            kind_max: dict[str, int] = {}
 
             def flush() -> int:
                 if cur_a is None:
                     return 0
                 total = sum(group_max.values())
                 if debug_db is not None and not all(kind.startswith("babel") for kind in kind_max):
-                    debug_db.add_evidence(cur_a, cur_b, total, total >= weights.tau, kind_max)
-                if total >= weights.tau:
+                    kinds = {kind: weight / WEIGHT_UNIT for kind, weight in kind_max.items()}
+                    debug_db.add_evidence(cur_a, cur_b, total / WEIGHT_UNIT, total >= tau, kinds)
+                if total >= tau:
                     out.write(f"{cur_a}{SEP}{cur_b}{SEP}{total}\n")
                     return 1
                 return 0
@@ -768,7 +769,7 @@ def _stage2_accumulate_pairs(
                 a, b, group, weight_s, kind = line.rstrip("\n").split(SEP)
                 if babel_outliers and kind.startswith("babel") and (a in babel_outliers or b in babel_outliers):
                     continue
-                weight = float(weight_s)
+                weight = weight_units(weight_s)
                 if a != cur_a or b != cur_b:
                     n_pairs += flush()
                     cur_a, cur_b = a, b
@@ -777,7 +778,7 @@ def _stage2_accumulate_pairs(
                 prev = group_max.get(group)
                 if prev is None or weight > prev:
                     group_max[group] = weight
-                if weight > kind_max.get(kind, -1.0):
+                if weight > kind_max.get(kind, -1):
                     kind_max[kind] = weight
             n_pairs += flush()
     finally:
@@ -786,8 +787,11 @@ def _stage2_accumulate_pairs(
 
 
 # --------------------------------------------------------------------------------------
-# Stage 3: components + Leiden + guardrails -> curie -> cluster id
+# Stage 3: components + clustering within the guardrails -> curie -> cluster id
 # --------------------------------------------------------------------------------------
+
+NO_CLIQUE = -1  # in ``_starting_cliques``' array: the id starts alone
+CLIQUE_ROWS_PER_CHUNK = 1_000_000  # of the cliques file held in memory at a time
 
 
 def _stage3_cluster(
@@ -799,31 +803,31 @@ def _stage3_cluster(
     node_taxon: dict[str, str],
     node_ids: set[str],
     facts: IdFactsStore,
-    seed: int,
     cliques_path: Path | None = None,
     babel_outliers: set[str] | dict | None = None,
     *,
+    ties_path: Path,
     umls_minted_codes: dict[str, str] | None = None,
     ranking: PrefixRanking | None = None,
 ) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, tuple[str, ...]], set[str]]:
     """Cluster the weighted pair graph. Returns ``curie -> cluster_id`` for every
     CURIE appearing in a pair, the ids-per-prefix histogram, ``curie -> single
     intrinsic category`` for every match-graph node, and the UMLS-minted codes put into
-    their concept's node.
+    their concept's node. The exact ties and refused chains of clustering are listed in ``ties_path``.
 
-    Uses int codes (numpy) and scipy connected components; Leiden + guardrails run
+    Uses int codes (numpy) and scipy connected components; clustering runs
     per non-trivial component so peak memory is bounded by the largest component.
     """
     if os.path.getsize(pairs_path) == 0:
         # pandas cannot read an empty file. An empty graph clusters nothing, but the minted codes below still join.
-        df = pd.DataFrame({"a": pd.Series(dtype=str), "b": pd.Series(dtype=str), "w": pd.Series(dtype="float32")})
+        df = pd.DataFrame({"a": pd.Series(dtype=str), "b": pd.Series(dtype=str), "w": pd.Series(dtype=np.int64)})
     else:
-        df = pd.read_csv(pairs_path, sep=SEP, names=["a", "b", "w"], dtype={"a": str, "b": str, "w": "float32"})
+        df = pd.read_csv(pairs_path, sep=SEP, names=["a", "b", "w"], dtype={"a": str, "b": str, "w": np.int64})
     codes, uniques = pd.factorize(pd.concat([df["a"], df["b"]], ignore_index=True), sort=False)
     n = len(df)
     a_codes = codes[:n].astype(np.int64)
     b_codes = codes[n:].astype(np.int64)
-    w = df["w"].to_numpy()
+    w = df["w"].to_numpy()  # whole WEIGHT_UNITs, as stage 2 summed them
     num_nodes = len(uniques)
     del df
 
@@ -903,11 +907,6 @@ def _stage3_cluster(
     histogram: dict[str, Counter] = defaultdict(Counter)
     oversized: list[list[str]] = []
     next_cluster_id = 0
-    repairs: Counter = Counter()  # one-id repairs, reported once at the end rather than per cluster
-    # A cluster that breaks a guardrail is repaired AFTER the component pass, because the repair wants to know
-    # which Babel clique each member is in (see greedy_valid_partition) and an id -> hub map for the whole build
-    # would not fit in memory. Held with the edges between its members, which is all the repair reads.
-    to_repair: list[tuple[list[str], list[tuple[str, str, float]]]] = []
 
     def record(cluster: list[str]) -> None:
         nonlocal next_cluster_id
@@ -920,63 +919,42 @@ def _stage3_cluster(
             oversized.append(cluster)
         next_cluster_id += 1
 
+    starting_clique = _starting_cliques(cliques_path, uniques, weights.clique_cap, babel_outliers or ())
+    tau = weight_units(weights.tau)
+    ties: list[Tie] = []
     for comp in range(n_components):
         node_idx = node_order[comp_node_starts[comp] : comp_node_ends[comp]]
         member_curies = [uniques[c] for c in node_idx]
         if len(member_curies) == 1:
-            raw_clusters = [member_curies]
+            clusters = [member_curies]
         else:
             edge_idx = edge_order[comp_edge_starts[comp] : comp_edge_ends[comp]]
-            comp_edges = [(uniques[a_codes[i]], uniques[b_codes[i]], float(w[i])) for i in edge_idx]
+            comp_edges = [(uniques[a_codes[i]], uniques[b_codes[i]], int(w[i])) for i in edge_idx]
             info = {c: info_provider(c) for c in member_curies}
             # Guardrail-aware FORMATION: drop edges between conflicting nodes before
             # clustering, so incompatible things never merge in the first place (this
             # can also split the component for free). cluster_violations on the pair
             # covers all enforced guardrails: branch, one_id, taxon.
             comp_edges = [e for e in comp_edges if not cluster_violations([e[0], e[1]], info, guardrail_config)]
-            # Label propagation on the pruned component (no resolution parameter —
-            # LP merges what's connected; the guardrails do the splitting).
-            raw_clusters = label_propagation(member_curies, comp_edges, seed=seed)
-            # Guardrails as the backstop: a cluster that still violates one (a transitive conflict the pairwise
-            # prune above cannot see) is held back for the repair pass after this loop, with the edges between
-            # its members -- LP has no resolution to raise, so greedy_valid_partition is the splitter.
-            checked: list[list[str]] = []
-            for cluster in raw_clusters:
-                if cluster_violations(sorted(cluster), info, guardrail_config):
-                    held = set(cluster)
-                    to_repair.append(
-                        (cluster, [e for e in comp_edges if e[0] in held and e[1] in held]),
+            cliques = zip(member_curies, starting_clique[node_idx].tolist(), strict=True)
+            clique_of = {curie: clique for curie, clique in cliques if clique != NO_CLIQUE}
+            clusters, component_ties = cluster_component(
+                member_curies, comp_edges, info, guardrail_config, clique_of, tau
+            )
+            ties.extend(component_ties)
+            # Clustering keeps its own account of the guardrails as groups grow, so a violation here is a bug in
+            # it, not a cluster to repair.
+            for cluster in clusters:
+                violations = cluster_violations(cluster, info, guardrail_config)
+                if violations:
+                    raise RuntimeError(
+                        f"clustering made a cluster of {len(cluster)} ids that breaks a guardrail ({violations}): "
+                        f"{cluster[:10]}"
                     )
-                else:
-                    checked.append(cluster)
-            raw_clusters = checked
 
-        for cluster in raw_clusters:
+        for cluster in clusters:
             record(cluster)
-
-    # The guardrail repairs, now that the Babel cliques the violating clusters are made of can be looked up.
-    if to_repair:
-        wanted = {curie for cluster, _edges in to_repair for curie in cluster}
-        clique_of = _clique_membership(cliques_path, wanted, weights.clique_cap) if cliques_path else {}
-        logging.info(
-            "entity_resolution: repairing %d guardrail-violating clusters (%d ids, %d of them in a Babel clique "
-            "the repair keeps whole)",
-            len(to_repair),
-            len(wanted),
-            len(clique_of),
-        )
-        for cluster, edges in to_repair:
-            info = {c: info_provider(c) for c in cluster}
-            for part in enforce_cluster(
-                sorted(cluster),
-                info,
-                guardrail_config,
-                adjacency=_adjacency(edges),
-                splitter=None,
-                repairs=repairs,
-                clique_of=clique_of,
-            ):
-                record(part)
+    log_ties(ties, ties_path)
 
     def untally(cluster: list[str]) -> None:
         for prefix, count in ids_per_cluster_histogram([cluster]).items():
@@ -987,8 +965,8 @@ def _stage3_cluster(
         known = facts.get(curie)
         return known.label if known else None
 
-    # A Babel gene/protein clique that label propagation tore in two is put back (see gene_protein_cohesion),
-    # and what it counted per cluster retallied for the clusters that changed.
+    # A Babel gene/protein clique that ended in several clusters is put back (see gene_protein_cohesion), and what
+    # it counted per cluster retallied for the clusters that changed.
     if cliques_path is not None:
         for group in rejoin_split_gene_protein_cliques(curie_to_cluster, cliques_path, info_provider, guardrail_config):
             for cluster in group:
@@ -1052,7 +1030,6 @@ def _stage3_cluster(
             next_cluster_id=next_cluster_id,
         )
 
-    log_one_id_repairs(repairs, guardrail_config)
     log_oversized_clusters(oversized, guardrail_config)
     return (
         curie_to_cluster,
@@ -1083,28 +1060,38 @@ def _id_taxon(curie: str, babel: IdFacts | None, node_taxon: dict[str, str]) -> 
     return infer_taxon(curie)
 
 
-def _clique_membership(cliques_path: Path, wanted: set[str], clique_cap: int) -> dict[str, str]:
-    """``id -> Babel clique hub`` for the wanted ids, from the ``id, hub, size`` rows stage 1 wrote.
+def _starting_cliques(
+    cliques_path: Path | None, uniques: pd.Index, clique_cap: int, babel_outliers: Collection[str]
+) -> np.ndarray:
+    """For each match-graph id, by code, the Babel clique it starts clustering in (a number per clique), or
+    ``NO_CLIQUE``, from the ``id, hub, size`` rows stage 1 wrote. One integer per id: a dict would not fit.
 
-    Only cliques within ``clique_cap`` are returned: a larger one is emitted as a star from its hub (see
-    ``match_graph.clique_evidence``), so its members are connected only through the hub and treating them as one
-    group would assert a link the evidence does not have.
+    Only cliques within ``clique_cap`` count: a larger one is emitted as a star from its hub (see
+    ``match_graph.clique_evidence``), so its members are connected only through the hub. An outlier starts outside
+    its clique, and so does an id Babel has in several cliques: which one it belongs with is for its pairs to
+    settle, not for the order of the rows.
     """
-    membership: dict[str, str] = {}
-    with open(cliques_path) as fin:
-        for line in fin:
-            curie, hub, size = line.rstrip("\n").split(SEP)
-            if curie in wanted and int(size) <= clique_cap:
-                membership[curie] = sys.intern(hub)
-    return membership
-
-
-def _adjacency(edges: list[tuple[str, str, float]]) -> dict[str, dict[str, float]]:
-    adj: dict[str, dict[str, float]] = defaultdict(dict)
-    for a, b, weight in edges:
-        adj[a][b] = weight
-        adj[b][a] = weight
-    return adj
+    starting_clique = np.full(len(uniques), NO_CLIQUE, dtype=np.int32)
+    if cliques_path is None or os.path.getsize(cliques_path) == 0:
+        return starting_clique
+    code_of = pd.Index(uniques.to_numpy(), dtype=object)  # its own index: the hash table goes when this returns
+    memberships = np.zeros(len(uniques), dtype=np.int32)
+    cliques_read, last_hub = 0, None
+    columns = {"id": str, "hub": str, "size": np.int32}
+    for rows in pd.read_csv(cliques_path, sep=SEP, names=list(columns), dtype=columns, chunksize=CLIQUE_ROWS_PER_CHUNK):
+        hub = rows["hub"].to_numpy()
+        opens_clique = np.r_[hub[0] != last_hub, hub[1:] != hub[:-1]]  # a clique's rows are written together
+        clique = cliques_read - 1 + np.cumsum(opens_clique)
+        cliques_read, last_hub = int(clique[-1]) + 1, hub[-1]
+        code = code_of.get_indexer(rows["id"])
+        in_graph = code >= 0
+        np.add.at(memberships, code[in_graph], 1)
+        within_cap = in_graph & (rows["size"].to_numpy() <= clique_cap)
+        starting_clique[code[within_cap]] = clique[within_cap]
+    starting_clique[memberships > 1] = NO_CLIQUE
+    outliers = code_of.get_indexer(list(babel_outliers))
+    starting_clique[outliers[outliers >= 0]] = NO_CLIQUE
+    return starting_clique
 
 
 # --------------------------------------------------------------------------------------
@@ -1365,6 +1352,8 @@ OVERSIZED_EVIDENCE_REPORT_MIN_SIZE = 1000
 OVERSIZED_REPORT_FILENAME = "oversized_clusters.jsonl"
 # Every Babel clique outlier, with the clique its name matches, in ``<integrated debug dir>`` (see babel_outliers).
 BABEL_OUTLIERS_REPORT_FILENAME = "babel_clique_outliers.tsv"
+# Every exact tie and refused chain of clustering, in ``<integrated debug dir>`` (see clustering).
+TIES_REPORT_FILENAME = "er_ties.tsv"
 # Key of the membership markers stage 4 sorts alongside the node dicts (not a node property).
 CLUSTER_MEMBER_MARKER = "__cluster_member__"
 # Key stage 4 tags each source record with, for the debug db (removed before the node is built).
@@ -1506,7 +1495,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         _stage_banner(f"ER STAGE 2 DONE ({time.perf_counter() - t:.1f}s) -- {n_pairs} pairs above tau")
 
         t = time.perf_counter()
-        _stage_banner("ER STAGE 3 -- clustering (connected components -> label propagation -> guardrails)")
+        _stage_banner("ER STAGE 3 -- clustering (connected components -> strongest links first, within the guardrails)")
         curie_to_cluster, histogram, mg_categories, attached_minted_codes = _stage3_cluster(
             pairs_path,
             weights,
@@ -1516,9 +1505,9 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             node_taxon,
             node_ids,
             facts,
-            DEFAULT_SEED,
             cliques_path,
             outliers,
+            ties_path=_debug_dir(config) / TIES_REPORT_FILENAME,
             umls_minted_codes=umls_minted_codes,
             ranking=ranking,
         )

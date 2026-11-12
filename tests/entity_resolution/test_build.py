@@ -11,8 +11,6 @@ from kraken.entity_resolution.build import _original_endpoints, resolve_entities
 from kraken.entity_resolution.debug_db import DebugDb, debug_db_path
 from kraken.entity_resolution.id_facts import IdFactsStore
 
-pytest.importorskip("igraph")
-
 
 def test_original_endpoints_uncanonicalizes_kg2():
     # KG2 stores canonicalized subject/object; the originals are in kg2pre_ids
@@ -1291,10 +1289,10 @@ def test_a_gene_symbol_an_aggregator_alone_names_is_not_matched_without_a_taxon(
     assert m["ENSEMBL:ENSG00000001"] == m["NCBIGene:7124"], "with a taxon to check, the name counts"
 
 
-def test_a_one_id_repair_cuts_between_the_babel_cliques(tmp_path):
-    """Ibuprofen's shape end to end: Babel's racemic clique and its (R) clique, pulled into one cluster by a
-    RefMet entry that lists both structures. The cluster holds two InChIKeys, so the one-id guardrail repairs it
-    -- and the cut must run between the two cliques, not shed the InChIKey that has only clique edges."""
+def test_two_babel_cliques_one_list_names_together_stay_two_structures(tmp_path):
+    """Ibuprofen's shape end to end: Babel's racemic clique and its (R) clique, and a RefMet entry that lists an id
+    of each. Together they would hold two InChIKeys, so they stay two nodes -- and each InChIKey stays with its own
+    clique, although it has only clique edges."""
     racemic_key = "INCHIKEY:HEFNNWSXXWATRW-UHFFFAOYSA-N"
     r_key = "INCHIKEY:HEFNNWSXXWATRW-SNVBAGLBSA-N"
 
@@ -1334,8 +1332,8 @@ def test_a_one_id_repair_cuts_between_the_babel_cliques(tmp_path):
                 "name": "Ibuprofen",
                 "categories": ["biolink:SmallMolecule"],
                 "provided_by": ["infores:refmet"],
-                # RefMet maps both forms onto one entry -- through their NAMED ids, which is what pulls the two
-                # cliques together before either InChIKey's own 0.5 clique edges are considered
+                # RefMet maps both forms onto one entry, through their NAMED ids: stronger evidence than either
+                # InChIKey's own 0.5 clique edges
                 "equivalent_ids": ["RM:0052815", "MESH:D007052", "UNII:2R43V6L3EG"],
             }
         ],
@@ -1390,3 +1388,170 @@ def test_a_protein_typed_umls_concept_joins_the_chemical_it_shares_a_mesh_id_wit
     with jsonlines.open(config.integrated_nodes_path) as nodes:
         [merged] = list(nodes)
     assert merged["categories"] == ["biolink:SmallMolecule"]
+
+
+def _rows(path, rows: str):
+    """A stage's tab-separated file, from space-separated rows."""
+    path.write_text("".join("\t".join(row.split()) + "\n" for row in rows.splitlines() if row.strip()))
+    return path
+
+
+def _stage_3(tmp_path, pairs, cliques: str = "", outliers=()) -> tuple[list[list[str]], list[str]]:
+    """Stage 3 on its own files: its clusters, and the rows of its tie report. ``pairs`` is the pairs file, or
+    rows ``a b weight`` to write it from."""
+    from kraken.entity_resolution.build import _stage3_cluster
+    from kraken.entity_resolution.families import BranchFamilies
+    from kraken.entity_resolution.guardrails import GuardrailConfig
+    from kraken.entity_resolution.weights import ERWeights, weight_units
+
+    if isinstance(pairs, str):
+        rows = (row.split() for row in pairs.splitlines() if row.strip())
+        pairs = _rows(tmp_path / "pairs.tmp", "\n".join(f"{a} {b} {weight_units(weight)}" for a, b, weight in rows))
+    ties = tmp_path / "er_ties.tsv"
+    facts = IdFactsStore(tmp_path / "facts.sqlite")
+    stage_args = (pairs, ERWeights(), BranchFamilies.load(), GuardrailConfig(), {}, {}, set(), facts)
+    try:
+        cluster_of, *_ = _stage3_cluster(
+            *stage_args, _rows(tmp_path / "cliques.tmp", cliques), outliers, ties_path=ties
+        )
+    finally:
+        facts.close()
+    clusters: dict[int, list[str]] = {}
+    for curie, cluster in sorted(cluster_of.items()):
+        clusters.setdefault(cluster, []).append(curie)
+    header, *rows = ties.read_text().splitlines()
+    assert header == "kind\tgroup\tsize\tstrength\tcandidates"
+    return sorted(clusters.values()), rows
+
+
+def _stages_2_and_3(tmp_path, evidence: str, tau: float = 0.3) -> tuple[list[str], list[list[str]], list[str]]:
+    """Stage 2 on evidence rows ``a b group weight kind``, then stage 3 on its pairs file: the pairs file's rows,
+    the clusters, and the rows of the tie report."""
+    from kraken.entity_resolution.build import _stage2_accumulate_pairs
+    from kraken.entity_resolution.weights import ERWeights
+
+    pairs = tmp_path / "pairs.tmp"
+    _stage2_accumulate_pairs(_rows(tmp_path / "evidence.tmp", evidence), pairs, ERWeights(tau=tau), tmp_path)
+    return pairs.read_text().splitlines(), *_stage_3(tmp_path, pairs)
+
+
+def test_equal_evidence_is_a_tie_whatever_order_and_parts_it_was_summed_in(tmp_path):
+    """Both alleles have 0.8015625 to the rsid. Summed as floats and rounded to millionths afterwards, the two came
+    out one millionth apart, and the rsid went to the first allele without a word."""
+    pairs, clusters, ties = _stages_2_and_3(
+        tmp_path,
+        """
+        CAID:CA1 DBSNP:rs1 one 0.8 equiv:one
+        CAID:CA1 DBSNP:rs1 two 0.0015625 match:two
+        CAID:CA2 DBSNP:rs1 one 0.6 equiv:one
+        CAID:CA2 DBSNP:rs1 two 0.1 match:two
+        CAID:CA2 DBSNP:rs1 three 0.1 match:three
+        CAID:CA2 DBSNP:rs1 four 0.0015625 match:four
+        """,
+    )
+    assert pairs == ["CAID:CA1\tDBSNP:rs1\t801562", "CAID:CA2\tDBSNP:rs1\t801562"]
+    assert clusters == [["CAID:CA1"], ["CAID:CA2"], ["DBSNP:rs1"]]
+    assert ties == ['tie\tDBSNP:rs1\t1\t0.801562\t["CAID:CA1", "CAID:CA2"]']
+
+
+def test_evidence_that_adds_up_to_exactly_tau_makes_a_pair(tmp_path):
+    # As floats, 0.7 + 0.1 is 0.7999999999999999.
+    pairs, clusters, _ties = _stages_2_and_3(tmp_path, "A:1 B:1 one 0.7 equiv:one\nA:1 B:1 two 0.1 match:two", tau=0.8)
+    assert pairs == ["A:1\tB:1\t800000"]
+    assert clusters == [["A:1", "B:1"]]
+
+
+STAGE_3_STARTS = {
+    "an id in two cliques starts in neither, whichever row comes last": (
+        """
+        DOID:1 MONDO:1 0.5
+        DOID:2 MONDO:2 0.5
+        DOID:1 UMLS:C1 0.5
+        MONDO:1 UMLS:C1 0.5
+        DOID:2 UMLS:C1 0.5
+        MONDO:2 UMLS:C1 0.5
+        """,
+        """
+        MONDO:1 MONDO:1 3
+        DOID:1 MONDO:1 3
+        UMLS:C1 MONDO:1 3
+        MONDO:2 MONDO:2 3
+        DOID:2 MONDO:2 3
+        UMLS:C1 MONDO:2 3
+        """,
+        [["DOID:1", "MONDO:1"], ["DOID:2", "MONDO:2"], ["UMLS:C1"]],
+    ),
+    "an outlier starts outside its clique": (  # inside it, MONDO:4 would keep it from MONDO:5
+        "DOID:4 MONDO:4 0.5\nMONDO:4 MONDO:5 0.45\nMESH:D1 MONDO:5 0.45",
+        "MONDO:4 MONDO:4 3\nDOID:4 MONDO:4 3\nMESH:D1 MONDO:4 3",
+        [["DOID:4", "MONDO:4"], ["MESH:D1", "MONDO:5"]],
+    ),
+    "a clique over the cap is a star, not a starting group": (  # its leaf follows its stronger pair
+        "DOID:11 MONDO:10 0.5\nMONDO:10 UMLS:C12 0.5\nMONDO:20 UMLS:C12 1.0",
+        "MONDO:10 MONDO:10 101\nDOID:11 MONDO:10 101\nUMLS:C12 MONDO:10 101",
+        [["DOID:11", "MONDO:10"], ["MONDO:20", "UMLS:C12"]],
+    ),
+}
+
+
+@pytest.mark.parametrize(("pairs", "cliques", "clusters"), STAGE_3_STARTS.values(), ids=STAGE_3_STARTS.keys())
+def test_where_stage_3_starts_an_id(tmp_path, pairs, cliques, clusters):
+    assert _stage_3(tmp_path, pairs, cliques, outliers={"MESH:D1"})[0] == clusters
+
+
+def test_stage_3_reads_the_cliques_file_the_same_in_small_pieces(tmp_path, monkeypatch):
+    """Cliques, and an id's rows in two of them, lie across the pieces."""
+    from kraken.entity_resolution import build as build_mod
+
+    pairs = "\n".join(pairs for pairs, _cliques, _clusters in STAGE_3_STARTS.values())
+    cliques = "\n".join(cliques for _pairs, cliques, _clusters in STAGE_3_STARTS.values())
+    clusters = sorted(cluster for _pairs, _cliques, clusters in STAGE_3_STARTS.values() for cluster in clusters)
+    for rows_per_chunk in (2, 5):
+        monkeypatch.setattr(build_mod, "CLIQUE_ROWS_PER_CHUNK", rows_per_chunk)
+        assert _stage_3(tmp_path, pairs, cliques, outliers={"MESH:D1"})[0] == clusters
+
+
+def test_stage_3_puts_a_gene_protein_clique_over_the_cap_back_together(tmp_path):
+    """Such a clique is only a star from its hub. Here its two proteins each join another id first, the hub is then
+    tied between two groups of 2, and clustering leaves the clique in three nodes."""
+    clusters, _ties = _stage_3(
+        tmp_path,
+        pairs="""
+        NCBIGene:10 UniProtKB:11 0.5
+        NCBIGene:10 UniProtKB:12 0.5
+        PR:21 UniProtKB:11 1.0
+        PR:22 UniProtKB:12 1.0
+        """,
+        cliques="NCBIGene:10 NCBIGene:10 101\nUniProtKB:11 NCBIGene:10 101\nUniProtKB:12 NCBIGene:10 101",
+    )
+    assert clusters == [["NCBIGene:10", "PR:21", "PR:22", "UniProtKB:11", "UniProtKB:12"]]
+
+
+def test_stage_3_lists_the_ties_and_refused_chains_of_every_component(tmp_path):
+    # HGNC is a human gene and MGI a mouse gene, by the prefix rule: the chain between them cannot be one group.
+    _clusters, ties = _stage_3(
+        tmp_path,
+        pairs="""
+        CAID:CA1 DBSNP:rs1 0.5
+        CAID:CA2 DBSNP:rs1 0.5
+        HGNC:1 UMLS:C1 0.5
+        UMLS:C1 UMLS:C2 0.5
+        MGI:2 UMLS:C2 0.5
+        """,
+    )
+    assert ties == [
+        'chain\tHGNC:1\t1\t0.5\t["MGI:2", "UMLS:C1", "UMLS:C2"]',
+        'tie\tDBSNP:rs1\t1\t0.5\t["CAID:CA1", "CAID:CA2"]',
+    ]
+
+
+def test_stage_3_stops_on_a_cluster_that_breaks_a_guardrail(tmp_path, monkeypatch):
+    """Nothing repairs a cluster after clustering any more, so one that breaks a guardrail must not pass silently."""
+    from kraken.entity_resolution import build as build_mod
+
+    def one_cluster(members, *_args):
+        return [sorted(members)], []
+
+    monkeypatch.setattr(build_mod, "cluster_component", one_cluster)
+    with pytest.raises(RuntimeError, match="breaks a guardrail"):
+        _stage_3(tmp_path, pairs="MONDO:1 UMLS:C1 0.5\nMONDO:2 UMLS:C1 0.5")

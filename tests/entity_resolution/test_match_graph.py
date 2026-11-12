@@ -113,9 +113,9 @@ def test_bulk_prefix_ids_get_only_a_weak_link_to_the_listing_node():
 
 
 def test_an_aggregator_list_is_a_star_from_the_listing_node_however_small():
-    """An aggregator's list is ONE claim about ONE node. As a clique it is a dense community that label
-    propagation prefers over the curated cliques inside it -- which is how kg2's heart list split the heart in
-    two, and how its metformin list fused metformin with its hydrochloride."""
+    """An aggregator's list is ONE claim about ONE node. As a clique its ids would vouch for each other against
+    the curated cliques inside it -- which is how kg2's heart list split the heart in two, and how its metformin
+    list fused metformin with its hydrochloride (both seen when clustering was label propagation)."""
     w = ERWeights()
     ids = [f"P{i}:{i}" for i in range(26)]
     ev = _by_pair(clique_evidence(ids, "kg2", w, head="P0:0"))

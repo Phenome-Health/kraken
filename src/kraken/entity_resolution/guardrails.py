@@ -1,7 +1,8 @@
-"""Guardrails: a safety net checked on clustering output (plan §3).
+"""Guardrails: what no cluster may break (plan §3). Clustering keeps them as it merges
+(``join_states``), and stage 3 checks every cluster it made again (``cluster_violations``).
 
-Every guardrail is **hereditary** (closed under subsets), so "split until valid"
-is well-founded: singletons are always valid, so the recursion terminates.
+Every guardrail is **hereditary** (closed under subsets): what the guardrails forbid
+two groups, they forbid everything those groups grow into, and a single id is always valid.
 
 Guardrails implemented:
 
@@ -14,16 +15,9 @@ Guardrails implemented:
   *instrumented but not enforced* by default; promote once the histogram is
   clean.
 
-Repair strategy for a violating cluster: an optional injected ``splitter`` may try
-to split it better; otherwise (or if it can't) fall back to a deterministic greedy
-valid partition that regrows the cluster along its strongest edges, keeping only
-merges that stay valid (repairs but cannot discover). A one-id violation is always
-repaired, however many ids are involved: k ids of a one-entity-per-id prefix in one
-cluster means k entities were merged, so k clusters is the right answer, and a large
-k is the strongest sign of it -- not a reason to stop. Large repairs are logged,
-because they point at an upstream conflation worth finding. (This used to be capped
-at 3, leaving bigger violations intact; that shipped the worst conflations
-unrepaired, e.g. a single 2.1.1 cluster holding 247 RefMet and 247 LIPID MAPS ids.)
+``enforce_cluster`` and ``greedy_valid_partition`` are the split-until-valid repair
+the build ran when clustering was label propagation, which could merge across a
+guardrail. Stage 3 no longer calls them.
 
 Two documented blind spots (log, don't solve): a node violating a rule *by
 itself* (evaluated cross-node only), and protein vs. cleavage products (Biolink
@@ -147,6 +141,44 @@ def cluster_violations(
     if not one_id_valid(members, config.enforced_prefixes):
         violations.append("one_id")
     return violations
+
+
+# What the guardrails know about a group of ids that may still grow: the families all its typed ids share (None
+# while it holds only wildcards), its taxon (None while no id has one), and the enforced prefixes it holds an id of.
+GroupState = tuple[frozenset[str] | None, str | None, frozenset[str]]
+
+
+def group_state(node: NodeInfo, enforced_prefixes: frozenset[str]) -> GroupState:
+    """The state of one id on its own."""
+    wildcard = node.branches is ALL_FAMILIES or node.branches == ALL_FAMILIES
+    prefix = node.prefix
+    return (
+        None if wildcard else node.branches,
+        node.taxon or None,
+        frozenset((prefix,)) if prefix in enforced_prefixes else frozenset(),
+    )
+
+
+def join_states(one: GroupState | None, other: GroupState | None) -> GroupState | None:
+    """The state of two groups as one, or None when a guardrail forbids the union. None stays None, so a chain of
+    joins is forbidden as soon as one step is."""
+    if one is None or other is None:
+        return None
+    branches_one, taxon_one, prefixes_one = one
+    branches_other, taxon_other, prefixes_other = other
+    if taxon_one is not None and taxon_other is not None and taxon_one != taxon_other:
+        return None
+    if not prefixes_one.isdisjoint(prefixes_other):
+        return None
+    if branches_one is None:
+        branches = branches_other
+    elif branches_other is None:
+        branches = branches_one
+    else:
+        branches = branches_one & branches_other
+    if branches is not None and not branches:
+        return None
+    return branches, taxon_one if taxon_one is not None else taxon_other, prefixes_one | prefixes_other
 
 
 def greedy_valid_partition(

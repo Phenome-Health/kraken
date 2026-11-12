@@ -52,8 +52,7 @@ def test_two_species_in_one_clique_stay_apart(tmp_path):
 
 
 def test_a_cluster_holding_anything_but_a_gene_or_protein_is_left_alone(tmp_path):
-    """The repair is this family's alone: elsewhere a torn Babel clique is usually label propagation separating
-    a class from its members."""
+    """The repair is this family's alone (see gene_protein_cohesion)."""
     clusters = {**SPLIT, "CHEBI:15377": 1}
     info = {"CHEBI:15377": NodeInfo(curie="CHEBI:15377", branches=CHEMICAL)}
     clusters, merged = _rejoin(tmp_path, clusters, info)

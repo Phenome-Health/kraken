@@ -47,16 +47,16 @@ def clique_evidence(
     a scale valve against N^2 edges.
 
     An AGGREGATOR's set (``ERWeights.aggregator_list_sources``) is ALWAYS a star, however small. Its list is one
-    claim by one source about one node, not n(n-1)/2 independent ones, and as a clique it behaves like a dense
-    community that label propagation prefers over the curated cliques inside it: kg2's 14-id heart list
+    claim by one source about one node, not n(n-1)/2 independent ones. As a clique its ids would vouch for each
+    other with the whole list behind them, against the curated cliques inside it: kg2's 14-id heart list
     (79k-edge cliques at 400 ids) tore the heart in two, keeping FMA:7088 and ChEMBL's heart targets apart from
-    UBERON:0000948, and its metformin list fused metformin with its hydrochloride and combination products. As a
-    star, each listed id hangs off the listing node alone, so it settles into whichever curated clique actually
-    claims it and only stays attached when nothing else does.
+    UBERON:0000948, and its metformin list fused metformin with its hydrochloride and combination products (both
+    seen when clustering was label propagation). As a star, each listed id hangs off the listing node alone, so
+    it goes where its own evidence is strongest and stays with the listing node when nothing else claims it.
 
     The hub is ``head``: the node that listed the ids (an aggregator's own canonical id), or Babel's preferred id
-    for one of its cliques. The hub matters -- it is where label propagation anchors the set, so an arbitrary hub
-    can carry real members off into a side community. With the lexically smallest id as hub, metformin
+    for one of its cliques. The hub matters -- every listed id is linked to it and to nothing else in the set, so
+    an arbitrary hub takes the set's ids wherever that id belongs. With the lexically smallest id as hub, metformin
     hydrochloride's CAS (which happens to sort first) ended up representing a separate node of metformin's
     branded products, and glucose lost its main CAS number the same way. Without a ``head``, the lexically
     smallest id is used.

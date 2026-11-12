@@ -1,13 +1,15 @@
 """Put back the chemical Babel cliques that clustering split (compare ``gene_protein_cohesion``).
 
-Only a clique's own members move. Every other id stays in the cluster label propagation put it in: a clique says which
-ids are one chemical, not where the rest of their cluster belongs (joining whole clusters took lactic acid's ATC code
-to RefMet's "Lactic acid").
+Only a clique's own members move. Every other id stays in its cluster: a clique says which ids are one chemical,
+not where the rest of their cluster belongs (joining whole clusters took lactic acid's ATC code to RefMet's
+"Lactic acid").
 
-A clique holding an InChIKey is one structure, but label propagation can cut it: 12 of cortisone's 16 ids settle with
-the InChIKey of cortisone with no stereo, while its own InChIKey stays with the RefMet and LIPID MAPS lists that name
-it. No guardrail sees it, because each piece holds one InChIKey. When most of a clique sits with an InChIKey of the same
-skeleton, another stereo form, those members join their own. When only a few do, evidence of their own holds them:
+A clique holding an InChIKey is one structure, but clustering can leave it in pieces (see ``clustering``: a clique
+starts whole only within the size cap, and an id Babel has in two cliques starts alone). Under label propagation 12
+of cortisone's 16 ids settled with the InChIKey of cortisone with no stereo, while its own InChIKey stayed with the
+RefMet and LIPID MAPS lists that name it. No guardrail sees it, because each piece holds one InChIKey. When most of
+a clique sits with an InChIKey of the same skeleton, another stereo form, those members join their own. When only a
+few do, evidence of their own holds them:
 GtoPdb's "L-tryptophan" sits in Babel's no-stereo clique, and its name puts it with L-tryptophan. Without a second
 InChIKey there is no conflict between structures to settle, and nothing checks a member's stereo: ChEBI's
 "(+)-alloaromadendrene" is in the clique of the (-) form's InChIKey. And another skeleton is another compound: MeSH's

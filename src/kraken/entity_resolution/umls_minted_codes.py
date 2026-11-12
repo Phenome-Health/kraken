@@ -8,8 +8,8 @@ one-id nodes. One of those carries real edges: 10 Mendelian randomization edges 
 type 2 diabetes node never got.
 
 This runs AFTER clustering, rather than as heavier evidence, so it cannot move anything else. Measured over the
-44k ids these codes can reach, on the real clustering code, heavier evidence tore 115 clusters and fused 469; even
-limited to the codes with no other tie it tore 87, because a new leaf changes how label propagation plays out. A
+44k ids these codes can reach, when clustering was label propagation, heavier evidence tore 115 clusters and fused
+469; even limited to the codes with no other tie it tore 87, because a new leaf changed how the rest clustered. A
 code that already shares a node stays there: its other tie disagrees with the concept, which is not a call to make
 here.
 

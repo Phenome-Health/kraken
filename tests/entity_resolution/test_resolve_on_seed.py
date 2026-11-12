@@ -11,12 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import jsonlines
-import pytest
 
 from kraken.entity_resolution.build import resolve_entities
 from kraken.entity_resolution.eval.scorer import load_gold, score
-
-pytest.importorskip("igraph")
 
 # Real Parkinson-disease clique (from the 2.1.0 merged node): a single-entity
 # disease clique whose cross-ontology members are carried ONLY by an aggregator's
