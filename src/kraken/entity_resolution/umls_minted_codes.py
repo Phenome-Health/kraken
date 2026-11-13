@@ -23,10 +23,10 @@ concept's UMLS semantic type). And where the node's id has no Babel label, the c
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from collections.abc import Callable, Mapping
 
 from kraken.entity_resolution.families import ALL_FAMILIES, CHEMICAL_FAMILY, BranchFamilies
+from kraken.entity_resolution.final_clusters import FinalClusters
 from kraken.entity_resolution.guardrails import GuardrailConfig, NodeInfo, cluster_violations
 from kraken.entity_resolution.materialize import PrefixRanking
 
@@ -52,20 +52,13 @@ def attach_orphan_codes(
 ) -> tuple[set[str], int]:
     """Move each code that is alone into its concept's cluster, in place, if the guardrails allow it and the node
     keeps its id, name, types and taxon. Returns the codes moved and the next free cluster id."""
-    wanted = {curie_to_cluster[c] for pair in code_to_concept.items() for c in pair if c in curie_to_cluster}
-    members_of: dict[int, list[str]] = defaultdict(list)
-    for curie, cluster in curie_to_cluster.items():
-        if cluster in wanted:
-            members_of[cluster].append(curie)
-
+    clusters = FinalClusters(curie_to_cluster, {*code_to_concept, *code_to_concept.values()}, next_cluster_id)
     attached: set[str] = set()
     refused = changes_node = 0
     for code, concept in sorted(code_to_concept.items()):
-        own_cluster = curie_to_cluster.get(code)
-        if own_cluster is not None and len(members_of[own_cluster]) > 1:
+        if not clusters.is_alone(code):
             continue
-        cluster = curie_to_cluster.get(concept)
-        node = members_of[cluster] if cluster is not None else [concept]
+        node = clusters.members_with(concept)
         ids = sorted({*node, code})
         info = {curie: info_of(curie) for curie in ids}
         # An untyped code would be a guardrail wildcard, so nothing could refuse it.
@@ -91,12 +84,7 @@ def attach_orphan_codes(
         if not keeps_node:
             changes_node += 1
             continue
-        if cluster is None:
-            cluster, next_cluster_id = next_cluster_id, next_cluster_id + 1
-            curie_to_cluster[concept] = cluster
-            members_of[cluster].append(concept)
-        curie_to_cluster[code] = cluster
-        members_of[cluster].append(code)
+        clusters.join(code, concept)
         attached.add(code)
     logging.info(
         "entity_resolution: put %d UMLS-minted codes into their concept's node; %d refused by the guardrails, %d "
@@ -105,7 +93,7 @@ def attach_orphan_codes(
         refused,
         changes_node,
     )
-    return attached, next_cluster_id
+    return attached, clusters.next_cluster_id
 
 
 def _family(ids: list[str], info: Mapping[str, NodeInfo]) -> str | None:

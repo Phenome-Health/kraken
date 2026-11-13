@@ -91,6 +91,7 @@ OBJ_ASPECT_QUALIFIER = "object_aspect_qualifier"
 # Node property name constants
 NODE_ID = NodeModel.id.name
 NODE_NAME = NodeModel.name.name
+NODE_UNMATCHED_NAME = NodeModel.unmatched_name.name
 NODE_URLS = NodeModel.urls.name
 NODE_CATEGORIES = NodeModel.categories.name
 NODE_PROVIDED_BY = NodeModel.provided_by.name

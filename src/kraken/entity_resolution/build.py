@@ -60,6 +60,7 @@ from kraken.entity_resolution.guardrails import (
     ids_per_cluster_histogram,
     log_oversized_clusters,
 )
+from kraken.entity_resolution.icd10_twins import attach_twins, is_twin_statement
 from kraken.entity_resolution.id_facts import IdFacts, IdFactsStore
 from kraken.entity_resolution.match_graph import alias_evidence, clique_evidence, match_predicate_evidence
 from kraken.entity_resolution.materialize import PrefixRanking, materialize_cluster
@@ -94,6 +95,7 @@ from kraken.utils.constants import (
     NODE_NAME,
     NODE_PROVIDED_BY,
     NODE_TAXON,
+    NODE_UNMATCHED_NAME,
     SAME_AS_PREDICATE,
 )
 from kraken.utils.kg_io import remove_file, stream_edges_from_jsonl, stream_nodes_from_jsonl
@@ -147,6 +149,7 @@ def _stage1_write_evidence_and_facts(
     deferred_path: Path | None = None,
     cliques_path: Path | None = None,
     umls_minted_codes: dict[str, str] | None = None,
+    icd10_twins: dict[str, str] | None = None,
 ) -> tuple[dict[str, frozenset[str]], dict[str, str], set[str], dict[str, int], dict[str, set[str]]]:
     """One streaming pass over harmonized nodes+edges. Writes equivalency-clique
     (native sources only) and match-predicate evidence, writes
@@ -168,6 +171,10 @@ def _stage1_write_evidence_and_facts(
 
     For finding Babel clique outliers (see ``babel_outliers``), the aggregator evidence Babel's say overrules goes to
     ``deferred_path`` instead of the evidence file, and every Babel clique member to ``cliques_path``.
+
+    Two kinds of statement are applied after clustering (see ``_stage3_cluster``), and collected here if the dict is
+    given: ``umls_minted_codes``, each code UMLS minted with its concept, beside the weak evidence that statement
+    is, and ``icd10_twins``, each WHO ICD-10 code with the ICD-10-CM code it is, which is never written as evidence.
     """
     inherited_cats: dict[str, frozenset[str]] = {}
     node_taxon: dict[str, str] = {}
@@ -397,6 +404,10 @@ def _stage1_write_evidence_and_facts(
                 if takes_aliases:
                     record_aliases(edge, source, bit, ev)
                 predicate = edge.get(EDGE_PREDICATE, "")
+                if is_twin_statement(source, predicate):
+                    if icd10_twins is not None:
+                        icd10_twins[edge[EDGE_SUBJECT]] = edge[EDGE_OBJECT]
+                    continue  # as evidence it would outweigh all that places the ICD-10-CM code (see icd10_twins)
                 if weights.predicate_weight(predicate) is None:
                     continue  # not a usable match predicate; skip before un-canon work
                 endpoints = _original_endpoints(edge, source)
@@ -810,11 +821,13 @@ def _stage3_cluster(
     clique_taxon_overrides: Mapping[str, str],
     umls_minted_codes: dict[str, str] | None = None,
     ranking: PrefixRanking | None = None,
-) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, tuple[str, ...]], set[str]]:
+    icd10_twins: Mapping[str, str] | None = None,
+) -> tuple[dict[str, int], dict[str, dict[int, int]], dict[str, tuple[str, ...]], set[str], set[str]]:
     """Cluster the weighted pair graph. Returns ``curie -> cluster_id`` for every
-    CURIE appearing in a pair, the ids-per-prefix histogram, ``curie -> single
-    intrinsic category`` for every match-graph node, and the UMLS-minted codes put into
-    their concept's node. The exact ties and refused chains of clustering are listed in ``ties_path``.
+    CURIE appearing in a pair (and every id put into a cluster afterwards), the ids-per-prefix histogram,
+    ``curie -> single intrinsic category`` for every match-graph node, the UMLS-minted codes put into
+    their concept's node, and the WHO ICD-10 codes moved into their ICD-10-CM code's. The exact ties and refused
+    chains of clustering are listed in ``ties_path``.
 
     Uses int codes (numpy) and scipy connected components; clustering runs
     per non-trivial component so peak memory is bounded by the largest component.
@@ -1006,20 +1019,23 @@ def _stage3_cluster(
         for cluster in chemical_repairs.remade:
             record(cluster)
 
-    # Last, on the final clusters. It may open a cluster, so it hands back the next free cluster id.
+    def facts_outside_the_match_graph(curie: str) -> tuple[tuple[str, ...], str | None]:
+        """The categories and taxon of an id whose evidence never reached tau. It has none yet, and an id without
+        them is a guardrail wildcard. Category: Babel's, else its source's. Taxon: as for every match-graph id."""
+        babel = facts.get(curie)
+        categories = _unclustered_id_categories(curie, babel, inherited_cats, families)
+        return categories, _id_taxon(curie, babel, node_taxon, clique_taxon_overrides)
+
+    # Last, on the final clusters: the ids that follow one other id. Each step may open a cluster, so it hands
+    # back the next free cluster id.
     attached_minted_codes: set[str] = set()
     if umls_minted_codes:
         if ranking is None:
             raise ValueError("attaching UMLS-minted codes needs the prefix ranking materialize uses")
-        # Most of these never reached tau, so they have no category or taxon yet, and an id without one is a
-        # guardrail wildcard. Category: Babel's, else their source's. Taxon: as for every match-graph id.
-        for curie in {curie for pair in umls_minted_codes.items() for curie in pair} - mg_categories.keys():
-            babel = facts.get(curie)
-            mg_categories[curie] = _unclustered_id_categories(curie, babel, inherited_cats, families)
-            taxon = _id_taxon(curie, babel, node_taxon, clique_taxon_overrides)
+        for curie in {*umls_minted_codes, *umls_minted_codes.values()} - mg_categories.keys():
+            mg_categories[curie], taxon = facts_outside_the_match_graph(curie)
             if taxon:
                 mg_taxon[curie] = taxon
-
         attached_minted_codes, next_cluster_id = attach_orphan_codes(
             umls_minted_codes,
             curie_to_cluster,
@@ -1030,6 +1046,25 @@ def _stage3_cluster(
             guardrail_config=guardrail_config,
             next_cluster_id=next_cluster_id,
         )
+    # After the minted codes, so that every other id's node is what it would be without these statements.
+    moved_icd10_twins: set[str] = set()
+    if icd10_twins:
+
+        def twin_info(curie: str) -> NodeInfo:
+            """What this step sees of an id stays out of ``mg_categories``, which stage 4 types every record of an
+            id from: an ICD-10-CM code is to be written just as it is without these statements."""
+            if curie in mg_categories:
+                return info_provider(curie)
+            categories, taxon = facts_outside_the_match_graph(curie)
+            return NodeInfo(curie=curie, branches=families.branches(categories), taxon=taxon)
+
+        moved_icd10_twins, next_cluster_id = attach_twins(
+            icd10_twins,
+            curie_to_cluster,
+            info_of=twin_info,
+            guardrail_config=guardrail_config,
+            next_cluster_id=next_cluster_id,
+        )
 
     log_oversized_clusters(oversized, guardrail_config)
     return (
@@ -1037,6 +1072,7 @@ def _stage3_cluster(
         {prefix: dict(counts) for prefix, counts in histogram.items()},
         mg_categories,
         attached_minted_codes,
+        moved_icd10_twins,
     )
 
 
@@ -1158,6 +1194,7 @@ def _stage4_materialize(
     *,
     clique_taxon_overrides: Mapping[str, str],
     attached_minted_codes: set[str] | None = None,
+    moved_icd10_twins: set[str] | None = None,
 ) -> dict[str, str]:
     """Stream harmonized nodes, group by cluster on disk, reconcile one cluster at a
     time, and write the canonical nodes file (and each id's row of ``debug_db``, if given). Returns
@@ -1245,6 +1282,13 @@ def _stage4_materialize(
                         # It joined on condition that it changes nothing about its node (see umls_minted_codes), so
                         # its description cannot be the node's.
                         node.pop(NODE_DESCRIPTION, None)
+                    if moved_icd10_twins and node_id in moved_icd10_twins:
+                        # It is its ICD-10-CM twin (see icd10_twins): the node's types, description and name are
+                        # that code's. A name some source gives this code stays a synonym, as its WHO title does.
+                        node[NODE_CATEGORIES] = []
+                        node.pop(NODE_DESCRIPTION, None)
+                        if name := node.pop(NODE_NAME, None):
+                            node.setdefault(NODE_UNMATCHED_NAME, name)
                     # Taxon: Babel wins; else keep the source taxon already on the dict; else
                     # the single-species prefix backup (last resort, never before source).
                     babel_taxon = taxon_of(node_id)
@@ -1372,6 +1416,11 @@ def _record_debug_ids(
                 (source or "(bare id)", entry[NODE_NAME])
                 for source, entry in records[curie]
                 if entry.get(NODE_NAME) and source != "babel"
+            ]
+            + [
+                (f"{source}, not matched on", entry[NODE_UNMATCHED_NAME])
+                for source, entry in records[curie]
+                if entry.get(NODE_UNMATCHED_NAME)
             ],
         )
 
@@ -1489,6 +1538,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
         t = time.perf_counter()
         _stage_banner("ER STAGE 1 -- streaming harmonized nodes/edges -> match evidence, names, guardrail facts")
         umls_minted_codes: dict[str, str] = {}
+        icd10_twins: dict[str, str] = {}
         inherited_cats, node_taxon, node_ids, seeds, source_provided_by = _stage1_write_evidence_and_facts(
             config,
             weights,
@@ -1500,6 +1550,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             deferred_path=deferred_path,
             cliques_path=cliques_path,
             umls_minted_codes=umls_minted_codes,
+            icd10_twins=icd10_twins,
         )
         _stage_banner(
             f"ER STAGE 1 DONE ({time.perf_counter() - t:.1f}s) -- {len(node_ids)} harmonized node ids, "
@@ -1544,7 +1595,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
 
         t = time.perf_counter()
         _stage_banner("ER STAGE 3 -- clustering (connected components -> strongest links first, within the guardrails)")
-        curie_to_cluster, histogram, mg_categories, attached_minted_codes = _stage3_cluster(
+        curie_to_cluster, histogram, mg_categories, attached_minted_codes, moved_icd10_twins = _stage3_cluster(
             pairs_path,
             weights,
             families,
@@ -1559,6 +1610,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             clique_taxon_overrides=clique_taxon_overrides,
             umls_minted_codes=umls_minted_codes,
             ranking=ranking,
+            icd10_twins=icd10_twins,
         )
         _stage_banner(
             f"ER STAGE 3 DONE ({time.perf_counter() - t:.1f}s) -- "
@@ -1590,6 +1642,7 @@ def resolve_entities(config, biolink) -> dict[str, str]:
             debug_db,
             clique_taxon_overrides=clique_taxon_overrides,
             attached_minted_codes=attached_minted_codes,
+            moved_icd10_twins=moved_icd10_twins,
         )
         _stage_banner(
             f"ER STAGE 4 DONE ({time.perf_counter() - t:.1f}s) -- "

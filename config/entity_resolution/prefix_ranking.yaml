@@ -8,7 +8,8 @@
 #   * name               = highest-ranked member that has a name
 #   * description        = highest-ranked member that has a non-empty description
 #                          (may come from a lower-ranked id than the name)
-# Prefixes not listed rank after listed ones, then lexically. Amy: reorder freely.
+# Prefixes not listed rank after listed ones, then lexically; those under _last after every other. Amy: reorder
+# freely.
 
 rankings:
   gene_protein:
@@ -69,3 +70,9 @@ _default:
   - GO
   - NCBITaxon
   - UMLS
+
+# Rank after every other prefix, listed or not, in every family: an id of these names a cluster only when it is alone.
+_last:
+  # WHO's ICD-10. Its codes are new beside ids that already name their clusters, the ICD-10-CM code of the same code
+  # first of all ("ICD10:" sorts before "ICD10CM:"), and joining a cluster must not rename it.
+  - ICD10

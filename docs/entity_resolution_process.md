@@ -79,6 +79,14 @@ serve this; if the code and this doc disagree, this doc is the north star.
    it and the node keeps its id, name, types and taxon. This comes after clustering so that it
    cannot move anything else (see `umls_minted_codes`).
 
+   Last, put each WHO ICD-10 code into the node of the ICD-10-CM code it is (the `icd10` source
+   states which: same code, same title), as one more id of that code's type, if the guardrails
+   allow it and no source gives the code a species. Only the WHO code moves, also out of a node
+   an aggregator's list had it on, and it lends its new node no type, id, name or description.
+   After clustering for
+   the same reason: weighed as evidence, that statement merged the two codes first, and the
+   pair then left the node the ICD-10-CM code's name had put it in (see `icd10_twins`).
+
 7. Now we're ready to merge nodes. The "canonical" id for the merged node is chosen based
    on our prefix ranking. The chosen name should preferably be the label for that exact
    chosen id per Babel, backing up as appropriate. The description preferably comes

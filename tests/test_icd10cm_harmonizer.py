@@ -13,6 +13,7 @@ from kraken.harmonizers.icd10cm import (
     DISEASE_CATEGORY,
     ICD10CMHarmonizer,
     dotted,
+    harmonized_titles,
     parent_code,
     read_order_file,
 )
@@ -45,6 +46,8 @@ ORDER_ROWS = [
     ("F531", 1, "Puerperal psychosis"),
     ("I10", 1, "Essential (primary) hypertension"),
     ("I15", 0, "Secondary hypertension"),
+    ("I21", 0, "Acute myocardial infarction"),
+    ("I219", 1, "Acute myocardial infarction, unspecified"),
     ("I150", 1, "Renovascular hypertension"),
     ("J94", 0, "Other pleural conditions"),
     ("J942", 1, "Hemothorax"),
@@ -84,6 +87,13 @@ MONDO_ROWS = [
     ("MONDO:0001609", "agranulocytosis", EXACT, "ICD10CM:D70", "Neutropenia"),
     ("MONDO:0001475", "neutropenia", EXACT, "DOID:1227", "neutropenia"),
     ("MONDO:0006783", "hemopneumothorax", EXACT, "ICD10CM:J94.2", "Hemothorax"),
+    (
+        "MONDO:0004781",
+        "acute myocardial infarction",
+        EXACT,
+        "ICD10CM:I21.9",
+        "Acute myocardial infarction, unspecified",
+    ),
     ("MONDO:0020573", "inherited disease susceptibility", EXACT, "ICD10CM:Z15", "Genetic susceptibility to disease"),
     # none of these link anything: a range alone, an obsolete term, a broad row, another code system
     ("MONDO:0000916", "intestinal infectious disease", EXACT, "ICD10CM:A00-A09", "Intestinal infectious diseases"),
@@ -261,6 +271,7 @@ def test_a_row_mondo_is_not_clear_on_links_without_merging(tmp_path, mondo_id, c
 def test_only_a_code_with_a_same_as_carries_no_name(tmp_path):
     nodes, _edges = _run(tmp_path)
     assert "name" not in nodes["ICD10CM:E11"]
+    assert nodes["ICD10CM:E11"]["unmatched_name"] == "Type 2 diabetes mellitus"
     assert nodes["ICD10CM:E11"]["synonyms"] == ["Type 2 diabetes mellitus"]
     assert nodes["ICD10CM:E11.65"]["name"] == "Type 2 diabetes mellitus with hyperglycemia"
 
@@ -348,11 +359,16 @@ def _resolve(tmp_path) -> dict[str, dict]:
         _babel_node("HP:0012151", "Hemothorax"),
         _babel_node("MONDO:0001475", "neutropenia"),
         _babel_node("MONDO:0001609", "agranulocytosis"),
+        _babel_node("MONDO:0004781", "acute myocardial infarction"),
+        _babel_node("DOID:9408", "acute myocardial infarction"),
+        _babel_node("NCIT:C35204", "Acute Myocardial Infarction"),
+        _babel_node("UMLS:C0155626", "Acute myocardial infarction"),
     ]
     with jsonlines.open(harmonized / "babel" / "nodes.jsonl", "w") as w:
         w.write_all(babel_nodes)
     with jsonlines.open(harmonized / "babel" / "edges.jsonl", "w") as w:
         w.write_all(_babel_clique("MONDO:0005148", "DOID:9352"))
+        w.write_all(_babel_clique("MONDO:0004781", "DOID:9408", "NCIT:C35204", "UMLS:C0155626"))
 
     inputs = tmp_path / "inputs"
     _write_inputs(inputs)
@@ -407,3 +423,22 @@ def test_a_code_broader_than_its_mondo_term_stays_out_of_it(tmp_path):
     by_id = _resolve(tmp_path)
     assert by_id["ICD10CM:J94.2"] is not by_id["MONDO:0006783"]
     assert by_id["ICD10CM:J94.2"] is by_id["HP:0012151"]
+
+
+def test_a_code_its_disease_has_no_room_for_is_named_by_its_title(tmp_path):
+    """Mondo calls I21.9 exact to acute myocardial infarction, so the code carries no name to match on. But I21, named
+    like the disease, is in it, and a node holds one ICD-10-CM code. Eight such codes had no name at all in a build."""
+    by_id = _resolve(tmp_path)
+    assert by_id["ICD10CM:I21"] is by_id["MONDO:0004781"]
+    left_out = by_id["ICD10CM:I21.9"]
+    assert left_out["equivalent_ids"] == ["ICD10CM:I21.9"]
+    assert left_out["name"] == "Acute myocardial infarction, unspecified"
+
+
+def test_titles_read_back_from_the_harmonized_nodes_are_the_order_files(tmp_path):
+    """The icd10 source reads them there, whether or not the name is one to match on."""
+    inputs = tmp_path / "inputs"
+    _write_inputs(inputs)
+    nodes_path = tmp_path / "nodes.jsonl"
+    _harmonizer().harmonize(nodes_path, tmp_path / "edges.jsonl", input_file=inputs)
+    assert harmonized_titles(nodes_path) == {code: name for code, _billable, name in ORDER_ROWS}

@@ -17,6 +17,10 @@ class NodeModel:
 
     id = PropertyDef("id", str, required=True)
     name = PropertyDef("name", str)
+    # A source's name for its id that entity resolution must not match on: one that would bring the wrong ids along
+    # (an ICD-10-CM code that merges into a Mondo disease). Only in harmonized nodes. It names the merged node where
+    # no id has a name (see materialize_cluster).
+    unmatched_name = PropertyDef("unmatched_name", str)
     urls = PropertyDef("urls", list, inner_type=str)
     categories = PropertyDef("categories", list, required=True, inner_type=str)
     provided_by = PropertyDef("provided_by", list, required=True, inner_type=str)

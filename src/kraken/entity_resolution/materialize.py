@@ -40,6 +40,7 @@ from kraken.utils.constants import (
     NODE_PUBLICATIONS,
     NODE_SYNONYMS,
     NODE_TAXON,
+    NODE_UNMATCHED_NAME,
     NODE_URLS,
     PROJECT_ROOT,
 )
@@ -110,21 +111,22 @@ def _name_correction(cluster_ids: set[str], label_of: Callable[[str], str | None
 class PrefixRanking:
     """Ranked prefixes per family, for representative selection."""
 
-    def __init__(self, rankings: dict[str, list[str]], default: list[str]):
+    def __init__(self, rankings: dict[str, list[str]], default: list[str], last: Sequence[str] = ()):
         self.rankings = rankings
         self.default = default
+        self.last = {prefix: _UNRANKED + 1 + i for i, prefix in enumerate(last)}
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> PrefixRanking:
         path = Path(path) if path is not None else DEFAULT_RANKING_PATH
         data = yaml.safe_load(Path(path).read_text()) or {}
-        return cls(data.get("rankings", {}), data.get("_default", []))
+        return cls(data.get("rankings", {}), data.get("_default", []), data.get("_last", []))
 
     def order_for(self, family: str | None) -> dict[str, int]:
         prefixes = self.rankings.get(family) if family else None
         if not prefixes:
             prefixes = self.default
-        return {prefix: i for i, prefix in enumerate(prefixes)}
+        return {prefix: i for i, prefix in enumerate(prefixes)} | self.last
 
     def rank_key(self, curie: str, order: Mapping[str, int]) -> tuple[int, str]:
         prefix = curie.split(":", 1)[0]
@@ -187,7 +189,8 @@ def materialize_cluster(
     ``label_of`` returns Babel's per-id label for a CURIE (or None); the
     display name prefers the REPRESENTATIVE id's own Babel label (attributable to that
     exact canonical id), falling back to the highest-ranked member name when Babel has
-    none. Every other member name is retained as a synonym either way."""
+    none, and to the highest-ranked unmatched name when no member has a name. Every other
+    member name is retained as a synonym either way."""
     if not members:
         raise ValueError("cannot materialize an empty cluster")
 
@@ -196,6 +199,7 @@ def materialize_cluster(
 
     representative = min(members, key=lambda m: ranking.rank_key(m[NODE_ID], order))
     name_src = _highest_ranked_matching(members, order, ranking, lambda m: bool(m.get(NODE_NAME)))
+    unmatched_name_src = _highest_ranked_matching(members, order, ranking, lambda m: bool(m.get(NODE_UNMATCHED_NAME)))
     desc_src = _highest_ranked_matching(members, order, ranking, lambda m: bool(m.get(NODE_DESCRIPTION)))
 
     # union of all member ids and their equivalent id lists
@@ -217,7 +221,14 @@ def materialize_cluster(
     # Display name: the representative id's OWN Babel label wins (per-id, attributable);
     # else the highest-ranked member name. Every other member name (incl. the rep's
     # own source name when the Babel label differs) is retained as a synonym below.
-    chosen_name = label_of(representative[NODE_ID]) or (name_src.get(NODE_NAME) if name_src else None)
+    # Where no id has a name, a name its source kept out of the matching: an ICD code that is to merge into its
+    # disease, when the disease has no room for it (ICD10CM:I21.9, where I21 already sat in acute myocardial
+    # infarction, had no name at all).
+    chosen_name = (
+        label_of(representative[NODE_ID])
+        or (name_src[NODE_NAME] if name_src else None)
+        or (unmatched_name_src[NODE_UNMATCHED_NAME] if unmatched_name_src else None)
+    )
     correction = _name_correction(cluster_ids, label_of)
     if correction and chosen_name == correction.wrong_name:
         logging.info(
@@ -229,7 +240,7 @@ def materialize_cluster(
         chosen_name = correction.name
     for m in members:
         # keep each member's source name AND its own Babel label (only an audited wrong name goes, below)
-        for candidate in (m.get(NODE_NAME), label_of(m[NODE_ID])):
+        for candidate in (m.get(NODE_NAME), m.get(NODE_UNMATCHED_NAME), label_of(m[NODE_ID])):
             if candidate and candidate != chosen_name:
                 synonyms.add(candidate)
     synonyms.discard(chosen_name)

@@ -69,6 +69,47 @@ def test_union_fields():
     assert canonical["taxon"] == "NCBITaxon:9606"
 
 
+def _code(curie: str, unmatched_name: str, *aliases: str) -> dict:
+    """An ICD code as its harmonizer writes it when the code is to merge into a disease: a name not to match on."""
+    return {
+        "id": curie,
+        "categories": ["biolink:Disease"],
+        "provided_by": ["infores:icd10cm"],
+        "equivalent_ids": [curie],
+        "unmatched_name": unmatched_name,
+        "synonyms": [unmatched_name, *aliases],
+    }
+
+
+def test_a_cluster_no_id_of_which_has_a_name_takes_an_unmatched_name():
+    """The disease may have no room for the code: ICD10CM:I21.9 stood alone with no name. The name is its source's,
+    whatever else the id is called; of two it is the higher-ranked id's; and a name any id has comes first."""
+    title = "Acute myocardial infarction, unspecified"
+    alone = materialize_cluster([_code("ICD10CM:I21.9", title, "AMI")], _ranking(), _families())
+    assert alone["name"] == title and alone["synonyms"] == ["AMI"]
+
+    twins = [_code("ICD10:A21", "Tularaemia"), _code("ICD10CM:A21", "Tularemia")]
+    pair = materialize_cluster(twins, _ranking(), _families())
+    assert (pair["id"], pair["name"], pair["synonyms"]) == ("ICD10CM:A21", "Tularemia", ["Tularaemia"])
+
+    disease = {
+        "id": "MONDO:0004781",
+        "categories": ["biolink:Disease"],
+        "name": "acute myocardial infarction",
+        "provided_by": ["infores:sri-node-normalizer"],
+        "equivalent_ids": ["MONDO:0004781"],
+    }
+    merged = materialize_cluster([_code("ICD10CM:I21.9", title), disease], _ranking(), _families())
+    assert merged["name"] == "acute myocardial infarction" and merged["synonyms"] == [title]
+    assert "unmatched_name" not in merged
+
+    # ...even the name of a lower-ranked id: ICD10 ranks after ICD10CM, which names the node
+    named_who_code = {**_code("ICD10:A21", "Tularaemia"), "name": "Tularaemia"}
+    del named_who_code["unmatched_name"]
+    mixed = materialize_cluster([_code("ICD10CM:A21", "Tularemia"), named_who_code], _ranking(), _families())
+    assert (mixed["id"], mixed["name"], mixed["synonyms"]) == ("ICD10CM:A21", "Tularaemia", ["Tularemia"])
+
+
 def test_order_independent():
     members = _gene_members()
     base = materialize_cluster(members, _ranking(), _families())

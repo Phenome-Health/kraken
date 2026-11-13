@@ -17,15 +17,24 @@ and a live term, and 38 of those are a residual code ("Other specified immunodef
 """
 
 import csv
+import json
 import logging
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator
 from pathlib import Path
 from typing import NamedTuple
 
 from kraken.harmonizers.base import BaseHarmonizer
-from kraken.utils.constants import CLOSE_MATCH_PREDICATE, KNOWLEDGE_ASSERTION, MANUAL_AGENT, SAME_AS_PREDICATE
+from kraken.utils.constants import (
+    CLOSE_MATCH_PREDICATE,
+    KNOWLEDGE_ASSERTION,
+    MANUAL_AGENT,
+    NODE_ID,
+    NODE_NAME,
+    NODE_UNMATCHED_NAME,
+    SAME_AS_PREDICATE,
+)
 from kraken.utils.kg_io import save_to_jsonl
 
 ORDER_FILE_PATTERN = "icd10cm-order-*.txt"
@@ -155,6 +164,22 @@ def read_order_file(path: Path) -> dict[str, OrderEntry]:
     return entries
 
 
+def harmonized_titles(nodes_path: Path) -> dict[str, str]:
+    """``code without its dot -> CDC's title``, read back from this source's harmonized nodes: a code's name, matched
+    on or not (see ``_code_node``)."""
+    titles: dict[str, str] = {}
+    with open(nodes_path, encoding="utf-8") as f:
+        for line in f:
+            node = json.loads(line)
+            prefix, _, code = node[NODE_ID].partition(":")
+            if prefix == ICD10CM_PREFIX:
+                title = node.get(NODE_NAME) or node.get(NODE_UNMATCHED_NAME)
+                if not title:
+                    raise ValueError(f"{nodes_path}: {node[NODE_ID]} has no name. Harmonize icd10cm again")
+                titles[code.replace(".", "")] = title
+    return titles
+
+
 def read_mondo_rows(path: Path) -> Iterator[MondoRow]:
     """Every row of Mondo's mappings but those of obsolete terms: an obsolete term is no disease to link a code to."""
     with open(path, encoding="utf-8", newline="") as f:
@@ -180,6 +205,13 @@ def read_doid_xrefs(path: Path) -> dict[str, set[DoidTerm]]:
     return terms_by_code
 
 
+def single_file(input_dir: Path, pattern: str) -> Path:
+    matches = sorted(input_dir.glob(pattern))
+    if len(matches) != 1:
+        raise ValueError(f"expected one {pattern} in {input_dir}, found {[m.name for m in matches]}")
+    return matches[0]
+
+
 def dotted(code: str) -> str:
     """The code as it is written everywhere but CDC's files: a dot after the third character."""
     return code if len(code) <= SHORTEST_CODE_LENGTH else f"{code[:SHORTEST_CODE_LENGTH]}.{code[SHORTEST_CODE_LENGTH:]}"
@@ -189,13 +221,13 @@ def cm_curie(code: str) -> str:
     return f"{ICD10CM_PREFIX}:{dotted(code)}"
 
 
-def parent_code(code: str, codes: dict[str, OrderEntry]) -> str | None:
+def parent_code(code: str, codes: Collection[str]) -> str | None:
     """The longest proper prefix of ``code`` the file lists. A 3-character code is a root."""
     for end in range(len(code) - 1, SHORTEST_CODE_LENGTH - 1, -1):
         if code[:end] in codes:
             return code[:end]
     if len(code) > SHORTEST_CODE_LENGTH:
-        raise ValueError(f"ICD-10-CM code {code} has no parent in the order file")
+        raise ValueError(f"code {code} has no parent in the file")
     return None
 
 
@@ -266,8 +298,8 @@ class ICD10CMHarmonizer(BaseHarmonizer):
         input_dir = Path(input_file)
         logging.info(f"Harmonizing {self.source_name}: {input_dir} -> {nodes_output}, {edges_output}")
 
-        codes = read_order_file(self._single_file(input_dir, ORDER_FILE_PATTERN))
-        links = mondo_links(read_mondo_rows(self._single_file(input_dir, MONDO_MAPPINGS_PATTERN)), codes)
+        codes = read_order_file(single_file(input_dir, ORDER_FILE_PATTERN))
+        links = mondo_links(read_mondo_rows(single_file(input_dir, MONDO_MAPPINGS_PATTERN)), codes)
         merging_codes = {link.code for link in links if link.predicate == SAME_AS_PREDICATE}
 
         nodes: dict[str, dict] = {}
@@ -309,7 +341,7 @@ class ICD10CMHarmonizer(BaseHarmonizer):
         # row doesn't: E74.05 "LAMP2 deficiency" keeps Danon disease, though E74.0 reaches "disorder of glycogen
         # metabolism".
         mondo_codes = {link.code for link in links}
-        doid_terms = read_doid_xrefs(self._single_file(input_dir, DOID_FILE_PATTERN))
+        doid_terms = read_doid_xrefs(single_file(input_dir, DOID_FILE_PATTERN))
         for code, terms in sorted(doid_terms.items()):
             if code not in codes or code in mondo_codes or RESIDUAL_NAME.search(codes[code].name):
                 continue  # a range, a code this fiscal year lacks, or a residual group
@@ -336,24 +368,18 @@ class ICD10CMHarmonizer(BaseHarmonizer):
         save_to_jsonl(edges, edges_output, mode="w")
         logging.info(f"{self.source_name} harmonization complete: {len(nodes)} nodes, {len(edges)} edges")
 
-    @staticmethod
-    def _single_file(input_dir: Path, pattern: str) -> Path:
-        matches = sorted(input_dir.glob(pattern))
-        if len(matches) != 1:
-            raise ValueError(f"expected one {pattern} in {input_dir}, found {[m.name for m in matches]}")
-        return matches[0]
-
     def _code_node(self, code: str, entry: OrderEntry, *, merges_through_mondo: bool) -> dict:
-        """A code that merges through Mondo carries its name as a synonym only. Entity resolution merges on an equal
-        name, so a name here would join whatever else has it to the Mondo cluster through this code, and a wrong row
-        would take more than the code: ``J94.2`` "Hemothorax", exact to hemopneumothorax, would have taken the
-        hemothorax phenotype HP:0012151 with it. Mondo names the merged node anyway. And that code is a disease
-        whatever its chapter says, or the family guardrail would cut the same_as (``Z15``)."""
+        """A code that merges through Mondo carries its name as one entity resolution does not match on. It merges on
+        an equal name, so a name here would join whatever else has it to the Mondo cluster through this code, and a
+        wrong row would take more than the code: ``J94.2`` "Hemothorax", exact to hemopneumothorax, would have taken
+        the hemothorax phenotype HP:0012151 with it. Mondo names the merged node; a code the disease has no room for
+        (``I21.9``, where ``I21`` joined on its name) keeps this name. And that code is a disease whatever its chapter
+        says, or the family guardrail would cut the same_as (``Z15``)."""
         return self.create_node(
             curie=cm_curie(code),
             categories=DISEASE_CATEGORY if merges_through_mondo else CATEGORY_BY_CHAPTER.get(code[0], DISEASE_CATEGORY),
             provided_by=self.source_infores,
             name=None if merges_through_mondo else entry.name,
-            synonyms={entry.name},
+            unmatched_name=entry.name if merges_through_mondo else None,
             attributes={BILLABLE_ATTRIBUTE: entry.billable},
         )

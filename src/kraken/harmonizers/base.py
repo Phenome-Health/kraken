@@ -46,6 +46,7 @@ from kraken.utils.constants import (
     NODE_PUBLICATIONS,
     NODE_SYNONYMS,
     NODE_TAXON,
+    NODE_UNMATCHED_NAME,
     NODE_URLS,
     NOT_PROVIDED,
     ORIGINAL_OBJECT_ATTR,
@@ -647,6 +648,7 @@ class BaseHarmonizer(ABC):
         publications: str | list[str] = None,
         taxon: str | list[str] | set[str] | None = None,
         attributes: dict[str, Any] | None = None,
+        unmatched_name: str | None = None,
     ) -> dict[str, Any]:
         if not (curie and categories and provided_by):
             raise ValueError(
@@ -684,6 +686,9 @@ class BaseHarmonizer(ABC):
                 synonyms = list(set(synonyms) | {name})
             else:
                 synonyms = [name]
+        if unmatched_name:
+            node[NODE_UNMATCHED_NAME] = clean_text(unmatched_name)
+            synonyms = list(set(synonyms or ()) | {unmatched_name})
 
         node[NODE_CATEGORIES] = leaf_categories
 
@@ -824,9 +829,10 @@ class BaseHarmonizer(ABC):
         # For a source we ingest directly (not an aggregator itself), KRAKEN is the aggregator that brought
         # the edge in -- recorded last, as the final hop of the retrieval chain. This is what tells a
         # directly ingested edge apart from the same edge re-published by kg2 or ROBOKOP, including after
-        # the two merge. Aggregator sources already record themselves in their own place in the chain.
+        # the two merge. Aggregator sources already record themselves in their own place in the chain. An edge
+        # KRAKEN itself states (primary_ks) was not retrieved from anywhere, so it has no such hop.
         aggregator_ks = to_list(aggregator_ks)
-        if not self.is_aggregator:
+        if not self.is_aggregator and primary_ks != KRAKEN_SOURCE_ID:
             aggregator_ks = list(dict.fromkeys(aggregator_ks + [KRAKEN_SOURCE_ID]))
         if aggregator_ks:
             edge[EDGE_AGGREGATOR_KS] = aggregator_ks  # A list, so these will merge

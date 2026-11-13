@@ -23,6 +23,8 @@ from kraken.harmonizers.cdes import CDEHarmonizer
 from kraken.harmonizers.clingen import ClinGenHarmonizer
 from kraken.harmonizers.ctkg import CTKGHarmonizer
 from kraken.harmonizers.dakg import DAKGHarmonizer
+from kraken.harmonizers.icd10 import ICD10Harmonizer
+from kraken.harmonizers.icd10 import output_is_current as icd10_output_is_current
 from kraken.harmonizers.icd10cm import ICD10CMHarmonizer
 from kraken.harmonizers.kg2 import KG2Harmonizer
 from kraken.harmonizers.lipidmaps import LipidMapsHarmonizer
@@ -45,10 +47,27 @@ from kraken.utils.kg_io import unzip_files, zip_files
 from kraken.utils.logging_config import setup_logging
 from kraken.validator import KrakenValidator
 
+# Sources that read Babel's harmonized output, so they come after it and all it comes after. Babel does not read
+# theirs.
+READS_BABEL: frozenset[str] = frozenset({"icd10"})
+
+
+def icd10_reads(config: KrakenConfig) -> dict[str, Path | None]:
+    """What the icd10 source reads of the build's other sources, as its harmonizer's arguments: Babel's harmonized
+    edges and the icd10cm source's harmonized nodes. Each where the build has that source, whether or not this run
+    harmonizes it (``include_sources``); None where it does not."""
+    harmonized_nodes = config.harmonized_nodes_paths_of_build_sources(other_than="icd10")
+    babel_nodes = harmonized_nodes.get("babel")
+    return {
+        "babel_edges": babel_nodes.with_name("edges.jsonl") if babel_nodes else None,
+        "icd10cm_nodes": harmonized_nodes.get("icd10cm"),
+    }
+
 
 def harmonization_order(sources: Iterable[str]) -> list[str]:
-    """The order to harmonize sources in: alphabetical, except Babel last, since it reads the others' output."""
-    return sorted(sources, key=lambda source: (source == "babel", source))
+    """The order to harmonize sources in: alphabetical, then Babel, which reads the others' output, then the sources
+    that read Babel's."""
+    return sorted(sources, key=lambda source: (source in READS_BABEL, source == "babel", source))
 
 
 class KrakenBuildOrchestrator:
@@ -73,6 +92,7 @@ class KrakenBuildOrchestrator:
         "bio-bmi": BioBMIHarmonizer,
         "bio-age": BioAgeHarmonizer,
         "long-covid": LongCovidHarmonizer,
+        "icd10": ICD10Harmonizer,
         "icd10cm": ICD10CMHarmonizer,
         "babel": BabelHarmonizer,
     }
@@ -215,9 +235,12 @@ class KrakenBuildOrchestrator:
         if source_name == "babel":
             # Babel decides which structure-only cliques to keep by what the other sources reference, so it reads
             # their harmonized nodes (and is harmonized last -- see harmonization_order).
-            extra_arguments["other_sources_nodes"] = self.config.harmonized_nodes_paths_of_build_sources(
-                other_than=source_name
-            )
+            other_sources_nodes = self.config.harmonized_nodes_paths_of_build_sources(other_than=source_name)
+            extra_arguments["other_sources_nodes"] = {
+                source: path for source, path in other_sources_nodes.items() if source not in READS_BABEL
+            }
+        if source_name == "icd10":
+            extra_arguments.update(icd10_reads(self.config))
         harmonizer = self.HARMONIZERS[source_name](
             self.biolink_client,
             source_id=source_config.source_id,
@@ -266,6 +289,12 @@ class KrakenBuildOrchestrator:
             logging.warning("Skipping integration step because you selected validation_only=True in build config")
 
         if not self.config.options.validation_only:
+            icd10_nodes, _icd10_edges = self.config.all_harmonized_paths_resolved.get("icd10", (None, None))
+            if icd10_nodes and not icd10_output_is_current(icd10_nodes, **icd10_reads(self.config)):
+                raise RuntimeError(
+                    f"harmonize icd10 again: {icd10_nodes} was made from other Babel or icd10cm output than this "
+                    "build has"
+                )
             integrate_sources(self.config, self.biolink_client)
             # Every built graph needs the labels, so they run here, not in the optional post-process step
             label_nodes(self.config.integrated_nodes_path, self.config.integrated_edges_path)
